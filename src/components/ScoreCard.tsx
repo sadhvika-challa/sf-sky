@@ -99,53 +99,6 @@ function GaugeBar({ value }: { value: number }) {
   );
 }
 
-function getIconSvg(type: CardType): React.ReactNode {
-  if (type === 'sunrise') {
-    return (
-      <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
-        {/* Rays */}
-        {Array.from({ length: 12 }).map((_, i) => {
-          const angle = (i * 30 - 90) * Math.PI / 180;
-          const x1 = 26 + Math.cos(angle) * 14;
-          const y1 = 26 + Math.sin(angle) * 14;
-          const x2 = 26 + Math.cos(angle) * 20;
-          const y2 = 26 + Math.sin(angle) * 20;
-          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="white" strokeWidth="1.2" strokeOpacity="0.5" strokeLinecap="round" />;
-        })}
-        <circle cx="26" cy="26" r="8" stroke="white" strokeWidth="1.5" strokeOpacity="0.8" fill="none" />
-        <line x1="8" y1="40" x2="44" y2="40" stroke="white" strokeWidth="1" strokeOpacity="0.3" />
-      </svg>
-    );
-  }
-  if (type === 'sunset') {
-    return (
-      <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
-        {Array.from({ length: 12 }).map((_, i) => {
-          const angle = (i * 30 - 90) * Math.PI / 180;
-          const x1 = 26 + Math.cos(angle) * 14;
-          const y1 = 26 + Math.sin(angle) * 14;
-          const x2 = 26 + Math.cos(angle) * 20;
-          const y2 = 26 + Math.sin(angle) * 20;
-          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="white" strokeWidth="1.2" strokeOpacity="0.5" strokeLinecap="round" />;
-        })}
-        <circle cx="26" cy="26" r="8" stroke="white" strokeWidth="1.5" strokeOpacity="0.8" fill="none" />
-        <line x1="8" y1="40" x2="44" y2="40" stroke="white" strokeWidth="1" strokeOpacity="0.3" />
-        <path d="M20 40 L26 34 L32 40" stroke="white" strokeWidth="1.2" strokeOpacity="0.4" fill="none" />
-      </svg>
-    );
-  }
-  return (
-    <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
-      <circle cx="26" cy="26" r="10" stroke="white" strokeWidth="1.5" strokeOpacity="0.7" fill="none" />
-      <path d="M30 16 C24 16 20 20 20 26 C20 32 24 36 30 36 C24 34 22 30 22 26 C22 22 24 18 30 16Z" fill="white" fillOpacity="0.25" />
-      <circle cx="14" cy="14" r="1" fill="white" fillOpacity="0.6" />
-      <circle cx="40" cy="18" r="1.2" fill="white" fillOpacity="0.5" />
-      <circle cx="38" cy="38" r="0.8" fill="white" fillOpacity="0.4" />
-      <circle cx="12" cy="36" r="1" fill="white" fillOpacity="0.3" />
-      <circle cx="44" cy="28" r="0.6" fill="white" fillOpacity="0.5" />
-    </svg>
-  );
-}
 
 const dotColors: Record<CardType, string[]> = {
   sunrise: ['rgba(244,114,182,0.5)', 'rgba(251,191,36,0.4)', 'rgba(249,168,212,0.3)'],
