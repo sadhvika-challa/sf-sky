@@ -1,0 +1,179 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'DM Sans', sans-serif;
+  --font-serif: 'Source Serif 4', serif;
+  --font-mono: 'DM Mono', monospace;
+  --color-amber-warm: #D97706;
+  --color-blue-soft: #60A5FA;
+  --color-green-muted: #6B9E6B;
+  --color-cream: #FDF8F0;
+  --color-cream-dark: #F5EDE0;
+}
+
+/* Global noise overlay */
+.app-noise::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* Leaflet overrides */
+.leaflet-container {
+  font-family: 'DM Mono', monospace;
+  background: #F5F0E8;
+}
+
+.leaflet-control-zoom {
+  display: none !important;
+}
+
+.leaflet-control-attribution {
+  display: none !important;
+}
+
+/* Base tiles — warm parchment transformation */
+.base-tiles {
+  filter: sepia(0.25) saturate(0.8) brightness(1.06) hue-rotate(-8deg) contrast(0.92);
+}
+
+/* Label overlay — warm muted ink, sparse */
+.label-tiles {
+  opacity: 0.45;
+  filter: sepia(0.35) saturate(0.6) brightness(1.0) hue-rotate(-8deg) contrast(0.85);
+  mix-blend-mode: multiply;
+}
+
+/* Subtle warm vignette */
+.map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(242, 237, 228, 0.45) 100%);
+}
+
+/* Marker interaction */
+.leaflet-marker-icon {
+  cursor: pointer;
+}
+
+@keyframes ping {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
+
+/* Tooltip styling */
+.spot-tooltip {
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(8px) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 5px 11px !important;
+  font-family: 'DM Mono', monospace !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.5px !important;
+  color: #374151 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+  white-space: nowrap !important;
+}
+
+.spot-tooltip::before {
+  border-top-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.leaflet-tooltip-top::before {
+  border-top-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.leaflet-tooltip-bottom::before {
+  border-bottom-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+/* Score panel slide animation */
+.score-panel-enter {
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Gradient animation */
+@keyframes gradientShift {
+  0%, 100% { opacity: 0.7; transform: translateY(0) translateX(0); }
+  33% { opacity: 1; transform: translateY(-4px) translateX(2px); }
+  66% { opacity: 0.5; transform: translateY(2px) translateX(-3px); }
+}
+
+.floating-dot {
+  animation: gradientShift 6s ease-in-out infinite;
+}
+
+.floating-dot:nth-child(2) { animation-delay: -2s; }
+.floating-dot:nth-child(3) { animation-delay: -4s; }
+
+/* Score bar animation */
+@keyframes fillBar {
+  from { width: 0; }
+}
+
+.score-bar-fill {
+  animation: fillBar 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Dual range slider */
+.range-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+  pointer-events: none;
+  height: 8px;
+}
+
+.range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #4B5563;
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  pointer-events: all;
+  cursor: grab;
+}
+
+.range-thumb::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #4B5563;
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  pointer-events: all;
+  cursor: grab;
+}
+
+/* Scrollbar hiding */
+.score-cards-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.score-cards-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

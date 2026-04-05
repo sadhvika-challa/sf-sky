@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Read(//usr/local/bin/**)",
+      "Bash(command -v node)",
+      "Bash(command -v npm)"
+    ]
+  }
+}
