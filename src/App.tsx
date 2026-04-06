@@ -4,6 +4,7 @@ import { useGeolocation } from './hooks/useGeolocation';
 import MapView from './components/MapView';
 import ScorePanel from './components/ScorePanel';
 import FilterMenu from './components/FilterMenu';
+import SearchBar from './components/SearchBar';
 import './App.css';
 
 export interface Filters {
@@ -31,7 +32,9 @@ function App() {
       {/* Header */}
       <header className="relative z-20 flex items-center justify-between px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] bg-cream/90 backdrop-blur-sm border-b border-cream-dark">
         <h1 className="font-serif text-lg font-semibold text-gray-800 leading-tight">Go Outside</h1>
-        <button
+        <div className="flex items-center gap-1">
+          <SearchBar onSelectSpot={setSelectedSpot} />
+          <button
           onClick={() => setMenuOpen(!menuOpen)}
           className="w-8 h-8 flex flex-col items-center justify-center gap-[5px] rounded-md hover:bg-cream-dark/40 transition-colors"
           aria-label="Menu"
@@ -40,6 +43,7 @@ function App() {
           <span className={`block w-4.5 h-[1.5px] bg-gray-600 rounded-full transition-all duration-300 ${menuOpen ? 'opacity-0' : ''}`} />
           <span className={`block w-4.5 h-[1.5px] bg-gray-600 rounded-full transition-all duration-300 ${menuOpen ? '-rotate-45 -translate-y-[6.5px]' : ''}`} />
         </button>
+        </div>
       </header>
 
       {/* Filter Menu */}

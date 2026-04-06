@@ -4,7 +4,10 @@
       "mcp__Claude_Preview__preview_start",
       "Read(//usr/local/bin/**)",
       "Bash(command -v node)",
-      "Bash(command -v npm)"
+      "Bash(command -v npm)",
+      "Bash(npx tsc:*)",
+      "Bash(/usr/local/bin/npx tsc:*)",
+      "Bash(export PATH=\"/usr/local/bin:$PATH\")"
     ]
   }
 }
