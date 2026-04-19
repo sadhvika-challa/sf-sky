@@ -1,7 +1,9 @@
-import { useState, useCallback } from 'react';
-import { type Spot } from './data/spots';
+import { useState, useCallback, useEffect } from 'react';
+import { spots, type Spot } from './data/spots';
 import { useGeolocation } from './hooks/useGeolocation';
+import { useLiveScores } from './hooks/useLiveScores';
 import MapView from './components/MapView';
+import MapLegend from './components/MapLegend';
 import ScorePanel from './components/ScorePanel';
 import FilterMenu from './components/FilterMenu';
 import SearchBar from './components/SearchBar';
@@ -13,35 +15,85 @@ export interface Filters {
   stargazing: [number, number];
 }
 
+export type TravelMode = 'walk' | 'car';
+
+type CardType = 'sunrise' | 'sunset' | 'stargazing';
+
 const defaultFilters: Filters = {
   sunrise: [0, 100],
   sunset: [0, 100],
   stargazing: [0, 100],
 };
 
+function isCardType(value: string | null): value is CardType {
+  return value === 'sunrise' || value === 'sunset' || value === 'stargazing';
+}
+
 function App() {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
+  const [initialCardType, setInitialCardType] = useState<CardType | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [hintDismissed, setHintDismissed] = useState(false);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
+  const [travelMode, setTravelMode] = useState<TravelMode>('walk');
   const userLocation = useGeolocation();
+  const liveScores = useLiveScores(spots);
 
   const handleReset = useCallback(() => setFilters(defaultFilters), []);
+
+  // Deep-link: ?spot=<id>&view=<sunrise|sunset|stargazing>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const spotParam = params.get('spot');
+    const viewParam = params.get('view');
+    if (!spotParam) return;
+
+    const spotId = Number(spotParam);
+    if (!Number.isFinite(spotId)) return;
+
+    const match = spots.find((s) => s.id === spotId);
+    if (!match) return;
+
+    setSelectedSpot(match);
+    if (isCardType(viewParam)) setInitialCardType(viewParam);
+
+    // Clean the URL so future shares don't accumulate stale params
+    const cleanUrl = `${window.location.pathname}${window.location.hash}`;
+    window.history.replaceState({}, '', cleanUrl);
+  }, []);
+
+  const handleSelectSpot = useCallback((spot: Spot | null) => {
+    setSelectedSpot(spot);
+    setInitialCardType(undefined);
+  }, []);
 
   return (
     <div className="app-noise h-dvh w-screen flex flex-col bg-cream font-mono overflow-hidden">
       {/* Header */}
       <header className="relative z-20 flex items-center justify-between px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] bg-cream/90 backdrop-blur-sm border-b border-cream-dark">
-        <h1 className="font-serif text-lg font-semibold text-gray-800 leading-tight">Go Outside</h1>
+        <h1 className="font-serif text-lg font-semibold text-gray-800 leading-tight">Ask Karl</h1>
         <div className="flex items-center gap-1">
-          <SearchBar onSelectSpot={setSelectedSpot} />
+          <SearchBar onSelectSpot={handleSelectSpot} />
           <button
           onClick={() => setMenuOpen(!menuOpen)}
-          className="w-8 h-8 flex flex-col items-center justify-center gap-[5px] rounded-md hover:bg-cream-dark/40 transition-colors"
-          aria-label="Menu"
+          className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-cream-dark/40 transition-colors"
+          aria-label="Settings"
+          aria-expanded={menuOpen}
         >
-          <span className={`block w-4.5 h-[1.5px] bg-gray-600 rounded-full transition-all duration-300 ${menuOpen ? 'rotate-45 translate-y-[6.5px]' : ''}`} />
-          <span className={`block w-4.5 h-[1.5px] bg-gray-600 rounded-full transition-all duration-300 ${menuOpen ? 'opacity-0' : ''}`} />
-          <span className={`block w-4.5 h-[1.5px] bg-gray-600 rounded-full transition-all duration-300 ${menuOpen ? '-rotate-45 -translate-y-[6.5px]' : ''}`} />
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`text-gray-600 transition-transform duration-300 ${menuOpen ? 'rotate-90' : ''}`}
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
         </button>
         </div>
       </header>
@@ -53,22 +105,36 @@ function App() {
         onChange={setFilters}
         onReset={handleReset}
         onClose={() => setMenuOpen(false)}
+        travelMode={travelMode}
+        onTravelModeChange={setTravelMode}
+        liveScores={liveScores}
       />
 
       {/* Map */}
       <div className="flex-1 relative z-10">
-        <MapView selectedSpot={selectedSpot} onSelectSpot={setSelectedSpot} onDeselectSpot={() => setSelectedSpot(null)} userLocation={userLocation} filters={filters} />
+        <MapView selectedSpot={selectedSpot} onSelectSpot={handleSelectSpot} onDeselectSpot={() => handleSelectSpot(null)} userLocation={userLocation} filters={filters} liveScores={liveScores} />
 
         {/* Pastel tint overlay for vibes */}
         <div className="map-overlay" />
 
+        <MapLegend />
+
         {/* Empty state overlay */}
-        {!selectedSpot && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[500] pointer-events-none">
-            <div className="bg-white/85 backdrop-blur-md rounded-full px-5 py-2.5 shadow-lg">
+        {!selectedSpot && !hintDismissed && (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[500]">
+            <div className="flex items-center gap-1 bg-white/85 backdrop-blur-md rounded-full pl-5 pr-2 py-2.5 shadow-lg">
               <p className="text-[11px] tracking-[1.5px] text-gray-500 font-mono uppercase whitespace-nowrap">
-                Tap a spot to see the sky
+                Tap a spot. Karl will weigh in.
               </p>
+              <button
+                onClick={() => setHintDismissed(true)}
+                className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-black/5 active:bg-black/10 transition-colors"
+                aria-label="Dismiss hint"
+              >
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+                </svg>
+              </button>
             </div>
           </div>
         )}
@@ -80,8 +146,10 @@ function App() {
           <ScorePanel
             key={selectedSpot.id}
             spot={selectedSpot}
-            onClose={() => setSelectedSpot(null)}
+            onClose={() => handleSelectSpot(null)}
             userLocation={userLocation}
+            initialCardType={initialCardType}
+            travelMode={travelMode}
           />
         </div>
       )}

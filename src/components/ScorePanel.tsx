@@ -1,6 +1,8 @@
+import { useEffect, useRef } from 'react';
 import SunCalc from 'suncalc';
 import { type Spot } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
+import { type TravelMode } from '../App';
 import ScoreCard from './ScoreCard';
 
 type CardType = 'sunrise' | 'sunset' | 'stargazing';
@@ -51,16 +53,34 @@ interface ScorePanelProps {
   spot: Spot;
   onClose: () => void;
   userLocation: UserLocation | null;
+  initialCardType?: CardType;
+  travelMode: TravelMode;
 }
 
-export default function ScorePanel({ spot, onClose, userLocation }: ScorePanelProps) {
+// Straight-line speed estimates (mph) — actual routed distance will differ
+const SPEED_MPH: Record<TravelMode, number> = { walk: 3, car: 25 };
+
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode }: ScorePanelProps) {
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
     : null;
-  // Average walking speed ~3 mph
-  const walkMinutes = distanceMi !== null ? Math.round((distanceMi / 3) * 60) : null;
+  const travelMinutes = distanceMi !== null
+    ? Math.round((distanceMi / SPEED_MPH[travelMode]) * 60)
+    : null;
 
   const cards = getNextEvents(spot);
+
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!initialCardType) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const target = scroller.querySelector<HTMLElement>(`[data-card-type="${initialCardType}"]`);
+    if (!target) return;
+    // Use offsetLeft so we don't fight smooth-scroll on the page itself
+    scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
+  }, [initialCardType, spot.id]);
 
   return (
     <div className="score-panel-enter bg-cream/95 backdrop-blur-md border-t border-cream-dark">
@@ -84,7 +104,7 @@ export default function ScorePanel({ spot, onClose, userLocation }: ScorePanelPr
       </div>
 
       {/* Cards */}
-      <div className="score-cards-scroll flex gap-4 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 overflow-x-auto snap-x snap-mandatory" style={{ touchAction: 'pan-x', WebkitOverflowScrolling: 'touch' }}>
+      <div ref={scrollerRef} className="score-cards-scroll flex gap-4 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 overflow-x-auto snap-x snap-mandatory" style={{ touchAction: 'pan-x', WebkitOverflowScrolling: 'touch' }}>
         {cards.map((card) => (
           <ScoreCard
             key={card.type}
@@ -92,7 +112,8 @@ export default function ScorePanel({ spot, onClose, userLocation }: ScorePanelPr
             type={card.type}
             eventDate={card.eventDate}
             distanceMi={distanceMi}
-            walkMinutes={walkMinutes}
+            travelMinutes={travelMinutes}
+            travelMode={travelMode}
           />
         ))}
       </div>

@@ -1,11 +1,12 @@
-const CACHE_NAME = 'sf-sky-v1';
+const CACHE_NAME = 'sf-sky-v2';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/favicon.svg',
+  '/favicon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (event) => {

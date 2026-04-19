@@ -6,17 +6,25 @@ interface SpotMarkerProps {
   spot: Spot;
   isActive: boolean;
   onClick: (spot: Spot) => void;
+  /** Optional one-liner shown under the spot name (used for Karl quips on bad-night spots). */
+  quip?: string;
 }
 
-const colors: Record<Spot['category'], string> = {
-  hilltop: '#F97316',
-  waterfront: '#60A5FA',
-  park: '#34D399',
+export const categoryColors: Record<Spot['category'], string> = {
+  hilltop: '#FDBA74',
+  waterfront: '#93C5FD',
+  park: '#86EFAC',
+};
+
+export const categoryLabels: Record<Spot['category'], string> = {
+  hilltop: 'Hilltop',
+  waterfront: 'Waterfront',
+  park: 'Park',
 };
 
 function createMarkerIcon(category: Spot['category'], isActive: boolean): L.DivIcon {
   const size = isActive ? 16 : 10;
-  const color = colors[category];
+  const color = categoryColors[category];
 
   const html = isActive
     ? `<div style="position:relative; width:${size}px; height:${size}px;">
@@ -52,7 +60,7 @@ function createMarkerIcon(category: Spot['category'], isActive: boolean): L.DivI
   });
 }
 
-export default function SpotMarker({ spot, isActive, onClick }: SpotMarkerProps) {
+export default function SpotMarker({ spot, isActive, onClick, quip }: SpotMarkerProps) {
   const icon = createMarkerIcon(spot.category, isActive);
 
   return (
@@ -70,7 +78,16 @@ export default function SpotMarker({ spot, isActive, onClick }: SpotMarkerProps)
         className="spot-tooltip"
         opacity={1}
       >
-        {spot.name}
+        {quip ? (
+          <span>
+            {spot.name}
+            <span style={{ display: 'block', fontStyle: 'italic', opacity: 0.75, marginTop: 2 }}>
+              {quip}
+            </span>
+          </span>
+        ) : (
+          spot.name
+        )}
       </Tooltip>
     </Marker>
   );

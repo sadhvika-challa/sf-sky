@@ -3,6 +3,9 @@ import { useEffect } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
 import { type Spot, spots } from '../data/spots';
 import { type UserLocation } from '../hooks/useGeolocation';
+import { type LiveScoresMap } from '../hooks/useLiveScores';
+import { getKarlComment } from '../utils/karl-copy';
+import type { ScoreType } from '../utils/scoring';
 import type { Filters } from '../App';
 import SpotMarker from './SpotMarker';
 
@@ -31,6 +34,7 @@ interface MapViewProps {
   onDeselectSpot: () => void;
   userLocation: UserLocation | null;
   filters: Filters;
+  liveScores: LiveScoresMap;
 }
 
 function MapClickHandler({ onDeselect }: { onDeselect: () => void }) {
@@ -62,16 +66,37 @@ function MapController({ selectedSpot }: { selectedSpot: Spot | null }) {
   return null;
 }
 
-function passesFilter(spot: Spot, filters: Filters): boolean {
+/**
+ * If the spot's best live score is rough (< 30), surface a Karl quip in the
+ * marker tooltip. Returns undefined for static-only spots so we don't spoof
+ * a "live" read with stale base scores.
+ */
+function getMarkerQuip(spot: Spot, liveScores: LiveScoresMap): string | undefined {
+  const entry = liveScores.get(spot.id);
+  if (!entry || !entry.isLive) return undefined;
+  const best = Math.max(entry.sunrise, entry.sunset, entry.stargazing);
+  if (best >= 30) return undefined;
+  // Use the event type the spot is best at for a slightly less brutal line.
+  let bestType: ScoreType = 'sunset';
+  if (entry.sunrise >= entry.sunset && entry.sunrise >= entry.stargazing) bestType = 'sunrise';
+  else if (entry.stargazing > entry.sunset) bestType = 'stargazing';
+  return getKarlComment(best, bestType, spot.id);
+}
+
+function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): boolean {
+  const scores = liveScores.get(spot.id);
+  const sunrise = scores?.sunrise ?? spot.sunrise;
+  const sunset = scores?.sunset ?? spot.sunset;
+  const stargazing = scores?.stargazing ?? spot.stargazing;
   return (
-    spot.sunrise >= filters.sunrise[0] && spot.sunrise <= filters.sunrise[1] &&
-    spot.sunset >= filters.sunset[0] && spot.sunset <= filters.sunset[1] &&
-    spot.stargazing >= filters.stargazing[0] && spot.stargazing <= filters.stargazing[1]
+    sunrise >= filters.sunrise[0] && sunrise <= filters.sunrise[1] &&
+    sunset >= filters.sunset[0] && sunset <= filters.sunset[1] &&
+    stargazing >= filters.stargazing[0] && stargazing <= filters.stargazing[1]
   );
 }
 
-export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, userLocation, filters }: MapViewProps) {
-  const filteredSpots = spots.filter((s) => passesFilter(s, filters));
+export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, userLocation, filters, liveScores }: MapViewProps) {
+  const filteredSpots = spots.filter((s) => passesFilter(s, filters, liveScores));
   return (
     <MapContainer
       center={SF_CENTER}
@@ -113,6 +138,7 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
           spot={spot}
           isActive={selectedSpot?.id === spot.id}
           onClick={onSelectSpot}
+          quip={getMarkerQuip(spot, liveScores)}
         />
       ))}
 

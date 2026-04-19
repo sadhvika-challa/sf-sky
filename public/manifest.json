@@ -1,7 +1,7 @@
 {
-  "name": "SF Sky Guide",
-  "short_name": "SF Sky",
-  "description": "Sunrise, sunset & stargazing scores for 25 curated San Francisco spots",
+  "name": "Ask Karl",
+  "short_name": "Ask Karl",
+  "description": "Will Karl ruin your sunset? Sunrise, sunset & stargazing scores for 25 SF spots.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FDF8F0",
@@ -12,13 +12,19 @@
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
