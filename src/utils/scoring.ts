@@ -149,3 +149,24 @@ export function visibilityPercent(visibilityKm: number): number {
   if (!Number.isFinite(visibilityKm)) return 0;
   return Math.round(clamp((visibilityKm / 30) * 100, 0, 100));
 }
+
+// Score quality tiers — drive pin color/size, outlook dot, score-card chrome.
+// Palette is intentionally muted to match the cream/watercolor aesthetic of
+// the app; do not swap in stoplight green/amber/red.
+export type ScoreTier = 'great' | 'decent' | 'poor';
+
+export const tierColors: Record<ScoreTier, string> = {
+  great: '#5B9A7B',
+  decent: '#C4956A',
+  poor: '#B07A7A',
+};
+
+export function getScoreTier(score: number): ScoreTier {
+  if (score >= 70) return 'great';
+  if (score >= 45) return 'decent';
+  return 'poor';
+}
+
+export function getTierColor(score: number): string {
+  return tierColors[getScoreTier(score)];
+}

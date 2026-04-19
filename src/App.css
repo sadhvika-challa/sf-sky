@@ -9,6 +9,18 @@
   --color-green-muted: #6B9E6B;
   --color-cream: #FDF8F0;
   --color-cream-dark: #F5EDE0;
+  /* Score-tier palette — muted, not stoplight. Used by pins, the outlook
+     dot, and the score chrome on cards. Keep in sync with `tierColors` in
+     `src/utils/scoring.ts`. */
+  --color-pin-great: #5B9A7B;
+  --color-pin-decent: #C4956A;
+  --color-pin-poor: #B07A7A;
+}
+
+:root {
+  --pin-great: #5B9A7B;
+  --pin-decent: #C4956A;
+  --pin-poor: #B07A7A;
 }
 
 /* Leaflet overrides */
@@ -62,19 +74,19 @@
   border-bottom-color: rgba(255, 255, 255, 0.92) !important;
 }
 
-/* Score panel slide animation */
-.score-panel-enter {
-  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+/* Score panel bottom-sheet entrance — slides up from the bottom edge. The
+   backdrop fades via Tailwind opacity transitions in the component so we
+   don't dim the map while the sheet is in its collapsed/peek state. */
+.score-sheet {
+  animation: sheetSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-@keyframes slideUp {
+@keyframes sheetSlideUp {
   from {
     transform: translateY(100%);
-    opacity: 0;
   }
   to {
     transform: translateY(0);
-    opacity: 1;
   }
 }
 

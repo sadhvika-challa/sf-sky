@@ -6,6 +6,7 @@ import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { getKarlComment } from '../utils/karl-copy';
 import type { ScoreType } from '../utils/scoring';
+import { getUpcomingEventTimes } from '../utils/events';
 import type { Filters } from '../App';
 import SpotMarker from './SpotMarker';
 
@@ -67,16 +68,34 @@ function MapController({ selectedSpot }: { selectedSpot: Spot | null }) {
   const map = useMap();
 
   useEffect(() => {
-    if (selectedSpot) {
-      const zoom = 15;
-      const spotPoint = map.project([selectedSpot.lat, selectedSpot.lng], zoom);
-      const mapHeight = map.getSize().y;
-      // Score panel covers ~60% of screen. Place the spot at ~20% from top.
-      const offsetY = mapHeight * 0.4;
-      const adjustedPoint = L.point(spotPoint.x, spotPoint.y + offsetY);
-      const adjustedLatLng = map.unproject(adjustedPoint, zoom);
-      map.flyTo(adjustedLatLng, zoom, { duration: 0.8 });
-    }
+    if (!selectedSpot) return;
+    // Soft repositioning: only pan (no zoom change, no flyTo) and only when
+    // the pin is hidden by the score panel or close to the viewport edge.
+    // Keeps the user's mental map intact when they tap a pin that's already
+    // comfortably in view.
+    const pinPx = map.latLngToContainerPoint([selectedSpot.lat, selectedSpot.lng]);
+    const size = map.getSize();
+    const edgePad = 60;
+    // Score panel collapsed strip covers roughly the bottom ~120px. Treat
+    // the lower 40% as "hidden" so a pin tapped low on the map slides up
+    // into the visible band rather than disappearing under the sheet.
+    const panelTop = size.y * 0.6;
+    const inSafeZone =
+      pinPx.x >= edgePad &&
+      pinPx.x <= size.x - edgePad &&
+      pinPx.y >= edgePad &&
+      pinPx.y <= panelTop;
+    if (inSafeZone) return;
+
+    // Aim for ~30% from the top so the pin sits clearly above the panel.
+    const targetPx = L.point(size.x / 2, size.y * 0.3);
+    const pinLatLng = map.project([selectedSpot.lat, selectedSpot.lng], map.getZoom());
+    const center = map.project(map.getCenter(), map.getZoom());
+    const desiredCenter = L.point(
+      pinLatLng.x + (center.x - targetPx.x),
+      pinLatLng.y + (center.y - targetPx.y),
+    );
+    map.panTo(map.unproject(desiredCenter, map.getZoom()), { animate: true, duration: 0.4 });
   }, [selectedSpot, map]);
 
   return null;
@@ -109,6 +128,21 @@ function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): 
     sunset >= filters.sunset[0] && sunset <= filters.sunset[1] &&
     stargazing >= filters.stargazing[0] && stargazing <= filters.stargazing[1]
   );
+}
+
+/**
+ * Pin label score — the score for whichever event is chronologically next at
+ * this spot. Falls back to the spot's static score when live data hasn't
+ * arrived yet so pins always render with a number.
+ */
+function getNextEventScore(spot: Spot, liveScores: LiveScoresMap): number {
+  const events = getUpcomingEventTimes(spot);
+  const order: ScoreType[] = (['sunrise', 'sunset', 'stargazing'] as ScoreType[])
+    .filter((t) => !Number.isNaN(events[t].getTime()))
+    .sort((a, b) => events[a].getTime() - events[b].getTime());
+  const next = order[0] ?? 'sunset';
+  const live = liveScores.get(spot.id);
+  return live ? live[next] : spot[next];
 }
 
 export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, userLocation, filters, liveScores }: MapViewProps) {
@@ -150,6 +184,7 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
         <SpotMarker
           key={spot.id}
           spot={spot}
+          score={getNextEventScore(spot, liveScores)}
           isActive={selectedSpot?.id === spot.id}
           onClick={onSelectSpot}
           quip={getMarkerQuip(spot, liveScores)}

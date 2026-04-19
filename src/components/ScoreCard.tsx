@@ -43,6 +43,15 @@ function formatFullDate(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
 }
 
+function googleMapsTravelMode(mode: TravelMode): 'walking' | 'driving' {
+  switch (mode) {
+    case 'walk':
+      return 'walking';
+    case 'car':
+      return 'driving';
+  }
+}
+
 // Fallback SF temperature when the forecast isn't loaded yet — rough monthly averages.
 function getEstimatedTemp(): number {
   const month = new Date().getMonth();
@@ -85,9 +94,9 @@ function getGaugeGradient(): string {
 function GaugeBar({ value }: { value: number }) {
   const pos = Math.max(5, Math.min(95, value));
   return (
-    <div className="w-[5px] h-[28px] rounded-full relative flex-shrink-0" style={{ background: getGaugeGradient() }}>
+    <div className="w-[4px] h-[22px] rounded-full relative flex-shrink-0 ml-auto" style={{ background: getGaugeGradient() }}>
       <div
-        className="absolute w-[9px] h-[9px] rounded-full border-[1.5px] border-white left-[-2px]"
+        className="absolute w-[8px] h-[8px] rounded-full border-[1.5px] border-white left-[-2px]"
         style={{
           background: '#1F2937',
           bottom: `${pos}%`,
@@ -186,44 +195,63 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
     }
   };
 
+  const handleDirections = () => {
+    const destination = `${spot.lat},${spot.lng}`;
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=${googleMapsTravelMode(travelMode)}`;
+    window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+  };
+
   return (
-    <div data-card-type={type} className="overflow-hidden bg-white shadow-lg min-w-[280px] max-w-[340px] flex-1 flex flex-col snap-start shrink-0">
+    <div className="overflow-hidden rounded-xl bg-white shadow-md w-full flex flex-col">
       {/* Sky gradient header */}
       <div
-        className="relative h-28 overflow-hidden"
+        className="relative h-16 overflow-hidden flex-shrink-0"
         style={{ background: gradient }}
       >
         {/* Color dots — top left */}
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
+        <div className="absolute top-2 left-2.5 flex items-center gap-1 z-10">
           {dots.map((c, i) => (
-            <span key={i} className="w-2 h-2 rounded-full" style={{ background: c.replace(/[\d.]+\)$/, '1)') }} />
+            <span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: c.replace(/[\d.]+\)$/, '1)') }} />
           ))}
         </div>
-        {/* Share button — top right */}
-        <button
-          type="button"
-          onClick={handleShare}
-          className="absolute top-2.5 right-2.5 z-10 w-7 h-7 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
-          aria-label={`Share ${typeTitle[type].toLowerCase()} card for ${spot.name}`}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 3v12" />
-            <path d="m7 8 5-5 5 5" />
-            <path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" />
-          </svg>
-        </button>
+        {/* Action buttons — top right */}
+        <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleDirections}
+            className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
+            aria-label={`Get directions to ${spot.name} in Google Maps`}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={handleShare}
+            className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
+            aria-label={`Share ${typeTitle[type].toLowerCase()} card for ${spot.name}`}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v12" />
+              <path d="m7 8 5-5 5 5" />
+              <path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" />
+            </svg>
+          </button>
+        </div>
         {copied && (
-          <div className="absolute top-11 right-2.5 z-10 px-2 py-1 rounded-md bg-gray-800/90 text-white text-[9px] font-mono tracking-wide uppercase shadow-md">
+          <div className="absolute top-9 right-1.5 z-10 px-2 py-1 rounded-md bg-gray-800/90 text-white text-[9px] font-mono tracking-wide uppercase shadow-md">
             Link copied
           </div>
         )}
         {type === 'stargazing' && (
-          <div className="absolute bottom-2 right-3 text-white/40 text-[9px] font-mono tracking-wider uppercase">
+          <div className="absolute bottom-1.5 right-2.5 text-white/45 text-[8px] font-mono tracking-wider uppercase">
             Moon {Math.round(moonIllum.fraction * 100)}%
           </div>
         )}
         <div
-          className="absolute bottom-2 left-3 flex items-center gap-1.5 text-white/70 text-[9px] font-mono tracking-[1.5px] uppercase"
+          className="absolute bottom-1.5 left-2.5 flex items-center gap-1 text-white/75 text-[8px] font-mono tracking-[1.5px] uppercase"
           aria-live="polite"
         >
           <span
@@ -241,123 +269,122 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
       </div>
 
       {/* Data section */}
-      <div className="p-4 flex flex-col gap-4 flex-1">
+      <div className="px-3.5 pt-3 pb-3.5 flex flex-col gap-2.5 flex-1">
 
         {/* Title row: "TODAY'S SUNSET" + date */}
-        <div className="flex items-start justify-between">
-          <div>
-            <span className="font-mono text-[11px] tracking-[2px] text-gray-500 uppercase font-medium">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <span className="font-mono text-[10px] tracking-[2px] text-gray-500 uppercase font-medium">
               {dateLabel}&apos;s {typeTitle[type]}
             </span>
-            <p className="font-mono text-[9px] tracking-[1.5px] text-gray-400 uppercase mt-0.5">
+            <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-0.5 truncate">
               {poetic}
             </p>
           </div>
-          <span className="font-mono text-[10px] text-gray-400 tracking-wide flex-shrink-0">
+          <span className="font-mono text-[9px] text-gray-400 tracking-wide flex-shrink-0 mt-0.5">
             {fullDate}
           </span>
         </div>
 
-        {/* Large time */}
-        <div className="flex items-baseline gap-1">
-          <span className="font-serif text-[42px] leading-none font-light text-gray-800 tracking-tight">
+        {/* Large time + Karl's read inline-ish to save vertical space */}
+        <div className="flex items-baseline gap-1 -mt-0.5">
+          <span className="font-serif text-[32px] leading-none font-light text-gray-800 tracking-tight">
             {eventTimeData.time}
           </span>
-          <span className="font-serif text-lg text-gray-400 font-light">
+          <span className="font-serif text-base text-gray-400 font-light">
             {eventTimeData.period}
           </span>
         </div>
 
-        {/* Karl's read on this spot */}
         <p
-          className="font-serif italic text-[13px] leading-snug text-gray-600 -mt-2"
+          className="font-serif italic text-[12px] leading-snug text-gray-600"
           aria-label="Karl's take"
         >
           &ldquo;{karlLine}&rdquo;
-          <span className="not-italic font-mono text-[9px] tracking-[2px] uppercase text-gray-400 ml-1.5">
+          <span className="not-italic font-mono text-[8px] tracking-[2px] uppercase text-gray-400 ml-1.5">
             — Karl
           </span>
         </p>
 
         {/* Time to destination + Distance */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="font-mono text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">
-              {travelMode === 'walk' ? 'Walking time' : 'Drive time'}
+            <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
+              {travelMode === 'walk' ? 'Walk time' : 'Drive time'}
             </p>
-            <p className="font-serif text-2xl font-light text-gray-800">
+            <p className="font-serif text-lg font-light text-gray-800 leading-none">
               {travelMinutes !== null ? `${travelMinutes} min` : '—'}
             </p>
           </div>
           <div>
-            <p className="font-mono text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">
-              Distance left
+            <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
+              Distance
             </p>
-            <p className="font-serif text-2xl font-light text-gray-800">
+            <p className="font-serif text-lg font-light text-gray-800 leading-none">
               {distanceMi !== null ? `${distanceMi.toFixed(1)} mi` : '—'}
             </p>
           </div>
         </div>
 
         {/* Conditions row: Condition + Temperature */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex items-center gap-2">
-            <div>
-              <p className="font-mono text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">
-                {typeTitle[type]} Conditions
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="min-w-0">
+              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
+                Conditions
               </p>
-              <p className="font-serif text-lg font-normal text-gray-800">{condition}</p>
+              <p className="font-serif text-sm font-normal text-gray-800 leading-tight truncate">{condition}</p>
             </div>
             <GaugeBar value={score} />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <div>
-              <p className="font-mono text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">
-                Temperature
+              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
+                Temp
               </p>
-              <p className="font-serif text-lg font-normal text-gray-800">{temp}°</p>
+              <p className="font-serif text-sm font-normal text-gray-800 leading-tight">{temp}°</p>
             </div>
             <GaugeBar value={Math.min(100, Math.max(0, (temp - 40) * 2.5))} />
           </div>
         </div>
 
         {/* Cloud + Light Pollution */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex items-center gap-2">
-            <div>
-              <p className="font-mono text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">
-                Cloud Cover
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="min-w-0">
+              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
+                Clouds
               </p>
-              <p className="font-serif text-lg font-normal text-gray-800">{cloud}</p>
+              <p className="font-serif text-sm font-normal text-gray-800 leading-tight truncate">{cloud}</p>
             </div>
             <GaugeBar value={cloudBarValue} />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <div>
-              <p className="font-mono text-[9px] tracking-[2px] text-gray-400 uppercase mb-1">
-                Light Pollution
+              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
+                Light Poll.
               </p>
-              <p className="font-serif text-lg font-normal text-gray-800">{spot.lightPollution}</p>
+              <p className="font-serif text-sm font-normal text-gray-800 leading-tight">{spot.lightPollution}</p>
             </div>
             <GaugeBar value={spot.lightPollution === 'Low' ? 85 : spot.lightPollution === 'Mid' ? 50 : 20} />
           </div>
         </div>
 
         {/* Visibility score bar */}
-        <div className="mt-auto pt-2">
-          <p className="font-mono text-[9px] tracking-[2px] text-gray-400 uppercase mb-2">
+        <div className="mt-auto pt-1">
+          <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-1">
             % Full Visibility
           </p>
-          <div className="h-3 bg-gray-100 overflow-hidden relative">
+          <div className="h-2.5 bg-gray-100 rounded-sm overflow-hidden relative">
             <div
               className="h-full score-bar-fill"
               style={{
                 width: `${visibilityValue}%`,
                 background: barGradient,
-                opacity: 0.8,
+                opacity: 0.85,
               }}
             />
-            <span className="absolute left-2 top-0 h-full flex items-center font-serif text-[11px] font-semibold text-gray-700">
+            <span className="absolute left-1.5 top-0 h-full flex items-center font-serif text-[10px] font-semibold text-gray-700">
               {visibilityValue}%
             </span>
           </div>
