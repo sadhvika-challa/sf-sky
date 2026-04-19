@@ -16,10 +16,27 @@ const isCoarsePointer =
   window.matchMedia('(hover: none)').matches;
 
 const SF_CENTER: [number, number] = [37.7649, -122.4494];
-const SF_BOUNDS: LatLngBoundsExpression = [
-  [37.695, -122.530],
-  [37.820, -122.350],
-];
+
+/**
+ * Pannable area derived from the actual spot list with ~0.15° of padding on
+ * each side. Hard-coding a tight SF box used to make regional spots like
+ * Mt Diablo, Pt Reyes, and Pigeon Point unreachable on touch — the
+ * rubber-band from `maxBoundsViscosity` felt like a wall on mobile. Computing
+ * from data keeps this honest as the dataset grows.
+ */
+const PAN_PADDING_DEG = 0.15;
+const SF_BOUNDS: LatLngBoundsExpression = (() => {
+  const lats = spots.map((s) => s.lat);
+  const lngs = spots.map((s) => s.lng);
+  const south = Math.min(...lats) - PAN_PADDING_DEG;
+  const north = Math.max(...lats) + PAN_PADDING_DEG;
+  const west = Math.min(...lngs) - PAN_PADDING_DEG;
+  const east = Math.max(...lngs) + PAN_PADDING_DEG;
+  return [
+    [south, west],
+    [north, east],
+  ];
+})();
 
 const USER_HIT = 40;
 const userIcon = L.divIcon({
@@ -61,6 +78,24 @@ function MapClickHandler({ onDeselect }: { onDeselect: () => void }) {
     map.on('click', handler);
     return () => { map.off('click', handler); };
   }, [map, onDeselect]);
+  return null;
+}
+
+/**
+ * On first mount, frame the map so every spot pin is visible. Skipped when a
+ * spot is already selected (e.g. deep-link via ?spot=) so we don't fight the
+ * pan-into-view in MapController.
+ */
+function FitAllSpots({ hasSelectedSpot }: { hasSelectedSpot: boolean }) {
+  const map = useMap();
+  useEffect(() => {
+    if (hasSelectedSpot) return;
+    if (spots.length === 0) return;
+    const bounds = L.latLngBounds(spots.map((s) => [s.lat, s.lng] as [number, number]));
+    map.fitBounds(bounds, { padding: [40, 40], animate: false });
+  // Run once on mount; later state changes shouldn't re-frame the map.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return null;
 }
 
@@ -153,7 +188,7 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
       zoom={13}
       maxBounds={SF_BOUNDS}
       maxBoundsViscosity={0.8}
-      minZoom={12}
+      minZoom={9}
       maxZoom={17}
       zoomControl={false}
       className="w-full h-full"
@@ -191,6 +226,7 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
         />
       ))}
 
+      <FitAllSpots hasSelectedSpot={selectedSpot !== null} />
       <MapController selectedSpot={selectedSpot} />
       <MapClickHandler onDeselect={onDeselectSpot} />
     </MapContainer>

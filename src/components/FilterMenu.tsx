@@ -19,6 +19,7 @@ interface FilterMenuProps {
   travelMode: TravelMode;
   onTravelModeChange: (m: TravelMode) => void;
   liveScores: LiveScoresMap;
+  onSuggestSpot: () => void;
 }
 
 type FilterKey = keyof Filters;
@@ -260,6 +261,7 @@ function FilterContent({
   travelMode,
   onTravelModeChange,
   liveScores,
+  onSuggestSpot,
 }: Omit<FilterMenuProps, 'open'>) {
   const isFiltered = Object.values(filters).some(([min, max]) => min > 0 || max < 100);
   const outlook = useMemo(() => computeCityOutlook(liveScores), [liveScores]);
@@ -294,6 +296,30 @@ function FilterContent({
           Reset all
         </button>
       )}
+
+      <div className="mt-3 pt-2.5 border-t border-cream-dark">
+        <button
+          type="button"
+          onClick={onSuggestSpot}
+          className="w-full flex items-center justify-between py-1 text-left group"
+        >
+          <span className="text-[11px] font-mono text-gray-700 group-hover:text-gray-900 transition-colors">
+            Suggest a spot
+          </span>
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            className="text-gray-400 group-hover:text-gray-600 transition-colors"
+          >
+            <path d="M3 2l3 3-3 3" />
+          </svg>
+        </button>
+      </div>
     </>
   );
 }
@@ -307,6 +333,7 @@ export default function FilterMenu({
   travelMode,
   onTravelModeChange,
   liveScores,
+  onSuggestSpot,
 }: FilterMenuProps) {
   useEffect(() => {
     if (!open) return;
@@ -325,6 +352,7 @@ export default function FilterMenu({
     travelMode,
     onTravelModeChange,
     liveScores,
+    onSuggestSpot,
   };
 
   return (

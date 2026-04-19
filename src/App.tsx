@@ -7,6 +7,8 @@ import OutlookBar from './components/OutlookBar';
 import ScorePanel from './components/ScorePanel';
 import FilterMenu from './components/FilterMenu';
 import SearchBar from './components/SearchBar';
+import SearchOverlay from './components/SearchOverlay';
+import SuggestSpotOverlay from './components/SuggestSpotOverlay';
 import './App.css';
 
 export interface Filters {
@@ -33,6 +35,11 @@ function App() {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [initialCardType, setInitialCardType] = useState<CardType | undefined>(undefined);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  // Pre-fill the suggest form when the user lands there from a no-results
+  // search; otherwise it opens blank.
+  const [suggestSeed, setSuggestSeed] = useState('');
   const [hintDismissed, setHintDismissed] = useState(false);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [travelMode, setTravelMode] = useState<TravelMode>('walk');
@@ -67,6 +74,24 @@ function App() {
     setInitialCardType(undefined);
   }, []);
 
+  const handleOpenSuggest = useCallback((seed = '') => {
+    setSuggestSeed(seed);
+    setSuggestOpen(true);
+  }, []);
+
+  const handleSuggestFromSearch = useCallback(
+    (seed: string) => {
+      setSearchOpen(false);
+      handleOpenSuggest(seed);
+    },
+    [handleOpenSuggest],
+  );
+
+  const handleSuggestFromMenu = useCallback(() => {
+    setMenuOpen(false);
+    handleOpenSuggest('');
+  }, [handleOpenSuggest]);
+
   return (
     <div className="h-dvh w-screen relative bg-cream font-mono overflow-hidden">
       {/* Map fills the full viewport; the header and outlook bar float over it. */}
@@ -89,7 +114,7 @@ function App() {
       >
         <h1 className="font-serif text-base font-semibold text-gray-800 leading-none">Ask Karl</h1>
         <div className="flex items-center gap-0.5">
-          <SearchBar onSelectSpot={handleSelectSpot} />
+          <SearchBar onOpen={() => setSearchOpen(true)} />
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/40 transition-colors"
@@ -114,18 +139,6 @@ function App() {
         </div>
       </header>
 
-      {/* Outlook bar — sits just under the header. Fades when a spot is
-          selected so the score panel can own the screen without competing
-          chrome at the top. */}
-      <div
-        className={`outlook-bar-wrap absolute left-1/2 -translate-x-1/2 z-[15] transition-opacity duration-200 ${
-          selectedSpot ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
-        style={{ top: 'calc(2.5rem + env(safe-area-inset-top) + 0.5rem)' }}
-      >
-        <OutlookBar liveScores={liveScores} />
-      </div>
-
       {/* Filter Menu */}
       <FilterMenu
         open={menuOpen}
@@ -136,27 +149,42 @@ function App() {
         travelMode={travelMode}
         onTravelModeChange={setTravelMode}
         liveScores={liveScores}
+        onSuggestSpot={handleSuggestFromMenu}
       />
 
-      {/* Empty state overlay */}
+      {/* Outlook bar — floats at the bottom over the map. Hides when a spot
+          is selected so the score panel can own the screen, and can be
+          dismissed by the user. */}
       {!selectedSpot && !hintDismissed && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[500]">
-          <div className="flex items-center gap-1 bg-white/85 backdrop-blur-md rounded-full pl-5 pr-2 py-2.5 shadow-lg">
-            <p className="text-[11px] tracking-[1.5px] text-gray-500 font-mono uppercase whitespace-nowrap">
-              Tap a spot. Karl will weigh in.
-            </p>
-            <button
-              onClick={() => setHintDismissed(true)}
-              className="w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-black/5 active:bg-black/10 transition-colors"
-              aria-label="Dismiss hint"
-            >
-              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
-              </svg>
-            </button>
-          </div>
+        <div className="outlook-bar-wrap absolute bottom-6 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-1">
+          <OutlookBar liveScores={liveScores} />
+          <button
+            onClick={() => setHintDismissed(true)}
+            className="w-6 h-6 flex items-center justify-center rounded-full bg-white/80 backdrop-blur-md text-gray-400 hover:text-gray-700 hover:bg-white active:bg-white/90 shadow-md border border-white/60 transition-colors"
+            aria-label="Dismiss outlook"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+            </svg>
+          </button>
         </div>
       )}
+
+      {/* Search overlay — full-screen, slides up from the bottom */}
+      <SearchOverlay
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        liveScores={liveScores}
+        userLocation={userLocation}
+        onSelectSpot={handleSelectSpot}
+        onSuggestSpot={handleSuggestFromSearch}
+      />
+
+      <SuggestSpotOverlay
+        open={suggestOpen}
+        onClose={() => setSuggestOpen(false)}
+        initialName={suggestSeed}
+      />
 
       {/* Score Panel — modal overlay, doesn't take layout space */}
       {selectedSpot && (
@@ -167,6 +195,7 @@ function App() {
           userLocation={userLocation}
           initialCardType={initialCardType}
           travelMode={travelMode}
+          liveScores={liveScores}
         />
       )}
     </div>

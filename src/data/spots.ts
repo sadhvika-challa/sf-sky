@@ -1,5 +1,15 @@
 export type SpotCategory = 'hilltop' | 'waterfront' | 'park';
 
+export type AccessAlertType = 'hike' | 'tide' | 'hours' | 'paid' | 'info';
+
+// Optional, sparingly applied. Only attach when there's something a visitor
+// genuinely needs to know before going (gate hours, tide windows, hike
+// requirements, paid venues). Most spots intentionally have no alert.
+export interface AccessAlert {
+  message: string;
+  type: AccessAlertType;
+}
+
 export interface Spot {
   id: number;
   name: string;
@@ -12,6 +22,7 @@ export interface Spot {
   sunrise: number;   // 0-100
   sunset: number;    // 0-100
   stargazing: number; // 0-100
+  accessAlert?: AccessAlert;
 }
 
 export const spots: Spot[] = [
@@ -141,6 +152,10 @@ export const spots: Spot[] = [
     lightPollution: 'High', horizonQuality: 'Open',
     sunrise: 75, sunset: 68, stargazing: 22,
   },
+  // FLAG: id 19 (Washington Square Park) and id 48 (Joe DiMaggio Playground)
+  // sit within ~0.001° of each other. The playground is technically inside
+  // the same block as the square — kept separate for now because they have
+  // distinct entrances and use cases. Revisit if we ever consolidate.
   {
     id: 19, name: "Washington Square Park",
     lat: 37.8009, lng: -122.4103,
@@ -205,6 +220,10 @@ export const spots: Spot[] = [
     lightPollution: 'Low', horizonQuality: 'Partial',
     sunrise: 72, sunset: 78, stargazing: 68,
   },
+  // FLAG: id 28 (Stern Grove) and id 74 (Sigmund Stern Recreation Grove) are
+  // ~0.002° apart and arguably the same park. Kept separate because the
+  // existing entries cover slightly different sub-areas (meadow vs. rec
+  // grove) — review if/when we add proper sub-area metadata.
   {
     id: 28, name: "Stern Grove",
     lat: 37.7370, lng: -122.4710,
@@ -352,13 +371,9 @@ export const spots: Spot[] = [
     lightPollution: 'High', horizonQuality: 'Blocked',
     sunrise: 15, sunset: 18, stargazing: 5,
   },
-  {
-    id: 49, name: "Pioneer Park (Telegraph Hill)",
-    lat: 37.8023, lng: -122.4060,
-    category: 'hilltop', elevation: 82,
-    lightPollution: 'High', horizonQuality: 'Open',
-    sunrise: 75, sunset: 68, stargazing: 22,
-  },
+  // id 49 ("Pioneer Park (Telegraph Hill)") removed — exact duplicate of
+  // id 18 ("Coit Tower / Pioneer Park"). IDs are stable identifiers, so 49
+  // is intentionally left as a gap rather than reused.
   {
     id: 50, name: "Michelangelo Playground",
     lat: 37.8000, lng: -122.4155,
@@ -624,6 +639,271 @@ export const spots: Spot[] = [
     category: 'waterfront', elevation: 2,
     lightPollution: 'Mid', horizonQuality: 'Open',
     sunrise: 70, sunset: 42, stargazing: 18,
+  },
+  // — Regional spots beyond central SF —
+  // Travel times computed from straight-line distance are very rough for
+  // these; treat anything > ~15 mi from downtown as a day trip. Hawk Hill
+  // (id 83) already covers the Marin Headlands ridge — do not re-add.
+  // — Marin / North —
+  {
+    id: 88, name: "Mount Tamalpais — East Peak",
+    lat: 37.9235, lng: -122.5965,
+    category: 'hilltop', elevation: 784,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 88, sunset: 96, stargazing: 92,
+  },
+  {
+    id: 89, name: "Battery Spencer",
+    lat: 37.8320, lng: -122.4830,
+    category: 'hilltop', elevation: 75,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 70, sunset: 92, stargazing: 38,
+  },
+  {
+    id: 90, name: "Muir Beach Overlook",
+    lat: 37.8595, lng: -122.5720,
+    category: 'waterfront', elevation: 46,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 35, sunset: 92, stargazing: 78,
+  },
+  {
+    id: 91, name: "Muir Beach",
+    lat: 37.8590, lng: -122.5800,
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 30, sunset: 88, stargazing: 72,
+  },
+  {
+    id: 92, name: "Bolinas Ridge",
+    lat: 37.9380, lng: -122.6600,
+    category: 'hilltop', elevation: 460,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 80, sunset: 92, stargazing: 90,
+    accessAlert: {
+      message: "Road closes 30 min after sunset. Get there early. Winding drive from Fairfax, ~45 min from SF.",
+      type: 'hours',
+    },
+  },
+  {
+    id: 93, name: "Rodeo Beach",
+    lat: 37.8340, lng: -122.5400,
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 30, sunset: 82, stargazing: 70,
+  },
+  {
+    id: 94, name: "Point Reyes — Chimney Rock",
+    lat: 38.0020, lng: -122.9640,
+    category: 'waterfront', elevation: 30,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 60, sunset: 90, stargazing: 96,
+  },
+  {
+    id: 95, name: "Stinson Beach",
+    lat: 37.8970, lng: -122.6400,
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 32, sunset: 90, stargazing: 72,
+  },
+  // — East Bay —
+  {
+    id: 96, name: "Grizzly Peak",
+    lat: 37.8800, lng: -122.2430,
+    category: 'hilltop', elevation: 550,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 75, sunset: 94, stargazing: 55,
+  },
+  {
+    id: 97, name: "Treasure Island Viewpoint",
+    lat: 37.8197, lng: -122.3700,
+    category: 'waterfront', elevation: 5,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 82, sunset: 88, stargazing: 30,
+  },
+  {
+    id: 98, name: "Lake Merritt",
+    lat: 37.8022, lng: -122.2600,
+    category: 'park', elevation: 2,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 38, sunset: 70, stargazing: 8,
+  },
+  {
+    id: 99, name: "Sibley Volcanic Regional Preserve",
+    lat: 37.8750, lng: -122.1960,
+    category: 'park', elevation: 480,
+    lightPollution: 'Low', horizonQuality: 'Partial',
+    sunrise: 65, sunset: 70, stargazing: 75,
+  },
+  {
+    id: 100, name: "Mount Diablo — Summit",
+    lat: 37.8816, lng: -121.9142,
+    category: 'hilltop', elevation: 1173,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 92, sunset: 92, stargazing: 98,
+  },
+  // — South / Peninsula —
+  {
+    id: 101, name: "Mori Point",
+    lat: 37.6180, lng: -122.4940,
+    category: 'waterfront', elevation: 30,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 35, sunset: 92, stargazing: 72,
+  },
+  {
+    id: 102, name: "Pigeon Point Lighthouse",
+    lat: 37.1820, lng: -122.3930,
+    category: 'waterfront', elevation: 10,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 40, sunset: 90, stargazing: 96,
+  },
+  {
+    id: 103, name: "Rancho Corral de Tierra",
+    lat: 37.5290, lng: -122.4560,
+    category: 'park', elevation: 120,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 55, sunset: 78, stargazing: 88,
+    accessAlert: {
+      message: "30 min south of SF in Montara. Open sunrise to sunset — no night access, so plan stargazing for winter when dark comes early.",
+      type: 'hours',
+    },
+  },
+  // — Hidden SF spots (id 104+) —
+  // These are mostly access-gated: hike-only beaches, tide-dependent coves,
+  // and a couple of urban surprises. Several carry an `accessAlert` because
+  // showing up unprepared (wrong tide, wrong hours, no shoes) genuinely
+  // wrecks the visit.
+  {
+    id: 104, name: "Marshall's Beach",
+    lat: 37.8030, lng: -122.4810,
+    category: 'waterfront', elevation: 5,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 30, sunset: 85, stargazing: 45,
+    accessAlert: {
+      message: "Hike-only access via Batteries to Bluffs trail. ~15 min steep descent, 470 stairs. No restrooms or water on the beach.",
+      type: 'hike',
+    },
+  },
+  {
+    id: 105, name: "China Beach",
+    lat: 37.7880, lng: -122.4910,
+    category: 'waterfront', elevation: 5,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 30, sunset: 80, stargazing: 35,
+    accessAlert: {
+      message: "Small cove — can get fully submerged at high tide. Check tide tables before going.",
+      type: 'tide',
+    },
+  },
+  {
+    id: 106, name: "Mullen Peralta Park",
+    lat: 37.7390, lng: -122.4210,
+    category: 'hilltop', elevation: 110,
+    lightPollution: 'Mid', horizonQuality: 'Partial',
+    sunrise: 40, sunset: 70, stargazing: 30,
+  },
+  {
+    id: 107, name: "Golden Gate Overlook (Batteries to Bluffs)",
+    lat: 37.8060, lng: -122.4770,
+    category: 'hilltop', elevation: 60,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 35, sunset: 90, stargazing: 40,
+  },
+  {
+    id: 108, name: "Fort Point",
+    lat: 37.8107, lng: -122.4770,
+    category: 'waterfront', elevation: 5,
+    lightPollution: 'Mid', horizonQuality: 'Partial',
+    sunrise: 35, sunset: 75, stargazing: 25,
+    accessAlert: {
+      message: "Rooftop access is intermittent — check NPS site for current hours. Main area closes at 5 PM most days.",
+      type: 'hours',
+    },
+  },
+  {
+    id: 109, name: "Lands End Labyrinth",
+    lat: 37.7878, lng: -122.5050,
+    category: 'waterfront', elevation: 30,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 30, sunset: 82, stargazing: 40,
+    accessAlert: {
+      message: "Off the main Lands End trail on an unmarked spur path. Look for the turnoff about 0.3 mi from the Merrie Way parking lot. Can be slippery when wet.",
+      type: 'hike',
+    },
+  },
+  {
+    id: 110, name: "Mile Rock Beach",
+    lat: 37.7870, lng: -122.5070,
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 25, sunset: 78, stargazing: 45,
+    accessAlert: {
+      message: "Requires a steep scramble down from Lands End trail. Only accessible at low tide — beach disappears at high tide.",
+      type: 'tide',
+    },
+  },
+  {
+    id: 111, name: "Palace of Fine Arts",
+    lat: 37.8020, lng: -122.4485,
+    category: 'park', elevation: 5,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 30, sunset: 65, stargazing: 15,
+  },
+  {
+    id: 112, name: "Pier 7",
+    lat: 37.7980, lng: -122.3980,
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'High', horizonQuality: 'Open',
+    sunrise: 70, sunset: 45, stargazing: 10,
+  },
+  // — Rooftop / elevated venues —
+  // High-elevation entries with paid-access alerts. Light pollution is High
+  // (downtown), so stargazing scores stay low even though horizons are open.
+  {
+    id: 113, name: "Cityscape Sky Bar",
+    lat: 37.7860, lng: -122.4100,
+    category: 'hilltop', elevation: 140,
+    lightPollution: 'High', horizonQuality: 'Open',
+    sunrise: 50, sunset: 70, stargazing: 10,
+    accessAlert: {
+      message: "46th floor of Hilton Union Square. Bar — drinks required, no cover. Open 4 PM–midnight daily. 21+ after 10 PM.",
+      type: 'paid',
+    },
+  },
+  {
+    id: 114, name: "Cavaña Rooftop",
+    lat: 37.7710, lng: -122.3910,
+    category: 'hilltop', elevation: 55,
+    lightPollution: 'High', horizonQuality: 'Open',
+    sunrise: 55, sunset: 68, stargazing: 8,
+    accessAlert: {
+      message: "17th floor of LUMA Hotel, Mission Bay. Open-air bar, no reservations for small parties. Cocktails $15–22.",
+      type: 'paid',
+    },
+  },
+  // — Greater Bay Area niche picks (id 115+) —
+  // Bolinas Ridge (92) and Rancho Corral de Tierra (103) already cover two
+  // of the marquee regional picks; their alerts were added in place above.
+  {
+    id: 115, name: "Point Bonita Lighthouse",
+    lat: 37.8157, lng: -122.5297,
+    category: 'waterfront', elevation: 40,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 35, sunset: 85, stargazing: 70,
+    accessAlert: {
+      message: "Trail to lighthouse open Sat–Mon, 12:30–3:30 PM only. Suspension bridge crossing required — not for those with vertigo.",
+      type: 'hours',
+    },
+  },
+  {
+    id: 116, name: "Kirby Cove",
+    lat: 37.8260, lng: -122.4970,
+    category: 'waterfront', elevation: 5,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 30, sunset: 88, stargazing: 65,
+    accessAlert: {
+      message: "Permit required for camping. Day-use involves a steep 1-mile trail down from Conzelman Rd. Gate closes at sunset unless camping.",
+      type: 'hike',
+    },
   },
 ];
 

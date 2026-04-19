@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { type Spot, getConditionLabel, getPoetic } from '../data/spots';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { toBlob } from 'html-to-image';
+import { type Spot, type AccessAlert, getConditionLabel, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { useSpotForecast } from '../hooks/useSpotForecast';
 import { getForecastAt, type HourlyForecast } from '../utils/weather';
@@ -108,6 +110,300 @@ function GaugeBar({ value }: { value: number }) {
 }
 
 
+interface InfoTooltipProps {
+  id: string;
+  title: string;
+  body: string;
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+  align?: 'left' | 'right';
+}
+
+const TOOLTIP_WIDTH = 180;
+const TOOLTIP_GAP = 6;
+const VIEWPORT_MARGIN = 8;
+
+function InfoTooltip({ id, title, body, openId, setOpenId, align = 'left' }: InfoTooltipProps) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const isOpen = openId === id;
+  const tooltipId = `info-tip-${id}`;
+  // Fixed coords + placement decided after measuring against the viewport so
+  // we never get clipped by an ancestor with overflow:hidden (e.g. the swipe
+  // scroller).
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function handlePointer(e: PointerEvent) {
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (popoverRef.current?.contains(target)) return;
+      setOpenId(null);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenId(null);
+    }
+    window.addEventListener('pointerdown', handlePointer);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointer);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [isOpen, setOpenId]);
+
+  // Measure once visible, then again whenever the user scrolls/resizes so the
+  // popover sticks to its trigger.
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setCoords(null);
+      return;
+    }
+    function position() {
+      const button = buttonRef.current;
+      const pop = popoverRef.current;
+      if (!button) return;
+      const btnRect = button.getBoundingClientRect();
+      const popHeight = pop?.offsetHeight ?? 80;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      const spaceBelow = vh - btnRect.bottom;
+      const spaceAbove = btnRect.top;
+      const placeAbove = spaceBelow < popHeight + TOOLTIP_GAP + VIEWPORT_MARGIN
+        && spaceAbove > spaceBelow;
+
+      const top = placeAbove
+        ? btnRect.top - TOOLTIP_GAP - popHeight
+        : btnRect.bottom + TOOLTIP_GAP;
+
+      let left = align === 'right'
+        ? btnRect.right - TOOLTIP_WIDTH
+        : btnRect.left;
+      // Keep within viewport horizontally.
+      left = Math.max(VIEWPORT_MARGIN, Math.min(left, vw - TOOLTIP_WIDTH - VIEWPORT_MARGIN));
+
+      setCoords({ top, left });
+    }
+    position();
+    window.addEventListener('scroll', position, true);
+    window.addEventListener('resize', position);
+    return () => {
+      window.removeEventListener('scroll', position, true);
+      window.removeEventListener('resize', position);
+    };
+  }, [isOpen, align]);
+
+  const isCoarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+
+  const popover = isOpen && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          ref={popoverRef}
+          id={tooltipId}
+          role="tooltip"
+          onPointerLeave={() => {
+            if (!isCoarse) setOpenId(null);
+          }}
+          className="fixed z-[1000] rounded-md bg-white border border-gray-200 shadow-lg px-2.5 py-2 text-left"
+          style={{
+            top: coords?.top ?? -9999,
+            left: coords?.left ?? -9999,
+            width: TOOLTIP_WIDTH,
+            visibility: coords ? 'visible' : 'hidden',
+          }}
+        >
+          <span className="block font-mono text-[8px] tracking-[1.5px] uppercase text-gray-400 mb-1">
+            {title}
+          </span>
+          <span className="block font-serif text-[11px] leading-snug text-gray-700">
+            {body}
+          </span>
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <span className="relative inline-flex items-center">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpenId(isOpen ? null : id);
+        }}
+        onPointerEnter={() => {
+          if (!isCoarse) setOpenId(id);
+        }}
+        onPointerLeave={(e) => {
+          if (isCoarse) return;
+          // Keep open if pointer moved into the popover itself.
+          const next = e.relatedTarget as Node | null;
+          if (next && popoverRef.current?.contains(next)) return;
+          if (isOpen) setOpenId(null);
+        }}
+        aria-label={`About ${title}`}
+        aria-expanded={isOpen}
+        aria-describedby={isOpen ? tooltipId : undefined}
+        className={`w-3 h-3 rounded-full border border-gray-300 bg-white text-gray-500 hover:text-gray-700 hover:border-gray-400 flex items-center justify-center font-serif italic text-[8px] leading-none transition-colors ${
+          isOpen ? 'text-gray-700 border-gray-400' : ''
+        }`}
+      >
+        i
+      </button>
+      {popover}
+    </span>
+  );
+}
+
+// Solid badge with a sonar-style ping ring (CSS pseudo-element). The badge
+// itself is a normal button; tapping it surfaces a portal-mounted tooltip
+// with the spot's access caveat. We portal to escape the header's
+// `overflow:hidden` so the tooltip never gets clipped.
+const ALERT_TOOLTIP_WIDTH = 230;
+const ALERT_TOOLTIP_GAP = 10;
+const ALERT_VIEWPORT_MARGIN = 8;
+
+interface AccessAlertBadgeProps {
+  alert: AccessAlert;
+  spotName: string;
+}
+
+function AccessAlertBadge({ alert, spotName }: AccessAlertBadgeProps) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [coords, setCoords] = useState<{
+    top: number;
+    left: number;
+    arrowLeft: number;
+    placeAbove: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointer(e: PointerEvent) {
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (popoverRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    window.addEventListener('pointerdown', handlePointer);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointer);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null);
+      return;
+    }
+    function position() {
+      const button = buttonRef.current;
+      const pop = popoverRef.current;
+      if (!button) return;
+      const btnRect = button.getBoundingClientRect();
+      const popHeight = pop?.offsetHeight ?? 80;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const btnCenterX = btnRect.left + btnRect.width / 2;
+
+      const spaceBelow = vh - btnRect.bottom;
+      const spaceAbove = btnRect.top;
+      const placeAbove = spaceBelow < popHeight + ALERT_TOOLTIP_GAP + ALERT_VIEWPORT_MARGIN
+        && spaceAbove > spaceBelow;
+
+      const top = placeAbove
+        ? btnRect.top - ALERT_TOOLTIP_GAP - popHeight
+        : btnRect.bottom + ALERT_TOOLTIP_GAP;
+
+      let left = btnCenterX - ALERT_TOOLTIP_WIDTH / 2;
+      left = Math.max(
+        ALERT_VIEWPORT_MARGIN,
+        Math.min(left, vw - ALERT_TOOLTIP_WIDTH - ALERT_VIEWPORT_MARGIN),
+      );
+      const arrowLeft = btnCenterX - left;
+
+      setCoords({ top, left, arrowLeft, placeAbove });
+    }
+    position();
+    window.addEventListener('scroll', position, true);
+    window.addEventListener('resize', position);
+    return () => {
+      window.removeEventListener('scroll', position, true);
+      window.removeEventListener('resize', position);
+    };
+  }, [open]);
+
+  const popover = open && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          ref={popoverRef}
+          role="tooltip"
+          className="fixed z-[1000] rounded-md bg-cream shadow-lg px-3 py-2 text-left"
+          style={{
+            top: coords?.top ?? -9999,
+            left: coords?.left ?? -9999,
+            width: ALERT_TOOLTIP_WIDTH,
+            visibility: coords ? 'visible' : 'hidden',
+            border: '0.5px solid var(--color-cream-dark, #F5EDE0)',
+          }}
+        >
+          {coords && (
+            <span
+              aria-hidden
+              className="absolute block w-2 h-2 rotate-45 bg-cream"
+              style={{
+                left: coords.arrowLeft - 4,
+                top: coords.placeAbove ? undefined : -4,
+                bottom: coords.placeAbove ? -4 : undefined,
+                borderTop: coords.placeAbove ? 'none' : '0.5px solid var(--color-cream-dark, #F5EDE0)',
+                borderLeft: coords.placeAbove ? 'none' : '0.5px solid var(--color-cream-dark, #F5EDE0)',
+                borderRight: coords.placeAbove ? '0.5px solid var(--color-cream-dark, #F5EDE0)' : 'none',
+                borderBottom: coords.placeAbove ? '0.5px solid var(--color-cream-dark, #F5EDE0)' : 'none',
+              }}
+            />
+          )}
+          <span className="block font-mono text-[8px] tracking-[1.5px] uppercase text-gray-400 mb-1">
+            Heads up
+          </span>
+          <span className="block font-serif text-[12px] leading-snug text-gray-600">
+            {alert.message}
+          </span>
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        aria-label={`Heads up about ${spotName}`}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="alert-badge w-6 h-6 rounded-full shadow-sm flex items-center justify-center text-white font-mono font-bold text-[13px] leading-none active:scale-95 transition-transform"
+        style={{ background: 'var(--pin-decent)' }}
+      >
+        <span aria-hidden>!</span>
+      </button>
+      {popover}
+    </>
+  );
+}
+
 const dotColors: Record<CardType, string[]> = {
   sunrise: ['rgba(244,114,182,0.5)', 'rgba(251,191,36,0.4)', 'rgba(249,168,212,0.3)'],
   sunset: ['rgba(167,139,250,0.5)', 'rgba(251,146,60,0.5)', 'rgba(244,114,182,0.4)'],
@@ -122,6 +418,10 @@ const typeTitle: Record<CardType, string> = {
 
 export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMinutes, travelMode }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
+  // One tooltip open at a time across the whole card, so opening one closes
+  // any other that's already showing.
+  const [openTipId, setOpenTipId] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const times = SunCalc.getTimes(eventDate, spot.lat, spot.lng);
   const moonIllum = SunCalc.getMoonIllumination(eventDate);
   const dateLabel = formatDateShort(eventDate);
@@ -177,13 +477,49 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
       ? `Karl's off at ${spot.name} — ${eventLabel} score: ${score}/100.`
       : `Karl wins at ${spot.name}. ${eventLabel} score: ${score}/100.`;
 
-    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    // Snapshot the card so the share carries an actual image of what's being shared.
+    // 2x pixelRatio keeps it crisp on retina displays / iMessage previews.
+    const node = cardRef.current;
+    let file: File | null = null;
+    if (node) {
       try {
-        await navigator.share({ title, text, url });
+        const blob = await toBlob(node, {
+          pixelRatio: 2,
+          cacheBust: true,
+          backgroundColor: '#ffffff',
+        });
+        if (blob) {
+          const safeName = spot.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+          file = new File([blob], `ask-karl-${safeName}-${type}.png`, { type: 'image/png' });
+        }
+      } catch {
+        // Image capture failed (e.g. tainted canvas); fall through to text-only share.
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      const shareData: ShareData = file && navigator.canShare?.({ files: [file] })
+        ? { title, text, url, files: [file] }
+        : { title, text, url };
+      try {
+        await navigator.share(shareData);
         return;
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
       }
+    }
+
+    // No Web Share — offer the image as a download so the user can attach it themselves,
+    // and copy the link to the clipboard as a backup.
+    if (file) {
+      const objectUrl = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
     }
 
     try {
@@ -202,10 +538,10 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
   };
 
   return (
-    <div className="overflow-hidden rounded-xl bg-white shadow-md w-full flex flex-col">
+    <div ref={cardRef} className="relative rounded-xl bg-white shadow-md w-full flex flex-col">
       {/* Sky gradient header */}
       <div
-        className="relative h-16 overflow-hidden flex-shrink-0"
+        className="relative h-16 overflow-hidden flex-shrink-0 rounded-t-xl"
         style={{ background: gradient }}
       >
         {/* Color dots — top left */}
@@ -214,8 +550,13 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
             <span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: c.replace(/[\d.]+\)$/, '1)') }} />
           ))}
         </div>
-        {/* Action buttons — top right */}
-        <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1">
+        {/* Action buttons — top right. The access alert (when present) sits
+            to the left of directions/share so it's the first chrome the
+            user reads, but doesn't displace the existing button cluster. */}
+        <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1.5">
+          {spot.accessAlert && (
+            <AccessAlertBadge alert={spot.accessAlert} spotName={spot.name} />
+          )}
           <button
             type="button"
             onClick={handleDirections}
@@ -330,18 +671,37 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
         <div className="grid grid-cols-2 gap-3">
           <div className="flex items-center gap-1.5">
             <div className="min-w-0">
-              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
-                Conditions
-              </p>
+              <div className="flex items-center gap-1 mb-0.5">
+                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
+                  Conditions
+                </p>
+                <InfoTooltip
+                  id="conditions"
+                  title="Conditions"
+                  body="Karl's overall read for this event — blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality."
+                  openId={openTipId}
+                  setOpenId={setOpenTipId}
+                />
+              </div>
               <p className="font-serif text-sm font-normal text-gray-800 leading-tight truncate">{condition}</p>
             </div>
             <GaugeBar value={score} />
           </div>
           <div className="flex items-center gap-1.5">
             <div>
-              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
-                Temp
-              </p>
+              <div className="flex items-center gap-1 mb-0.5">
+                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
+                  Temp
+                </p>
+                <InfoTooltip
+                  id="temp"
+                  title="Temp"
+                  body="Forecast air temperature at the event time, in °F. Falls back to a seasonal SF average when live data isn't loaded."
+                  openId={openTipId}
+                  setOpenId={setOpenTipId}
+                  align="right"
+                />
+              </div>
               <p className="font-serif text-sm font-normal text-gray-800 leading-tight">{temp}°</p>
             </div>
             <GaugeBar value={Math.min(100, Math.max(0, (temp - 40) * 2.5))} />
@@ -352,18 +712,37 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
         <div className="grid grid-cols-2 gap-3">
           <div className="flex items-center gap-1.5">
             <div className="min-w-0">
-              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
-                Clouds
-              </p>
+              <div className="flex items-center gap-1 mb-0.5">
+                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
+                  Clouds
+                </p>
+                <InfoTooltip
+                  id="clouds"
+                  title="Clouds"
+                  body="Total sky coverage right now: Clear (<20%), Partly (<60%), Mid (<85%), Overcast. For sunsets, a little mid/high cloud is good — too much low cloud or fog isn't."
+                  openId={openTipId}
+                  setOpenId={setOpenTipId}
+                />
+              </div>
               <p className="font-serif text-sm font-normal text-gray-800 leading-tight truncate">{cloud}</p>
             </div>
             <GaugeBar value={cloudBarValue} />
           </div>
           <div className="flex items-center gap-1.5">
             <div>
-              <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
-                Light Poll.
-              </p>
+              <div className="flex items-center gap-1 mb-0.5">
+                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
+                  Light Poll.
+                </p>
+                <InfoTooltip
+                  id="light-poll"
+                  title="Light Pollution"
+                  body="How dark the sky is overhead. Low = best for stars, High = SF city glow drowns them out. Intrinsic to the spot, not the forecast."
+                  openId={openTipId}
+                  setOpenId={setOpenTipId}
+                  align="right"
+                />
+              </div>
               <p className="font-serif text-sm font-normal text-gray-800 leading-tight">{spot.lightPollution}</p>
             </div>
             <GaugeBar value={spot.lightPollution === 'Low' ? 85 : spot.lightPollution === 'Mid' ? 50 : 20} />
@@ -372,9 +751,18 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
 
         {/* Visibility score bar */}
         <div className="mt-auto pt-1">
-          <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-1">
-            % Full Visibility
-          </p>
+          <div className="flex items-center gap-1 mb-1">
+            <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
+              % Full Visibility
+            </p>
+            <InfoTooltip
+              id="visibility"
+              title="Full Visibility"
+              body="How far you can see through the air, scaled 0–100% (≥30 km = 100%). Low values usually mean haze, smoke, or marine layer."
+              openId={openTipId}
+              setOpenId={setOpenTipId}
+            />
+          </div>
           <div className="h-2.5 bg-gray-100 rounded-sm overflow-hidden relative">
             <div
               className="h-full score-bar-fill"
