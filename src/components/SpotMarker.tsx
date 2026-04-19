@@ -2,6 +2,11 @@ import { Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { type Spot } from '../data/spots';
 
+const isCoarsePointer =
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(hover: none)').matches;
+
 interface SpotMarkerProps {
   spot: Spot;
   isActive: boolean;
@@ -22,11 +27,13 @@ export const categoryLabels: Record<Spot['category'], string> = {
   park: 'Park',
 };
 
+const HIT = 40;
+
 function createMarkerIcon(category: Spot['category'], isActive: boolean): L.DivIcon {
   const size = isActive ? 16 : 10;
   const color = categoryColors[category];
 
-  const html = isActive
+  const dot = isActive
     ? `<div style="position:relative; width:${size}px; height:${size}px;">
         <div style="
           position:absolute; inset:-6px;
@@ -51,11 +58,17 @@ function createMarkerIcon(category: Spot['category'], isActive: boolean): L.DivI
         box-shadow: 0 1px 4px rgba(0,0,0,0.2);
       "></div>`;
 
+  const html = `<div style="
+    width:${HIT}px; height:${HIT}px;
+    display:flex; align-items:center; justify-content:center;
+    -webkit-tap-highlight-color: transparent;
+  ">${dot}</div>`;
+
   return L.divIcon({
     className: '',
     html,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
+    iconSize: [HIT, HIT],
+    iconAnchor: [HIT / 2, HIT / 2],
     popupAnchor: [0, -size / 2],
   });
 }
@@ -72,23 +85,26 @@ export default function SpotMarker({ spot, isActive, onClick, quip }: SpotMarker
         click: () => onClick(spot),
       }}
     >
-      <Tooltip
-        direction="top"
-        offset={[0, -12]}
-        className="spot-tooltip"
-        opacity={1}
-      >
-        {quip ? (
-          <span>
-            {spot.name}
-            <span style={{ display: 'block', fontStyle: 'italic', opacity: 0.75, marginTop: 2 }}>
-              {quip}
+      {!isCoarsePointer && (
+        <Tooltip
+          direction="top"
+          offset={[0, -12]}
+          className="spot-tooltip"
+          opacity={1}
+          interactive={false}
+        >
+          {quip ? (
+            <span>
+              {spot.name}
+              <span style={{ display: 'block', fontStyle: 'italic', opacity: 0.75, marginTop: 2 }}>
+                {quip}
+              </span>
             </span>
-          </span>
-        ) : (
-          spot.name
-        )}
-      </Tooltip>
+          ) : (
+            spot.name
+          )}
+        </Tooltip>
+      )}
     </Marker>
   );
 }

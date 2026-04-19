@@ -9,23 +9,35 @@ import type { ScoreType } from '../utils/scoring';
 import type { Filters } from '../App';
 import SpotMarker from './SpotMarker';
 
+const isCoarsePointer =
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(hover: none)').matches;
+
 const SF_CENTER: [number, number] = [37.7649, -122.4494];
 const SF_BOUNDS: LatLngBoundsExpression = [
   [37.695, -122.530],
   [37.820, -122.350],
 ];
 
+const USER_HIT = 40;
 const userIcon = L.divIcon({
   className: '',
   html: `<div style="
-    width: 14px; height: 14px;
-    background: #3B82F6;
-    border: 3px solid white;
-    border-radius: 50%;
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.3), 0 2px 8px rgba(0,0,0,0.15);
-  "></div>`,
-  iconSize: [14, 14],
-  iconAnchor: [7, 7],
+    width:${USER_HIT}px; height:${USER_HIT}px;
+    display:flex; align-items:center; justify-content:center;
+    -webkit-tap-highlight-color: transparent;
+  ">
+    <div style="
+      width: 14px; height: 14px;
+      background: #3B82F6;
+      border: 3px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.3), 0 2px 8px rgba(0,0,0,0.15);
+    "></div>
+  </div>`,
+  iconSize: [USER_HIT, USER_HIT],
+  iconAnchor: [USER_HIT / 2, USER_HIT / 2],
 });
 
 interface MapViewProps {
@@ -40,7 +52,11 @@ interface MapViewProps {
 function MapClickHandler({ onDeselect }: { onDeselect: () => void }) {
   const map = useMap();
   useEffect(() => {
-    const handler = () => onDeselect();
+    const handler = (e: L.LeafletMouseEvent) => {
+      const target = e.originalEvent.target as HTMLElement | null;
+      if (target?.closest('.leaflet-marker-icon')) return;
+      onDeselect();
+    };
     map.on('click', handler);
     return () => { map.off('click', handler); };
   }, [map, onDeselect]);
@@ -106,18 +122,14 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
       minZoom={12}
       maxZoom={17}
       zoomControl={false}
-      className="warm-tiles w-full h-full"
+      className="w-full h-full"
       attributionControl={false}
+      preferCanvas
     >
-      {/* Clean base — no labels */}
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png"
-        className="base-tiles"
-      />
-      {/* Labels only — controlled opacity */}
-      <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png"
-        className="label-tiles"
+        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        subdomains={['a', 'b', 'c', 'd']}
+        detectRetina
       />
 
       {userLocation && (
@@ -126,9 +138,11 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
           icon={userIcon}
           zIndexOffset={500}
         >
-          <Tooltip direction="top" offset={[0, -10]} className="spot-tooltip" opacity={1}>
-            You are here
-          </Tooltip>
+          {!isCoarsePointer && (
+            <Tooltip direction="top" offset={[0, -10]} className="spot-tooltip" opacity={1} interactive={false}>
+              You are here
+            </Tooltip>
+          )}
         </Marker>
       )}
 

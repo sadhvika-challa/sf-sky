@@ -68,7 +68,7 @@ function App() {
   }, []);
 
   return (
-    <div className="app-noise h-dvh w-screen flex flex-col bg-cream font-mono overflow-hidden">
+    <div className="h-dvh w-screen flex flex-col bg-cream font-mono overflow-hidden">
       {/* Header */}
       <header className="relative z-20 flex items-center justify-between px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] bg-cream/90 backdrop-blur-sm border-b border-cream-dark">
         <h1 className="font-serif text-lg font-semibold text-gray-800 leading-tight">Ask Karl</h1>
@@ -113,9 +113,6 @@ function App() {
       {/* Map */}
       <div className="flex-1 relative z-10">
         <MapView selectedSpot={selectedSpot} onSelectSpot={handleSelectSpot} onDeselectSpot={() => handleSelectSpot(null)} userLocation={userLocation} filters={filters} liveScores={liveScores} />
-
-        {/* Pastel tint overlay for vibes */}
-        <div className="map-overlay" />
 
         <MapLegend />
 
