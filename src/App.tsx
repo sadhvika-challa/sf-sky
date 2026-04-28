@@ -179,7 +179,7 @@ function App() {
   }, [handleOpenSuggest]);
 
   return (
-    <div className="h-dvh w-screen relative bg-cream font-mono overflow-hidden">
+    <div className="h-dvh min-h-dvh w-screen relative bg-cream font-mono overflow-hidden">
       {/* Map fills the full viewport; the header and outlook bar float over it. */}
       <div className="absolute inset-0 z-0">
         <MapView

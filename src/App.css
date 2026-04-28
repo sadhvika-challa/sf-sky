@@ -23,6 +23,27 @@
   --pin-poor: #B07A7A;
 }
 
+/* Pin the document chain to full viewport height so iOS Safari can't expose
+   a white sliver below the map. Without this, html/body default to `auto`
+   and any rounding error or transient `100dvh` under-report (common while
+   the URL bar resolves on first paint, and in PWA mode where the home-
+   indicator safe area sits below dvh) shows the browser's white background.
+   Matching the body bg to the Leaflet water color (#D4E6F1) means any
+   stray pixel reads as ocean rather than blank — invisible on a map app. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #D4E6F1;
+  /* Suppress iOS rubber-band overscroll revealing the body bg above/below
+     the app — the app is overflow-hidden but PWA mode still bounces. */
+  overscroll-behavior: none;
+}
+
 /* Leaflet overrides */
 .leaflet-container {
   font-family: 'DM Mono', monospace;
