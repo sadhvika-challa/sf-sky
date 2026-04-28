@@ -12,6 +12,7 @@ import SearchBar from './components/SearchBar';
 import SearchOverlay from './components/SearchOverlay';
 import SuggestSpotOverlay from './components/SuggestSpotOverlay';
 import WeatherControls from './components/WeatherControls';
+import WeatherMetricToggle from './components/WeatherMetricToggle';
 import WeatherSheetExpanded from './components/WeatherSheetExpanded';
 import InsightCard from './components/InsightCard';
 import type { ScoreTier } from './utils/scoring';
@@ -195,23 +196,20 @@ function App() {
         />
       </div>
 
-      {/* Floating top stack — the mode toggle is now the primary chrome at
-          the top of the screen. Explore puts the search bar (and settings
-          gear) on a second row beneath the toggle; Weather mode drops the
-          settings gear entirely and lets the InsightCard sit right under
-          the toggle. */}
+      {/* Floating top row — tight icon-only mode toggle on the left, with
+          the rest of the row dedicated to either explore chrome (search +
+          settings) or the weather metric selector. Single line so the map
+          bleeds straight up to the status bar. */}
       <div
-        className="absolute top-0 left-0 right-0 z-20 flex flex-col gap-2 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2"
+        className="absolute top-0 left-0 right-0 z-20 flex items-center gap-2 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2"
       >
-        <div className="mx-auto w-[min(280px,100%)]">
-          <ModeToggle mode={appMode} onChange={handleModeChange} />
-        </div>
-        {appMode === 'explore' && (
-          <div className="flex items-center gap-2">
+        <ModeToggle mode={appMode} onChange={handleModeChange} />
+        {appMode === 'explore' ? (
+          <>
             <SearchBar onOpen={() => setSearchOpen(true)} />
             <button
               onClick={() => setMenuOpen(!menuOpen)}
-              className="w-9 h-9 flex items-center justify-center rounded-full bg-white/85 backdrop-blur-md border border-white/70 shadow-sm hover:bg-white transition-colors flex-shrink-0"
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-[rgba(250,250,248,0.95)] border-[0.5px] border-black/[0.08] shadow-sm hover:bg-[rgba(250,250,248,1)] transition-colors flex-shrink-0"
               aria-label="Settings"
               aria-expanded={menuOpen}
             >
@@ -230,7 +228,9 @@ function App() {
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
-          </div>
+          </>
+        ) : (
+          <WeatherMetricToggle metric={weatherMetric} onChange={setWeatherMetric} />
         )}
       </div>
 
@@ -261,7 +261,6 @@ function App() {
       {appMode === 'weather' && (
         <BottomPanel
           weatherMetric={weatherMetric}
-          onWeatherMetricChange={setWeatherMetric}
           weatherHourKeys={weatherHourKeys}
           weatherHourKey={weatherHourKey}
           onWeatherHourChange={setWeatherHourKey}
@@ -311,7 +310,6 @@ function App() {
 
 interface BottomPanelProps {
   weatherMetric: WeatherMetric;
-  onWeatherMetricChange: (m: WeatherMetric) => void;
   weatherHourKeys: string[];
   weatherHourKey: string;
   onWeatherHourChange: (key: string) => void;
@@ -329,7 +327,6 @@ interface BottomPanelProps {
  */
 function BottomPanel({
   weatherMetric,
-  onWeatherMetricChange,
   weatherHourKeys,
   weatherHourKey,
   onWeatherHourChange,
@@ -428,7 +425,6 @@ function BottomPanel({
         <div className="px-3 pb-3">
           <WeatherControls
             metric={weatherMetric}
-            onMetricChange={onWeatherMetricChange}
             hourKeys={weatherHourKeys}
             hourKey={weatherHourKey}
             onHourChange={onWeatherHourChange}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import SunCalc from 'suncalc';
 import { type Spot } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
@@ -331,54 +331,44 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     };
   }, []);
 
-  // Swipe-down-to-dismiss on the drag handle (only when expanded). We track
-  // pointer movement, translate the sheet to follow the finger, and either
-  // dismiss past a distance/velocity threshold or spring back to rest.
+  // Swipe-down-to-dismiss. The drag handle commits to a vertical drag
+  // immediately; the broader card area waits to see whether the gesture is
+  // dominantly vertical (dismiss) or horizontal (let the card scroller pan).
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  // axis: 'y' = vertical drag in progress (we own the gesture); 'x' = user is
+  // panning the card scroller horizontally, so we ignore it; null = still
+  // deciding (only used by the content-area axis-lock entry point).
   const dragStateRef = useRef<{
     pointerId: number;
+    startX: number;
     startY: number;
     startTime: number;
     moved: boolean;
+    axis: 'x' | 'y' | null;
+    captureEl: Element | null;
   } | null>(null);
   // Set when a drag actually moved so the trailing click event doesn't toggle
   // collapse after the user lifts their finger.
   const suppressClickRef = useRef(false);
 
-  const handleHandlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (!expanded) return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    dragStateRef.current = {
-      pointerId: e.pointerId,
-      startY: e.clientY,
-      startTime: performance.now(),
-      moved: false,
-    };
-    setIsDragging(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-
-  const handleHandlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+  const finishDrag = useCallback((endY: number, endTime: number, pointerId: number) => {
     const state = dragStateRef.current;
-    if (!state || state.pointerId !== e.pointerId) return;
-    const delta = e.clientY - state.startY;
-    if (Math.abs(delta) > 4) state.moved = true;
-    // Allow free downward drag; rubber-band a small amount upward so the sheet
-    // feels anchored at the top.
-    const next = delta >= 0 ? delta : Math.max(delta, -40) * 0.3;
-    setDragY(next);
-  };
-
-  const finishDrag = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const state = dragStateRef.current;
-    if (!state || state.pointerId !== e.pointerId) return;
-    const delta = e.clientY - state.startY;
-    const elapsed = performance.now() - state.startTime;
+    if (!state || state.pointerId !== pointerId) return;
+    const delta = endY - state.startY;
+    const elapsed = endTime - state.startTime;
     const velocity = delta / Math.max(elapsed, 1); // px/ms, positive = downward
     const moved = state.moved;
+    const axis = state.axis;
     dragStateRef.current = null;
     setIsDragging(false);
+
+    if (axis !== 'y') {
+      // We never took ownership of this gesture (horizontal swipe or tap) —
+      // leave the sheet where it is.
+      setDragY(0);
+      return;
+    }
 
     const sheetHeight = sheetRef.current?.getBoundingClientRect().height ?? 600;
     const distanceThreshold = Math.min(120, sheetHeight * 0.25);
@@ -393,6 +383,99 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     }
     if (moved) suppressClickRef.current = true;
     setDragY(0);
+  }, [onClose]);
+
+  // Handle (pill) — eager vertical drag. The handle's only job is to dismiss,
+  // so we lock to the y-axis on pointer down and capture immediately.
+  const handleHandlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!expanded) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    dragStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: performance.now(),
+      moved: false,
+      axis: 'y',
+      captureEl: e.currentTarget,
+    };
+    setIsDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handleHandlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const state = dragStateRef.current;
+    if (!state || state.pointerId !== e.pointerId) return;
+    if (state.axis !== 'y') return;
+    const delta = e.clientY - state.startY;
+    if (Math.abs(delta) > 4) state.moved = true;
+    const next = delta >= 0 ? delta : Math.max(delta, -40) * 0.3;
+    setDragY(next);
+  };
+
+  const handleHandlePointerEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
+    finishDrag(e.clientY, performance.now(), e.pointerId);
+  };
+
+  // Card content area — axis-locked vertical drag. We watch the first few
+  // pixels of movement and only take ownership if the gesture is mostly
+  // vertical. Horizontal motion is left to the native card scroller so
+  // swipe-between-cards still works. We skip the gesture entirely when the
+  // pointer starts on something interactive (button, link, etc.) so taps on
+  // share / directions / dots aren't swallowed.
+  const AXIS_LOCK_THRESHOLD = 8;
+
+  const handleContentPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!expanded) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const target = e.target as Element | null;
+    if (target?.closest('button, a, [role="button"], input, textarea, select')) {
+      return;
+    }
+    dragStateRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startTime: performance.now(),
+      moved: false,
+      axis: null,
+      captureEl: e.currentTarget,
+    };
+  };
+
+  const handleContentPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current;
+    if (!state || state.pointerId !== e.pointerId) return;
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+
+    if (state.axis === null) {
+      if (Math.abs(dx) < AXIS_LOCK_THRESHOLD && Math.abs(dy) < AXIS_LOCK_THRESHOLD) {
+        return;
+      }
+      if (Math.abs(dy) > Math.abs(dx)) {
+        state.axis = 'y';
+        state.moved = true;
+        setIsDragging(true);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // setPointerCapture can throw if the pointer is already released;
+          // safe to ignore — we'll just rely on bubble events.
+        }
+      } else {
+        state.axis = 'x';
+      }
+    }
+
+    if (state.axis !== 'y') return;
+    if (Math.abs(dy) > 4) state.moved = true;
+    const next = dy >= 0 ? dy : Math.max(dy, -40) * 0.3;
+    setDragY(next);
+  };
+
+  const handleContentPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    finishDrag(e.clientY, performance.now(), e.pointerId);
   };
 
   const handleHandleClick = () => {
@@ -524,8 +607,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             onClick={handleHandleClick}
             onPointerDown={handleHandlePointerDown}
             onPointerMove={handleHandlePointerMove}
-            onPointerUp={finishDrag}
-            onPointerCancel={finishDrag}
+            onPointerUp={handleHandlePointerEnd}
+            onPointerCancel={handleHandlePointerEnd}
             className="w-full flex flex-col items-center justify-center pt-2 pb-1 flex-shrink-0 group touch-none"
             aria-label="Swipe down to dismiss, or tap to collapse"
             aria-expanded={expanded}
@@ -538,7 +621,14 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         )}
 
         {expanded ? (
-          <>
+          <div
+            className="flex flex-col flex-1 min-h-0"
+            onPointerDown={handleContentPointerDown}
+            onPointerMove={handleContentPointerMove}
+            onPointerUp={handleContentPointerEnd}
+            onPointerCancel={handleContentPointerEnd}
+            style={{ touchAction: 'pan-x' }}
+          >
             {/* Header — spot identity + travel context. Pure spot info,
                 so the swipeable weather cards below can stay forecast-only. */}
             <div className="px-4 pt-1 pb-2 flex-shrink-0">
@@ -644,7 +734,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             <div
               ref={scrollerRef}
               className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
-              style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+              style={{ touchAction: 'pan-x', WebkitOverflowScrolling: 'touch' }}
             >
               {cards.map((card) => (
                 <div
@@ -687,7 +777,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 );
               })}
             </div>
-          </>
+          </div>
         ) : (
           // Collapsed glanceable strip
           <button

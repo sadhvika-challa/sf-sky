@@ -3,7 +3,6 @@ import { metricLabel, type WeatherMetric } from '../utils/interpolate';
 
 interface WeatherControlsProps {
   metric: WeatherMetric;
-  onMetricChange: (m: WeatherMetric) => void;
   hourKeys: string[];
   hourKey: string;
   onHourChange: (key: string) => void;
@@ -11,15 +10,12 @@ interface WeatherControlsProps {
   nowIndex: number;
 }
 
-const METRICS: WeatherMetric[] = ['temp', 'clouds', 'precip', 'wind', 'fog'];
-
 // Brief allows 24-48h. Clamp to 48 so we don't render 70+ tick marks on
 // the scrubber (visually heavy and the back third is rarely scrubbed to).
 const SCRUBBER_HOUR_LIMIT = 48;
 
 export default function WeatherControls({
   metric,
-  onMetricChange,
   hourKeys,
   hourKey,
   onHourChange,
@@ -51,24 +47,6 @@ export default function WeatherControls({
       role="group"
       aria-label="Weather map controls"
     >
-      <div className="grid grid-cols-5 gap-1 bg-cream-dark/60 rounded-full p-1">
-        {METRICS.map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => onMetricChange(m)}
-            className={`h-7 rounded-full text-[12px] font-medium transition-colors ${
-              metric === m
-                ? 'bg-[#1a1a18] text-white shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            aria-pressed={metric === m}
-          >
-            {metricLabel(m)}
-          </button>
-        ))}
-      </div>
-
       <LegendRow metric={metric} />
 
       <div className="flex items-center gap-3">

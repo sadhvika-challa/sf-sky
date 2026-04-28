@@ -43,7 +43,7 @@ export default function InsightCard({
 
   return (
     <div
-      className="absolute left-3 right-3 z-10 rounded-xl border border-black/[0.08] bg-[rgba(250,250,248,0.92)] backdrop-blur-md px-3.5 py-2.5 shadow-sm pointer-events-none"
+      className="absolute left-3 right-3 z-10 rounded-xl border-[0.5px] border-black/[0.08] bg-[rgba(250,250,248,0.95)] px-3.5 py-2.5 shadow-sm pointer-events-none"
       style={{
         top: 'calc(env(safe-area-inset-top) + 4rem)',
       }}
