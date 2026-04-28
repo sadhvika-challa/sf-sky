@@ -1,14 +1,19 @@
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
 import { type Spot, spots } from '../data/spots';
 import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { getKarlComment } from '../utils/karl-copy';
-import type { ScoreType } from '../utils/scoring';
+import { getScoreTier, type ScoreTier, type ScoreType } from '../utils/scoring';
 import { getUpcomingEventTimes } from '../utils/events';
-import type { Filters } from '../App';
+import type { AppMode, Filters } from '../App';
 import SpotMarker from './SpotMarker';
+import ClusterMarker from './ClusterMarker';
+import { isClusterFeature, useSupercluster } from '../hooks/useSupercluster';
+import WeatherLayer from './WeatherLayer';
+import type { WeatherMetric } from '../utils/interpolate';
+import type { SpotForecast } from '../utils/weather';
 
 const isCoarsePointer =
   typeof window !== 'undefined' &&
@@ -38,6 +43,15 @@ const SF_BOUNDS: LatLngBoundsExpression = (() => {
   ];
 })();
 
+// Weather mode keeps the user inside the heatmap area. Numbers outside SF
+// would float over an empty basemap with no gradient, which looked broken.
+// Tight bounds + a higher minZoom together prevent that.
+const WEATHER_BOUNDS: LatLngBoundsExpression = [
+  [37.685, -122.530],
+  [37.835, -122.350],
+];
+const WEATHER_MIN_ZOOM = 12;
+
 const USER_HIT = 40;
 const userIcon = L.divIcon({
   className: '',
@@ -65,6 +79,37 @@ interface MapViewProps {
   userLocation: UserLocation | null;
   filters: Filters;
   liveScores: LiveScoresMap;
+  appMode: AppMode;
+  weatherMetric: WeatherMetric;
+  weatherHourKey: string;
+  weatherForecasts: Map<number, SpotForecast>;
+}
+
+/**
+ * MapContainer reads `maxBounds`/`minZoom` only at mount, so when the user
+ * toggles between Explore and Weather we have to push the new constraints
+ * onto the map instance ourselves and clamp the view back inside the new
+ * bounds. Otherwise the user could be stranded zoomed-out over the bay.
+ */
+function ModeBoundsController({ appMode }: { appMode: AppMode }) {
+  const map = useMap();
+  useEffect(() => {
+    if (appMode === 'weather') {
+      map.setMinZoom(WEATHER_MIN_ZOOM);
+      map.setMaxBounds(WEATHER_BOUNDS as L.LatLngBoundsLiteral);
+      if (map.getZoom() < WEATHER_MIN_ZOOM) {
+        map.setZoom(WEATHER_MIN_ZOOM);
+      }
+      const bounds = L.latLngBounds(WEATHER_BOUNDS as L.LatLngBoundsLiteral);
+      if (!bounds.contains(map.getCenter())) {
+        map.panInside(bounds.getCenter(), { animate: false });
+      }
+    } else {
+      map.setMinZoom(9);
+      map.setMaxBounds(SF_BOUNDS as L.LatLngBoundsLiteral);
+    }
+  }, [appMode, map]);
+  return null;
 }
 
 function MapClickHandler({ onDeselect }: { onDeselect: () => void }) {
@@ -78,24 +123,6 @@ function MapClickHandler({ onDeselect }: { onDeselect: () => void }) {
     map.on('click', handler);
     return () => { map.off('click', handler); };
   }, [map, onDeselect]);
-  return null;
-}
-
-/**
- * On first mount, frame the map so every spot pin is visible. Skipped when a
- * spot is already selected (e.g. deep-link via ?spot=) so we don't fight the
- * pan-into-view in MapController.
- */
-function FitAllSpots({ hasSelectedSpot }: { hasSelectedSpot: boolean }) {
-  const map = useMap();
-  useEffect(() => {
-    if (hasSelectedSpot) return;
-    if (spots.length === 0) return;
-    const bounds = L.latLngBounds(spots.map((s) => [s.lat, s.lng] as [number, number]));
-    map.fitBounds(bounds, { padding: [40, 40], animate: false });
-  // Run once on mount; later state changes shouldn't re-frame the map.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   return null;
 }
 
@@ -153,15 +180,24 @@ function getMarkerQuip(spot: Spot, liveScores: LiveScoresMap): string | undefine
   return getKarlComment(best, bestType, spot.id);
 }
 
+// Tier-bucket filter. An empty (or full) selection for an event means "no
+// constraint" — the user is opting out of filtering that event rather than
+// asking for an empty result set. Otherwise the spot's live tier for that
+// event must be in the selected bucket.
+function tierAllows(score: number, allowed: ScoreTier[]): boolean {
+  if (allowed.length === 0 || allowed.length === 3) return true;
+  return allowed.includes(getScoreTier(score));
+}
+
 function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): boolean {
   const scores = liveScores.get(spot.id);
   const sunrise = scores?.sunrise ?? spot.sunrise;
   const sunset = scores?.sunset ?? spot.sunset;
   const stargazing = scores?.stargazing ?? spot.stargazing;
   return (
-    sunrise >= filters.sunrise[0] && sunrise <= filters.sunrise[1] &&
-    sunset >= filters.sunset[0] && sunset <= filters.sunset[1] &&
-    stargazing >= filters.stargazing[0] && stargazing <= filters.stargazing[1]
+    tierAllows(sunrise, filters.sunrise) &&
+    tierAllows(sunset, filters.sunset) &&
+    tierAllows(stargazing, filters.stargazing)
   );
 }
 
@@ -180,15 +216,143 @@ function getNextEventScore(spot: Spot, liveScores: LiveScoresMap): number {
   return live ? live[next] : spot[next];
 }
 
-export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, userLocation, filters, liveScores }: MapViewProps) {
-  const filteredSpots = spots.filter((s) => passesFilter(s, filters, liveScores));
+/**
+ * Cluster + render the visible spot pins. Lives inside the MapContainer so
+ * `useSupercluster` (which wraps `useMap`) has the map instance available.
+ */
+interface SpotClusterLayerProps {
+  selectedSpot: Spot | null;
+  onSelectSpot: (spot: Spot) => void;
+  filters: Filters;
+  liveScores: LiveScoresMap;
+}
+
+interface ClusterPayload {
+  spot: Spot;
+  score: number;
+  quip: string | undefined;
+}
+
+function SpotClusterLayer({ selectedSpot, onSelectSpot, filters, liveScores }: SpotClusterLayerProps) {
+  const map = useMap();
+
+  // Bundle everything a marker needs into the cluster point so we don't redo
+  // this work later. Recomputed only when filters or live scores actually
+  // change reference, not on every parent render.
+  const points = useMemo(() => {
+    return spots
+      .filter((s) => passesFilter(s, filters, liveScores))
+      .map((spot) => ({
+        id: spot.id,
+        lat: spot.lat,
+        lng: spot.lng,
+        payload: {
+          spot,
+          score: getNextEventScore(spot, liveScores),
+          quip: getMarkerQuip(spot, liveScores),
+        } satisfies ClusterPayload,
+      }));
+  }, [filters, liveScores]);
+
+  const { clusters, supercluster } = useSupercluster<ClusterPayload>({
+    points,
+    // Cluster up through z14; from z15+ everything renders individually so
+    // street-level browsing always shows real pins. Map maxZoom is 17.
+    maxClusterZoom: 14,
+    radius: 60,
+  });
+
+  return (
+    <>
+      {clusters.map((feature) => {
+        const [lng, lat] = feature.geometry.coordinates as [number, number];
+
+        if (isClusterFeature(feature)) {
+          const clusterId = feature.properties.cluster_id as number;
+          const count = feature.properties.point_count as number;
+
+          // Color the cluster by the *best* score it contains — never an
+          // average. A single low-scoring outlier shouldn't drag a cluster
+          // full of great spots down into the "meh" color, and a single
+          // hidden gem inside a dense neighborhood should still read as
+          // "worth tapping". We pull every leaf (no cap) so the max is
+          // truly the max even on big citywide clusters.
+          let bestScore = 0;
+          if (supercluster) {
+            const leaves = supercluster.getLeaves(clusterId, Infinity) as Array<{
+              properties: { payload: ClusterPayload };
+            }>;
+            for (const leaf of leaves) {
+              if (leaf.properties.payload.score > bestScore) {
+                bestScore = leaf.properties.payload.score;
+              }
+            }
+          }
+
+          return (
+            <ClusterMarker
+              key={`cluster-${clusterId}`}
+              position={[lat, lng]}
+              count={count}
+              bestScore={bestScore}
+              onClick={() => {
+                if (!supercluster) return;
+                const expansionZoom = Math.min(
+                  supercluster.getClusterExpansionZoom(clusterId),
+                  map.getMaxZoom(),
+                );
+                map.flyTo([lat, lng], expansionZoom, { duration: 0.4 });
+              }}
+            />
+          );
+        }
+
+        const { payload } = feature.properties;
+        return (
+          <SpotMarker
+            key={payload.spot.id}
+            spot={payload.spot}
+            score={payload.score}
+            isActive={selectedSpot?.id === payload.spot.id}
+            onClick={onSelectSpot}
+            quip={payload.quip}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+export default function MapView({
+  selectedSpot,
+  onSelectSpot,
+  onDeselectSpot,
+  userLocation,
+  filters,
+  liveScores,
+  appMode,
+  weatherMetric,
+  weatherHourKey,
+  weatherForecasts,
+}: MapViewProps) {
+  // Both modes share the Carto Voyager palette (cream-white land + soft blue
+  // water) so toggling between Explore and Weather feels like the same map.
+  // Explore keeps the labeled variant so users can read street/place names;
+  // Weather drops labels so they don't fight the heatmap + smart labels.
+  const tileUrl =
+    appMode === 'weather'
+      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+
+  const isWeather = appMode === 'weather';
   return (
     <MapContainer
       center={SF_CENTER}
-      zoom={13}
-      maxBounds={SF_BOUNDS}
-      maxBoundsViscosity={0.8}
-      minZoom={9}
+      zoom={12.5}
+      zoomSnap={0.5}
+      maxBounds={isWeather ? WEATHER_BOUNDS : SF_BOUNDS}
+      maxBoundsViscosity={isWeather ? 1 : 0.8}
+      minZoom={isWeather ? WEATHER_MIN_ZOOM : 9}
       maxZoom={17}
       zoomControl={false}
       className="w-full h-full"
@@ -196,9 +360,18 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
       preferCanvas
     >
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        // Key the tile layer on the URL so leaflet swaps cleanly when the
+        // user toggles mode (instead of trying to reuse the old layer).
+        key={tileUrl}
+        url={tileUrl}
         subdomains={['a', 'b', 'c', 'd']}
         detectRetina
+        // Smoother tiling on dense screens: keep an extra ring of cached
+        // tiles around the viewport, and skip mid-zoom redraws so the
+        // basemap doesn't strobe through partial loads while pinching.
+        keepBuffer={4}
+        updateWhenZooming={false}
+        updateWhenIdle
       />
 
       {userLocation && (
@@ -215,20 +388,26 @@ export default function MapView({ selectedSpot, onSelectSpot, onDeselectSpot, us
         </Marker>
       )}
 
-      {filteredSpots.map((spot) => (
-        <SpotMarker
-          key={spot.id}
-          spot={spot}
-          score={getNextEventScore(spot, liveScores)}
-          isActive={selectedSpot?.id === spot.id}
-          onClick={onSelectSpot}
-          quip={getMarkerQuip(spot, liveScores)}
-        />
-      ))}
+      <ModeBoundsController appMode={appMode} />
 
-      <FitAllSpots hasSelectedSpot={selectedSpot !== null} />
-      <MapController selectedSpot={selectedSpot} />
-      <MapClickHandler onDeselect={onDeselectSpot} />
+      {appMode === 'explore' ? (
+        <>
+          <SpotClusterLayer
+            selectedSpot={selectedSpot}
+            onSelectSpot={onSelectSpot}
+            filters={filters}
+            liveScores={liveScores}
+          />
+          <MapController selectedSpot={selectedSpot} />
+          <MapClickHandler onDeselect={onDeselectSpot} />
+        </>
+      ) : (
+        <WeatherLayer
+          metric={weatherMetric}
+          hourKey={weatherHourKey}
+          forecasts={weatherForecasts}
+        />
+      )}
     </MapContainer>
   );
 }

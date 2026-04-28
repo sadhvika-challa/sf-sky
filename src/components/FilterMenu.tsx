@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Filters, TravelMode } from '../App';
+import type { Filters } from '../App';
 import type { LiveScoresMap } from '../hooks/useLiveScores';
 import {
   computeCityOutlook,
@@ -8,7 +8,7 @@ import {
   type CityOutlook,
   type OutlookStatus,
 } from '../utils/outlook';
-import type { ScoreType } from '../utils/scoring';
+import { tierColors, type ScoreTier, type ScoreType } from '../utils/scoring';
 
 interface FilterMenuProps {
   open: boolean;
@@ -16,8 +16,6 @@ interface FilterMenuProps {
   onChange: (f: Filters) => void;
   onReset: () => void;
   onClose: () => void;
-  travelMode: TravelMode;
-  onTravelModeChange: (m: TravelMode) => void;
   liveScores: LiveScoresMap;
   onSuggestSpot: () => void;
 }
@@ -46,53 +44,77 @@ function contextualTitle(now: Date = new Date()): string {
   return "Tonight's Sky";
 }
 
-function RangeSlider({
+// Tier filter is the same three buckets that drive map-pin color and the
+// score-panel pill: a green chip here = a green pin on the map. We default
+// to "all-on" visually (no chips lit means no constraint), so the user can
+// peel buckets off ("hide poor sunsets") rather than reasoning about
+// numeric ranges. Empty and "all three" both mean unfiltered, which keeps
+// the active-filter dot honest.
+const TIER_ORDER: ScoreTier[] = ['great', 'decent', 'poor'];
+
+const tierChipLabel: Record<ScoreTier, string> = {
+  great: 'Great',
+  decent: 'Decent',
+  poor: 'Poor',
+};
+
+function isUnfiltered(selected: ScoreTier[]): boolean {
+  return selected.length === 0 || selected.length === TIER_ORDER.length;
+}
+
+function toggleTier(selected: ScoreTier[], tier: ScoreTier): ScoreTier[] {
+  // Empty means "all on" to the user, so the first tap should *exclude* the
+  // tapped tier rather than narrow to a single bucket. Mirror this when the
+  // user has filled all three: tapping any chip should drop it.
+  const effectiveOn = isUnfiltered(selected)
+    ? new Set<ScoreTier>(TIER_ORDER)
+    : new Set<ScoreTier>(selected);
+
+  if (effectiveOn.has(tier)) effectiveOn.delete(tier);
+  else effectiveOn.add(tier);
+
+  // Re-collapse "all three" back to [] so the model has one canonical
+  // representation of "no constraint".
+  if (effectiveOn.size === TIER_ORDER.length) return [];
+  return TIER_ORDER.filter((t) => effectiveOn.has(t));
+}
+
+function TierFilterRow({
   label,
-  value,
+  selected,
   onChange,
 }: {
   label: string;
-  value: [number, number];
-  onChange: (v: [number, number]) => void;
+  selected: ScoreTier[];
+  onChange: (next: ScoreTier[]) => void;
 }) {
-  const [min, max] = value;
+  const allOn = isUnfiltered(selected);
 
   return (
-    <div className="mb-3 last:mb-0">
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-[11px] font-mono text-gray-700">
-          {label} <span className="text-gray-400">·</span>{' '}
-          <span className="text-gray-500">{min}–{max}</span>
-        </span>
-      </div>
-      <div className="relative h-6 flex items-center">
-        <div className="absolute w-full h-[3px] bg-gray-200 rounded-full" />
-        <div
-          className="absolute h-[3px] bg-gray-600 rounded-full"
-          style={{ left: `${min}%`, width: `${max - min}%` }}
-        />
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={min}
-          onChange={(e) => {
-            const v = Math.min(Number(e.target.value), max - 1);
-            onChange([v, max]);
-          }}
-          className="range-thumb absolute w-full"
-        />
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={max}
-          onChange={(e) => {
-            const v = Math.max(Number(e.target.value), min + 1);
-            onChange([min, v]);
-          }}
-          className="range-thumb absolute w-full"
-        />
+    <div className="mb-2.5 last:mb-0">
+      <div className="text-[11px] font-mono text-gray-700 mb-1">{label}</div>
+      <div className="flex items-center gap-1.5">
+        {TIER_ORDER.map((tier) => {
+          const isOn = allOn || selected.includes(tier);
+          const color = tierColors[tier];
+          return (
+            <button
+              key={tier}
+              type="button"
+              onClick={() => onChange(toggleTier(selected, tier))}
+              aria-pressed={isOn}
+              aria-label={`${tierChipLabel[tier]} ${label.toLowerCase()}`}
+              className="flex-1 h-7 rounded-full text-[10px] tracking-[1.5px] uppercase font-mono transition-all duration-150 border"
+              style={
+                isOn
+                  ? { background: color, borderColor: color, color: '#fff' }
+                  : { background: 'transparent', borderColor: '#D6CCC0', color: '#9A8F82' }
+              }
+            >
+              {tierChipLabel[tier]}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -151,55 +173,80 @@ function OutlookCards({ outlook }: { outlook: CityOutlook }) {
   );
 }
 
-function TravelPill({
-  travelMode,
-  onTravelModeChange,
-}: {
-  travelMode: TravelMode;
-  onTravelModeChange: (m: TravelMode) => void;
-}) {
-  const baseClass =
-    'flex items-center gap-1 h-7 px-3 rounded-full text-[10px] tracking-[1.5px] uppercase font-mono transition-colors';
-  const activeClass = 'bg-gray-700 text-cream';
-  const inactiveClass = 'text-gray-500 hover:text-gray-700';
+// Plain-language definitions for the metrics shown on the score card. Lives
+// here in the settings sheet so the cards themselves stay clean — one place
+// to learn what everything means, instead of a tiny "i" next to every label.
+const GLOSSARY: { label: string; body: string }[] = [
+  {
+    label: 'Conditions',
+    body: "Karl's overall read for this event — blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality.",
+  },
+  {
+    label: 'Temp',
+    body: "Forecast air temperature at the event time, in °F. Falls back to a seasonal SF average when live data isn't loaded.",
+  },
+  {
+    label: 'Clouds',
+    body: "Total sky coverage right now: Clear (<20%), Partly (<60%), Mid (<85%), Overcast. For sunsets, a little mid/high cloud is good — too much low cloud or fog isn't.",
+  },
+  {
+    label: 'Humidity',
+    body: "Relative humidity at the event time. High humidity often means haze, fog, or marine layer creeping in — bad news for sharp horizons.",
+  },
+  {
+    label: 'Light Pollution',
+    body: "How dark the sky is overhead at this spot. Low = best for stars, High = SF city glow drowns them out. Intrinsic to the location, not the forecast.",
+  },
+  {
+    label: '% Full Visibility',
+    body: "How far you can see through the air, scaled 0–100% (≥30 km = 100%). Low values usually mean haze, smoke, or marine layer.",
+  },
+];
+
+function GlossaryAccordion() {
+  const [open, setOpen] = useState(false);
 
   return (
-    <div className="mb-3 flex items-center justify-between">
-      <span className="text-[11px] font-mono text-gray-500">Travel</span>
-      <div className="inline-flex items-center bg-cream-dark/40 rounded-full p-0.5">
-        <button
-          type="button"
-          onClick={() => onTravelModeChange('walk')}
-          className={`${baseClass} ${travelMode === 'walk' ? activeClass : inactiveClass}`}
-          aria-pressed={travelMode === 'walk'}
+    <div className="border-t border-cream-dark pt-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between py-1 text-left"
+      >
+        <span className="text-[11px] font-mono text-gray-700">What these mean</span>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          className={`text-gray-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="13" cy="4" r="2" />
-            <path d="M7 22l3-8 4 2 2 6" />
-            <path d="M10 14l-1-4 4-2 3 4 3 1" />
-          </svg>
-          Walk
-        </button>
-        <button
-          type="button"
-          onClick={() => onTravelModeChange('car')}
-          className={`${baseClass} ${travelMode === 'car' ? activeClass : inactiveClass}`}
-          aria-pressed={travelMode === 'car'}
-        >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 13l2-5a2 2 0 0 1 2-1h10a2 2 0 0 1 2 1l2 5" />
-            <path d="M3 13h18v5a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-1H7v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
-            <circle cx="7.5" cy="16.5" r="0.5" fill="currentColor" />
-            <circle cx="16.5" cy="16.5" r="0.5" fill="currentColor" />
-          </svg>
-          Car
-        </button>
-      </div>
+          <path d="M2 4l3 3 3-3" />
+        </svg>
+      </button>
+      {open && (
+        <dl className="pt-1.5 pb-0.5 space-y-2">
+          {GLOSSARY.map((entry) => (
+            <div key={entry.label}>
+              <dt className="font-mono text-[9px] tracking-[1.5px] uppercase text-gray-500">
+                {entry.label}
+              </dt>
+              <dd className="font-serif text-[11px] leading-snug text-gray-600 mt-0.5">
+                {entry.body}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }
 
-function ScoreRangeAccordion({
+function QualityFilterAccordion({
   filters,
   onChange,
   isFiltered,
@@ -219,7 +266,7 @@ function ScoreRangeAccordion({
         className="w-full flex items-center justify-between py-1 text-left"
       >
         <span className="text-[11px] font-mono text-gray-700">
-          Score range
+          Show only
           {isFiltered && (
             <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-gray-600 align-middle" />
           )}
@@ -240,10 +287,10 @@ function ScoreRangeAccordion({
       {open && (
         <div className="pt-2">
           {(Object.keys(labels) as FilterKey[]).map((key) => (
-            <RangeSlider
+            <TierFilterRow
               key={key}
               label={labels[key]}
-              value={filters[key]}
+              selected={filters[key]}
               onChange={(v) => onChange({ ...filters, [key]: v })}
             />
           ))}
@@ -258,12 +305,10 @@ function FilterContent({
   onChange,
   onReset,
   onClose,
-  travelMode,
-  onTravelModeChange,
   liveScores,
   onSuggestSpot,
 }: Omit<FilterMenuProps, 'open'>) {
-  const isFiltered = Object.values(filters).some(([min, max]) => min > 0 || max < 100);
+  const isFiltered = Object.values(filters).some((tiers) => !isUnfiltered(tiers));
   const outlook = useMemo(() => computeCityOutlook(liveScores), [liveScores]);
   const title = useMemo(() => contextualTitle(), []);
 
@@ -284,9 +329,7 @@ function FilterContent({
 
       <OutlookCards outlook={outlook} />
 
-      <TravelPill travelMode={travelMode} onTravelModeChange={onTravelModeChange} />
-
-      <ScoreRangeAccordion filters={filters} onChange={onChange} isFiltered={isFiltered} />
+      <QualityFilterAccordion filters={filters} onChange={onChange} isFiltered={isFiltered} />
 
       {isFiltered && (
         <button
@@ -296,6 +339,10 @@ function FilterContent({
           Reset all
         </button>
       )}
+
+      <div className="mt-3">
+        <GlossaryAccordion />
+      </div>
 
       <div className="mt-3 pt-2.5 border-t border-cream-dark">
         <button
@@ -330,8 +377,6 @@ export default function FilterMenu({
   onChange,
   onReset,
   onClose,
-  travelMode,
-  onTravelModeChange,
   liveScores,
   onSuggestSpot,
 }: FilterMenuProps) {
@@ -349,8 +394,6 @@ export default function FilterMenu({
     onChange,
     onReset,
     onClose,
-    travelMode,
-    onTravelModeChange,
     liveScores,
     onSuggestSpot,
   };

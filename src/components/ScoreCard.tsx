@@ -7,7 +7,6 @@ import { useSpotForecast } from '../hooks/useSpotForecast';
 import { getForecastAt, type HourlyForecast } from '../utils/weather';
 import { cloudCoverLabel, computeLiveScore, visibilityPercent } from '../utils/scoring';
 import { getKarlComment } from '../utils/karl-copy';
-import { type TravelMode } from '../App';
 
 type CardType = 'sunrise' | 'sunset' | 'stargazing';
 
@@ -15,9 +14,6 @@ interface ScoreCardProps {
   spot: Spot;
   type: CardType;
   eventDate: Date;
-  distanceMi: number | null;
-  travelMinutes: number | null;
-  travelMode: TravelMode;
 }
 
 function formatTime(date: Date): { time: string; period: string } {
@@ -43,15 +39,6 @@ function formatDateShort(date: Date): string {
 
 function formatFullDate(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-}
-
-function googleMapsTravelMode(mode: TravelMode): 'walking' | 'driving' {
-  switch (mode) {
-    case 'walk':
-      return 'walking';
-    case 'car':
-      return 'driving';
-  }
 }
 
 // Fallback SF temperature when the forecast isn't loaded yet — rough monthly averages.
@@ -83,179 +70,70 @@ function getSkyGradient(type: CardType, score: number): string {
     hsl(230, ${15 + i * 35}%, ${8 + i * 10}%) 100%)`;
 }
 
-function getBarGradient(type: CardType): string {
-  if (type === 'sunrise') return 'linear-gradient(90deg, #FDE68A, #F59E0B, #EC4899)';
-  if (type === 'sunset') return 'linear-gradient(90deg, #FCD34D, #F97316, #DC2626, #7C3AED)';
-  return 'linear-gradient(90deg, #818CF8, #4338CA, #1E1B4B)';
+// Friendly one-liner derived from the forecast temp — sits under the big
+// number in the featured-temperature tile.
+function getTempCopy(temp: number): string {
+  if (temp < 45) return 'Bundle up';
+  if (temp < 55) return 'Bring a layer';
+  if (temp < 62) return 'Light layer';
+  if (temp < 70) return 'Comfortable';
+  if (temp < 78) return 'Warm out';
+  return 'Hot one';
 }
 
-function getGaugeGradient(): string {
-  return 'linear-gradient(to top, #3B82F6, #F59E0B, #EF4444)';
+// Light pollution is categorical, not numeric — map the three buckets to
+// bar fills so they read as "more pollution = more bar".
+function lightPollPercent(level: 'Low' | 'Mid' | 'High'): number {
+  switch (level) {
+    case 'Low':
+      return 22;
+    case 'Mid':
+      return 58;
+    case 'High':
+      return 90;
+  }
 }
 
-function GaugeBar({ value }: { value: number }) {
-  const pos = Math.max(5, Math.min(95, value));
+function MetricBar({ value, color }: { value: number; color: string }) {
+  const pct = Math.max(0, Math.min(100, value));
   return (
-    <div className="w-[4px] h-[22px] rounded-full relative flex-shrink-0 ml-auto" style={{ background: getGaugeGradient() }}>
+    <div className="h-[3px] bg-gray-200/80 rounded-full overflow-hidden mt-1.5">
       <div
-        className="absolute w-[8px] h-[8px] rounded-full border-[1.5px] border-white left-[-2px]"
-        style={{
-          background: '#1F2937',
-          bottom: `${pos}%`,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-        }}
+        className="h-full rounded-full transition-[width] duration-300"
+        style={{ width: `${pct}%`, background: color }}
       />
     </div>
   );
 }
 
-
-interface InfoTooltipProps {
-  id: string;
-  title: string;
-  body: string;
-  openId: string | null;
-  setOpenId: (id: string | null) => void;
-  align?: 'left' | 'right';
+interface MetricCellProps {
+  label: string;
+  value: string;
+  barValue: number;
+  barColor: string;
 }
 
-const TOOLTIP_WIDTH = 180;
-const TOOLTIP_GAP = 6;
-const VIEWPORT_MARGIN = 8;
-
-function InfoTooltip({ id, title, body, openId, setOpenId, align = 'left' }: InfoTooltipProps) {
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const isOpen = openId === id;
-  const tooltipId = `info-tip-${id}`;
-  // Fixed coords + placement decided after measuring against the viewport so
-  // we never get clipped by an ancestor with overflow:hidden (e.g. the swipe
-  // scroller).
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    function handlePointer(e: PointerEvent) {
-      const target = e.target as Node;
-      if (buttonRef.current?.contains(target)) return;
-      if (popoverRef.current?.contains(target)) return;
-      setOpenId(null);
-    }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpenId(null);
-    }
-    window.addEventListener('pointerdown', handlePointer);
-    window.addEventListener('keydown', handleKey);
-    return () => {
-      window.removeEventListener('pointerdown', handlePointer);
-      window.removeEventListener('keydown', handleKey);
-    };
-  }, [isOpen, setOpenId]);
-
-  // Measure once visible, then again whenever the user scrolls/resizes so the
-  // popover sticks to its trigger.
-  useLayoutEffect(() => {
-    if (!isOpen) {
-      setCoords(null);
-      return;
-    }
-    function position() {
-      const button = buttonRef.current;
-      const pop = popoverRef.current;
-      if (!button) return;
-      const btnRect = button.getBoundingClientRect();
-      const popHeight = pop?.offsetHeight ?? 80;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      const spaceBelow = vh - btnRect.bottom;
-      const spaceAbove = btnRect.top;
-      const placeAbove = spaceBelow < popHeight + TOOLTIP_GAP + VIEWPORT_MARGIN
-        && spaceAbove > spaceBelow;
-
-      const top = placeAbove
-        ? btnRect.top - TOOLTIP_GAP - popHeight
-        : btnRect.bottom + TOOLTIP_GAP;
-
-      let left = align === 'right'
-        ? btnRect.right - TOOLTIP_WIDTH
-        : btnRect.left;
-      // Keep within viewport horizontally.
-      left = Math.max(VIEWPORT_MARGIN, Math.min(left, vw - TOOLTIP_WIDTH - VIEWPORT_MARGIN));
-
-      setCoords({ top, left });
-    }
-    position();
-    window.addEventListener('scroll', position, true);
-    window.addEventListener('resize', position);
-    return () => {
-      window.removeEventListener('scroll', position, true);
-      window.removeEventListener('resize', position);
-    };
-  }, [isOpen, align]);
-
-  const isCoarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
-
-  const popover = isOpen && typeof document !== 'undefined'
-    ? createPortal(
-        <div
-          ref={popoverRef}
-          id={tooltipId}
-          role="tooltip"
-          onPointerLeave={() => {
-            if (!isCoarse) setOpenId(null);
-          }}
-          className="fixed z-[1000] rounded-md bg-white border border-gray-200 shadow-lg px-2.5 py-2 text-left"
-          style={{
-            top: coords?.top ?? -9999,
-            left: coords?.left ?? -9999,
-            width: TOOLTIP_WIDTH,
-            visibility: coords ? 'visible' : 'hidden',
-          }}
-        >
-          <span className="block font-mono text-[8px] tracking-[1.5px] uppercase text-gray-400 mb-1">
-            {title}
-          </span>
-          <span className="block font-serif text-[11px] leading-snug text-gray-700">
-            {body}
-          </span>
-        </div>,
-        document.body,
-      )
-    : null;
-
+function MetricCell({ label, value, barValue, barColor }: MetricCellProps) {
   return (
-    <span className="relative inline-flex items-center">
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpenId(isOpen ? null : id);
-        }}
-        onPointerEnter={() => {
-          if (!isCoarse) setOpenId(id);
-        }}
-        onPointerLeave={(e) => {
-          if (isCoarse) return;
-          // Keep open if pointer moved into the popover itself.
-          const next = e.relatedTarget as Node | null;
-          if (next && popoverRef.current?.contains(next)) return;
-          if (isOpen) setOpenId(null);
-        }}
-        aria-label={`About ${title}`}
-        aria-expanded={isOpen}
-        aria-describedby={isOpen ? tooltipId : undefined}
-        className={`w-3 h-3 rounded-full border border-gray-300 bg-white text-gray-500 hover:text-gray-700 hover:border-gray-400 flex items-center justify-center font-serif italic text-[8px] leading-none transition-colors ${
-          isOpen ? 'text-gray-700 border-gray-400' : ''
-        }`}
-      >
-        i
-      </button>
-      {popover}
-    </span>
+    <div className="min-w-0">
+      <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase">{label}</p>
+      <p className="font-serif text-[15px] font-normal text-gray-800 leading-tight mt-0.5 truncate">
+        {value}
+      </p>
+      <MetricBar value={barValue} color={barColor} />
+    </div>
   );
 }
+
+// Per-metric bar colors. Cool blue for clouds, warm orange for light
+// pollution (bigger = more glow), amber for the overall conditions read,
+// green for visibility (bigger = clearer).
+const METRIC_COLORS = {
+  clouds: '#3B82F6',
+  lightPoll: '#F97316',
+  conditions: '#F59E0B',
+  visibility: '#22C55E',
+} as const;
 
 // Solid badge with a sonar-style ping ring (CSS pseudo-element). The badge
 // itself is a normal button; tapping it surfaces a portal-mounted tooltip
@@ -416,11 +294,8 @@ const typeTitle: Record<CardType, string> = {
   stargazing: "STARGAZING",
 };
 
-export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMinutes, travelMode }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventDate }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
-  // One tooltip open at a time across the whole card, so opening one closes
-  // any other that's already showing.
-  const [openTipId, setOpenTipId] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const times = SunCalc.getTimes(eventDate, spot.lat, spot.lng);
   const moonIllum = SunCalc.getMoonIllumination(eventDate);
@@ -457,14 +332,15 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
   const poetic = getPoetic(type, score);
   const karlLine = getKarlComment(score, type, spot.id, eventDate);
   const gradient = getSkyGradient(type, score);
-  const barGradient = getBarGradient(type);
   const temp = hourly && Number.isFinite(hourly.tempF)
     ? Math.round(hourly.tempF)
     : getEstimatedTemp();
+  const tempCopy = getTempCopy(temp);
   const cloud = hourly ? cloudCoverLabel(hourly.cloud) : '—';
+  // Bar shows actual cloud coverage — short bar = clear sky, full bar = overcast.
   const cloudBarValue = hourly && Number.isFinite(hourly.cloud)
-    ? Math.round(100 - hourly.cloud) // bar shows clarity, so invert cloud cover
-    : score;
+    ? Math.round(hourly.cloud)
+    : Math.max(5, 100 - score);
   const visibilityValue = hourly ? visibilityPercent(hourly.visibilityKm) : score;
   const dots = dotColors[type];
 
@@ -531,12 +407,6 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
     }
   };
 
-  const handleDirections = () => {
-    const destination = `${spot.lat},${spot.lng}`;
-    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=${googleMapsTravelMode(travelMode)}`;
-    window.open(mapsUrl, '_blank', 'noopener,noreferrer');
-  };
-
   return (
     <div ref={cardRef} className="relative rounded-xl bg-white shadow-md w-full flex flex-col">
       {/* Sky gradient header */}
@@ -551,23 +421,12 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
           ))}
         </div>
         {/* Action buttons — top right. The access alert (when present) sits
-            to the left of directions/share so it's the first chrome the
+            to the left of the share button so it's the first chrome the
             user reads, but doesn't displace the existing button cluster. */}
         <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1.5">
           {spot.accessAlert && (
             <AccessAlertBadge alert={spot.accessAlert} spotName={spot.name} />
           )}
-          <button
-            type="button"
-            onClick={handleDirections}
-            className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
-            aria-label={`Get directions to ${spot.name} in Google Maps`}
-          >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-              <circle cx="12" cy="10" r="3" />
-            </svg>
-          </button>
           <button
             type="button"
             onClick={handleShare}
@@ -609,25 +468,26 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
         </div>
       </div>
 
-      {/* Data section */}
+      {/* Data section — pure weather info for this event */}
       <div className="px-3.5 pt-3 pb-3.5 flex flex-col gap-2.5 flex-1">
 
-        {/* Title row: "TODAY'S SUNSET" + date */}
+        {/* Title row: "TODAY'S SUNSET" leads the card now that the spot
+            name lives in the panel header above. */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <span className="font-mono text-[10px] tracking-[2px] text-gray-500 uppercase font-medium">
+            <h3 className="font-mono text-[13px] tracking-[2.5px] text-gray-700 uppercase font-semibold leading-tight">
               {dateLabel}&apos;s {typeTitle[type]}
-            </span>
-            <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-0.5 truncate">
+            </h3>
+            <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1 truncate">
               {poetic}
             </p>
           </div>
-          <span className="font-mono text-[9px] text-gray-400 tracking-wide flex-shrink-0 mt-0.5">
+          <span className="font-mono text-[9px] text-gray-400 tracking-wide flex-shrink-0 mt-1">
             {fullDate}
           </span>
         </div>
 
-        {/* Large time + Karl's read inline-ish to save vertical space */}
+        {/* Large time + Karl's read */}
         <div className="flex items-baseline gap-1 -mt-0.5">
           <span className="font-serif text-[32px] leading-none font-light text-gray-800 tracking-tight">
             {eventTimeData.time}
@@ -647,134 +507,44 @@ export default function ScoreCard({ spot, type, eventDate, distanceMi, travelMin
           </span>
         </p>
 
-        {/* Time to destination + Distance */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
-              {travelMode === 'walk' ? 'Walk time' : 'Drive time'}
-            </p>
-            <p className="font-serif text-lg font-light text-gray-800 leading-none">
-              {travelMinutes !== null ? `${travelMinutes} min` : '—'}
-            </p>
-          </div>
-          <div>
-            <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase mb-0.5">
-              Distance
-            </p>
-            <p className="font-serif text-lg font-light text-gray-800 leading-none">
-              {distanceMi !== null ? `${distanceMi.toFixed(1)} mi` : '—'}
-            </p>
-          </div>
-        </div>
-
-        {/* Conditions row: Condition + Temperature */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center gap-1.5">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 mb-0.5">
-                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
-                  Conditions
-                </p>
-                <InfoTooltip
-                  id="conditions"
-                  title="Conditions"
-                  body="Karl's overall read for this event — blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality."
-                  openId={openTipId}
-                  setOpenId={setOpenTipId}
-                />
-              </div>
-              <p className="font-serif text-sm font-normal text-gray-800 leading-tight truncate">{condition}</p>
-            </div>
-            <GaugeBar value={score} />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div>
-              <div className="flex items-center gap-1 mb-0.5">
-                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
-                  Temp
-                </p>
-                <InfoTooltip
-                  id="temp"
-                  title="Temp"
-                  body="Forecast air temperature at the event time, in °F. Falls back to a seasonal SF average when live data isn't loaded."
-                  openId={openTipId}
-                  setOpenId={setOpenTipId}
-                  align="right"
-                />
-              </div>
-              <p className="font-serif text-sm font-normal text-gray-800 leading-tight">{temp}°</p>
-            </div>
-            <GaugeBar value={Math.min(100, Math.max(0, (temp - 40) * 2.5))} />
-          </div>
-        </div>
-
-        {/* Cloud + Light Pollution */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center gap-1.5">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1 mb-0.5">
-                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
-                  Clouds
-                </p>
-                <InfoTooltip
-                  id="clouds"
-                  title="Clouds"
-                  body="Total sky coverage right now: Clear (<20%), Partly (<60%), Mid (<85%), Overcast. For sunsets, a little mid/high cloud is good — too much low cloud or fog isn't."
-                  openId={openTipId}
-                  setOpenId={setOpenTipId}
-                />
-              </div>
-              <p className="font-serif text-sm font-normal text-gray-800 leading-tight truncate">{cloud}</p>
-            </div>
-            <GaugeBar value={cloudBarValue} />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div>
-              <div className="flex items-center gap-1 mb-0.5">
-                <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
-                  Light Poll.
-                </p>
-                <InfoTooltip
-                  id="light-poll"
-                  title="Light Pollution"
-                  body="How dark the sky is overhead. Low = best for stars, High = SF city glow drowns them out. Intrinsic to the spot, not the forecast."
-                  openId={openTipId}
-                  setOpenId={setOpenTipId}
-                  align="right"
-                />
-              </div>
-              <p className="font-serif text-sm font-normal text-gray-800 leading-tight">{spot.lightPollution}</p>
-            </div>
-            <GaugeBar value={spot.lightPollution === 'Low' ? 85 : spot.lightPollution === 'Mid' ? 50 : 20} />
-          </div>
-        </div>
-
-        {/* Visibility score bar */}
-        <div className="mt-auto pt-1">
-          <div className="flex items-center gap-1 mb-1">
-            <p className="font-mono text-[8px] tracking-[2px] text-gray-400 uppercase">
-              % Full Visibility
-            </p>
-            <InfoTooltip
-              id="visibility"
-              title="Full Visibility"
-              body="How far you can see through the air, scaled 0–100% (≥30 km = 100%). Low values usually mean haze, smoke, or marine layer."
-              openId={openTipId}
-              setOpenId={setOpenTipId}
-            />
-          </div>
-          <div className="h-2.5 bg-gray-100 rounded-sm overflow-hidden relative">
-            <div
-              className="h-full score-bar-fill"
-              style={{
-                width: `${visibilityValue}%`,
-                background: barGradient,
-                opacity: 0.85,
-              }}
-            />
-            <span className="absolute left-1.5 top-0 h-full flex items-center font-serif text-[10px] font-semibold text-gray-700">
-              {visibilityValue}%
+        {/* Featured temperature tile + compact 2x2 metric grid. The temp
+            gets visual weight on the left because it's the single most
+            actionable number ("do I need a jacket?"); the grid carries the
+            rest of the forecast read at a glance. */}
+        <div className="mt-auto pt-1 grid grid-cols-[96px_1fr] gap-2.5 items-stretch">
+          <div className="rounded-lg bg-cream-dark/30 px-2 py-3 flex flex-col items-center justify-center text-center">
+            <span className="font-serif text-[34px] font-light leading-none text-gray-800 tabular-nums">
+              {temp}°
             </span>
+            <span className="font-serif italic text-[11px] text-gray-500 mt-2 leading-tight">
+              {tempCopy}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 grid-rows-2 gap-x-4 gap-y-2.5 content-around">
+            <MetricCell
+              label="Clouds"
+              value={cloud}
+              barValue={cloudBarValue}
+              barColor={METRIC_COLORS.clouds}
+            />
+            <MetricCell
+              label="Light Poll."
+              value={spot.lightPollution}
+              barValue={lightPollPercent(spot.lightPollution)}
+              barColor={METRIC_COLORS.lightPoll}
+            />
+            <MetricCell
+              label="Conditions"
+              value={condition}
+              barValue={score}
+              barColor={METRIC_COLORS.conditions}
+            />
+            <MetricCell
+              label="Visibility"
+              value={`${visibilityValue}%`}
+              barValue={visibilityValue}
+              barColor={METRIC_COLORS.visibility}
+            />
           </div>
         </div>
       </div>

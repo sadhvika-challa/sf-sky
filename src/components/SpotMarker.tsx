@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { type Spot } from '../data/spots';
@@ -86,8 +87,11 @@ function createMarkerIcon(score: number, isActive: boolean): L.DivIcon {
   });
 }
 
-export default function SpotMarker({ spot, score, isActive, onClick, quip }: SpotMarkerProps) {
-  const icon = createMarkerIcon(score, isActive);
+function SpotMarker({ spot, score, isActive, onClick, quip }: SpotMarkerProps) {
+  // Memoize the icon so live-score ticks that don't change the displayed
+  // number (or active state) don't trigger leaflet's setIcon DOM swap.
+  // Without this, every `liveScores` update repaints all ~115 markers.
+  const icon = useMemo(() => createMarkerIcon(score, isActive), [score, isActive]);
   // Higher-scoring pins render on top so dense clusters favor the better
   // night. Active pin always wins. Range chosen to stay well below the user
   // location marker (zIndexOffset 500 in MapView) while still ordering pins.
@@ -125,3 +129,5 @@ export default function SpotMarker({ spot, score, isActive, onClick, quip }: Spo
     </Marker>
   );
 }
+
+export default memo(SpotMarker);

@@ -7,7 +7,9 @@ const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const AIR_QUALITY_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
-const CACHE_PREFIX = 'weather:';
+// Bump the version whenever the shape of HourlyForecast changes so we don't
+// hand stale entries (missing fields) to consumers after a deploy.
+const CACHE_PREFIX = 'weather:v3:';
 
 export interface HourlyForecast {
   /** Total cloud cover, 0-100. */
@@ -30,6 +32,12 @@ export interface HourlyForecast {
   pm25: number;
   /** US AQI value (NaN if unavailable). */
   aqi: number;
+  /** Wind speed in mph at 10m. */
+  windMph: number;
+  /** Peak wind gust speed in mph at 10m (NaN if not provided). */
+  gustMph: number;
+  /** Wind direction in degrees (meteorological: 0 = from N, 90 = from E). */
+  windDir: number;
 }
 
 export interface SpotForecast {
@@ -100,6 +108,9 @@ interface OpenMeteoForecastResponse {
     relative_humidity_2m?: number[];
     temperature_2m?: number[];
     precipitation_probability?: number[];
+    wind_speed_10m?: number[];
+    wind_gusts_10m?: number[];
+    wind_direction_10m?: number[];
   };
 }
 
@@ -132,8 +143,12 @@ function buildForecastUrl(lat: number, lng: number): string {
       'relative_humidity_2m',
       'temperature_2m',
       'precipitation_probability',
+      'wind_speed_10m',
+      'wind_gusts_10m',
+      'wind_direction_10m',
     ].join(','),
     temperature_unit: 'fahrenheit',
+    wind_speed_unit: 'mph',
     timezone: 'auto',
     forecast_days: '3',
   });
@@ -192,6 +207,9 @@ function mergeResponses(
       precipProb: pick(forecast.hourly?.precipitation_probability, i),
       pm25: aqiI !== undefined ? pick(air?.hourly?.pm2_5, aqiI) : NaN,
       aqi: aqiI !== undefined ? pick(air?.hourly?.us_aqi, aqiI) : NaN,
+      windMph: pick(forecast.hourly?.wind_speed_10m, i),
+      gustMph: pick(forecast.hourly?.wind_gusts_10m, i),
+      windDir: pick(forecast.hourly?.wind_direction_10m, i),
     };
   }
 
@@ -225,6 +243,35 @@ export async function fetchSpotForecast(lat: number, lng: number): Promise<SpotF
   } finally {
     inflight.delete(key);
   }
+}
+
+/**
+ * Composite fog density (0..1) blending visibility, low-cloud cover, and
+ * humidity. Open-Meteo doesn't surface a dedicated fog field, so we derive
+ * one from the three signals that actually correlate with marine-layer fog
+ * in SF:
+ *   - visibility: dominant signal, low vis is the strongest tell
+ *   - low cloud: stratus near the deck = Karl
+ *   - humidity: close to saturation enables fog formation
+ *
+ * Tuned so a classic Karl-on-the-Sunset hour (vis ~1km, cloudLow ~95,
+ * humidity ~98) lands ~0.85, and a clear south-side hour (vis 16km,
+ * cloudLow 5, humidity 60) lands ~0.05.
+ */
+export function fogDensity(h: HourlyForecast): number {
+  const visKm = Number.isFinite(h.visibilityKm) ? h.visibilityKm : 16;
+  const cloudLow = Number.isFinite(h.cloudLow) ? h.cloudLow : 0;
+  const humidity = Number.isFinite(h.humidity) ? h.humidity : 60;
+  const visTerm = clamp01(1 - visKm / 10);
+  const cloudTerm = clamp01(cloudLow / 100);
+  const humTerm = clamp01((humidity - 70) / 25);
+  return clamp01(visTerm * 0.5 + cloudTerm * 0.35 + humTerm * 0.15);
+}
+
+function clamp01(n: number): number {
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return n;
 }
 
 /**

@@ -11,6 +11,7 @@ import type { ScoreType } from '../utils/scoring';
 
 interface OutlookBarProps {
   liveScores: LiveScoresMap;
+  onDismiss?: () => void;
 }
 
 // SF "centroid" used to decide which event happens next citywide. Spot-by-spot
@@ -61,7 +62,7 @@ function getNextCityEvent(now: Date): ScoreType {
   return candidates[0]?.type ?? 'sunset';
 }
 
-export default function OutlookBar({ liveScores }: OutlookBarProps) {
+export default function OutlookBar({ liveScores, onDismiss }: OutlookBarProps) {
   // Re-evaluate the "next event" on a slow timer so the bar rolls over from
   // sunset to stargazing to sunrise without needing a route change.
   const [now, setNow] = useState(() => new Date());
@@ -79,7 +80,7 @@ export default function OutlookBar({ liveScores }: OutlookBarProps) {
 
   return (
     <div
-      className="pointer-events-auto flex items-center gap-2 rounded-full bg-white/80 backdrop-blur-md pl-2.5 pr-3.5 py-1.5 shadow-md border border-white/60 max-w-[calc(100vw-2rem)]"
+      className="flex items-center gap-2"
       role="status"
       aria-live="polite"
       aria-label={`Karl's outlook for the next ${nextEvent}`}
@@ -92,9 +93,21 @@ export default function OutlookBar({ liveScores }: OutlookBarProps) {
         }}
         aria-hidden="true"
       />
-      <p className="font-serif italic text-[12px] leading-tight text-gray-700 truncate">
+      <p className="flex-1 font-serif italic text-[13px] leading-tight text-gray-700 truncate">
         {message}
       </p>
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-cream-dark/60 transition-colors flex-shrink-0"
+          aria-label="Dismiss outlook"
+        >
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

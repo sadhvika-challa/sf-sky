@@ -1,30 +1,68 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { spots, type Spot } from './data/spots';
 import { useGeolocation } from './hooks/useGeolocation';
 import { useLiveScores } from './hooks/useLiveScores';
+import { useNeighborhoodForecasts } from './hooks/useNeighborhoodForecasts';
+import { useSwipeDismiss } from './hooks/useSwipeDismiss';
 import MapView from './components/MapView';
-import OutlookBar from './components/OutlookBar';
+import ModeToggle from './components/ModeToggle';
 import ScorePanel from './components/ScorePanel';
 import FilterMenu from './components/FilterMenu';
 import SearchBar from './components/SearchBar';
 import SearchOverlay from './components/SearchOverlay';
 import SuggestSpotOverlay from './components/SuggestSpotOverlay';
+import WeatherControls from './components/WeatherControls';
+import WeatherSheetExpanded from './components/WeatherSheetExpanded';
+import InsightCard from './components/InsightCard';
+import type { ScoreTier } from './utils/scoring';
+import type { WeatherMetric } from './utils/interpolate';
 import './App.css';
 
+// Per-event tier filter. Empty array = no constraint (show everything for
+// that event). One or two tiers = show only spots in those buckets. We
+// intentionally treat "all three selected" the same as empty so the active-
+// filter indicator stays honest.
 export interface Filters {
-  sunrise: [number, number];
-  sunset: [number, number];
-  stargazing: [number, number];
+  sunrise: ScoreTier[];
+  sunset: ScoreTier[];
+  stargazing: ScoreTier[];
 }
 
 export type TravelMode = 'walk' | 'car';
 
+export type AppMode = 'explore' | 'weather';
+
 type CardType = 'sunrise' | 'sunset' | 'stargazing';
 
+const APP_MODE_STORAGE_KEY = 'sf-sky:appMode';
+
+function readStoredAppMode(): AppMode {
+  if (typeof window === 'undefined') return 'explore';
+  try {
+    const raw = window.localStorage.getItem(APP_MODE_STORAGE_KEY);
+    return raw === 'weather' ? 'weather' : 'explore';
+  } catch {
+    return 'explore';
+  }
+}
+
+/**
+ * "YYYY-MM-DDTHH" key for the current local hour. Matches the format
+ * `weather.ts` uses for `SpotForecast.hours`.
+ */
+function nowHourKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}`;
+}
+
 const defaultFilters: Filters = {
-  sunrise: [0, 100],
-  sunset: [0, 100],
-  stargazing: [0, 100],
+  sunrise: [],
+  sunset: [],
+  stargazing: [],
 };
 
 function isCardType(value: string | null): value is CardType {
@@ -40,13 +78,60 @@ function App() {
   // Pre-fill the suggest form when the user lands there from a no-results
   // search; otherwise it opens blank.
   const [suggestSeed, setSuggestSeed] = useState('');
-  const [hintDismissed, setHintDismissed] = useState(false);
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [travelMode, setTravelMode] = useState<TravelMode>('walk');
+  const [appMode, setAppMode] = useState<AppMode>(readStoredAppMode);
+  const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
+  const [weatherHourKey, setWeatherHourKey] = useState<string>('');
+  const [weatherSheetExpanded, setWeatherSheetExpanded] = useState(false);
   const userLocation = useGeolocation();
   const liveScores = useLiveScores(spots);
+  const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
+    useNeighborhoodForecasts(appMode === 'weather');
 
   const handleReset = useCallback(() => setFilters(defaultFilters), []);
+
+  // Persist mode toggle so reloads remember the user's preference.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(APP_MODE_STORAGE_KEY, appMode);
+    } catch {
+      // Storage disabled / quota exceeded — non-fatal.
+    }
+  }, [appMode]);
+
+  // When weather forecasts arrive (or change), default the scrubber to the
+  // hour closest to "now" so the user lands on real-time data first.
+  useEffect(() => {
+    if (appMode !== 'weather') return;
+    if (weatherHourKeys.length === 0) return;
+    if (weatherHourKey && weatherHourKeys.includes(weatherHourKey)) return;
+    const now = nowHourKey();
+    const exact = weatherHourKeys.indexOf(now);
+    setWeatherHourKey(exact >= 0 ? weatherHourKeys[exact] : weatherHourKeys[0]);
+  }, [appMode, weatherHourKeys, weatherHourKey]);
+
+  const weatherNowIndex = useMemo(() => {
+    if (weatherHourKeys.length === 0) return -1;
+    return weatherHourKeys.indexOf(nowHourKey());
+  }, [weatherHourKeys]);
+
+  const handleModeChange = useCallback((mode: AppMode) => {
+    setAppMode(mode);
+    // Close any explore-mode overlays so the weather UI isn't fighting the
+    // score panel / menu for the screen.
+    if (mode === 'weather') {
+      setSelectedSpot(null);
+      setInitialCardType(undefined);
+      setMenuOpen(false);
+      setSearchOpen(false);
+    } else {
+      // Collapse the expanded weather sheet on mode-out so the next visit
+      // to weather mode starts in the default compact layout.
+      setWeatherSheetExpanded(false);
+    }
+  }, []);
 
   // Deep-link: ?spot=<id>&view=<sunrise|sunset|stargazing>
   useEffect(() => {
@@ -103,91 +188,112 @@ function App() {
           userLocation={userLocation}
           filters={filters}
           liveScores={liveScores}
+          appMode={appMode}
+          weatherMetric={weatherMetric}
+          weatherHourKey={weatherHourKey}
+          weatherForecasts={weatherForecasts}
         />
       </div>
 
-      {/* Slim floating header — single row, ~40px tall, see-through so the
-          map shows behind it. */}
-      <header
-        className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between gap-2 px-4 h-10 pt-[env(safe-area-inset-top)] bg-cream/65 backdrop-blur-md border-b border-white/40"
-        style={{ minHeight: 'calc(2.5rem + env(safe-area-inset-top))' }}
+      {/* Floating top stack — the mode toggle is now the primary chrome at
+          the top of the screen. Explore puts the search bar (and settings
+          gear) on a second row beneath the toggle; Weather mode drops the
+          settings gear entirely and lets the InsightCard sit right under
+          the toggle. */}
+      <div
+        className="absolute top-0 left-0 right-0 z-20 flex flex-col gap-2 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2"
       >
-        <h1 className="font-serif text-base font-semibold text-gray-800 leading-none">Ask Karl</h1>
-        <div className="flex items-center gap-0.5">
-          <SearchBar onOpen={() => setSearchOpen(true)} />
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/40 transition-colors"
-            aria-label="Settings"
-            aria-expanded={menuOpen}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`text-gray-600 transition-transform duration-300 ${menuOpen ? 'rotate-90' : ''}`}
+        <div className="mx-auto w-[min(280px,100%)]">
+          <ModeToggle mode={appMode} onChange={handleModeChange} />
+        </div>
+        {appMode === 'explore' && (
+          <div className="flex items-center gap-2">
+            <SearchBar onOpen={() => setSearchOpen(true)} />
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-white/85 backdrop-blur-md border border-white/70 shadow-sm hover:bg-white transition-colors flex-shrink-0"
+              aria-label="Settings"
+              aria-expanded={menuOpen}
             >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
-        </div>
-      </header>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`text-gray-600 transition-transform duration-300 ${menuOpen ? 'rotate-90' : ''}`}
+              >
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
 
-      {/* Filter Menu */}
-      <FilterMenu
-        open={menuOpen}
-        filters={filters}
-        onChange={setFilters}
-        onReset={handleReset}
-        onClose={() => setMenuOpen(false)}
-        travelMode={travelMode}
-        onTravelModeChange={setTravelMode}
-        liveScores={liveScores}
-        onSuggestSpot={handleSuggestFromMenu}
-      />
-
-      {/* Outlook bar — floats at the bottom over the map. Hides when a spot
-          is selected so the score panel can own the screen, and can be
-          dismissed by the user. */}
-      {!selectedSpot && !hintDismissed && (
-        <div className="outlook-bar-wrap absolute bottom-6 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-1">
-          <OutlookBar liveScores={liveScores} />
-          <button
-            onClick={() => setHintDismissed(true)}
-            className="w-6 h-6 flex items-center justify-center rounded-full bg-white/80 backdrop-blur-md text-gray-400 hover:text-gray-700 hover:bg-white active:bg-white/90 shadow-md border border-white/60 transition-colors"
-            aria-label="Dismiss outlook"
-          >
-            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" />
-            </svg>
-          </button>
-        </div>
+      {/* Insight card — Karl narrates the weather. Sits just below the
+          mode toggle in weather mode; updates on hour scrub. */}
+      {appMode === 'weather' && (
+        <InsightCard
+          metric={weatherMetric}
+          hourKey={weatherHourKey}
+          hourKeys={weatherHourKeys}
+          forecasts={weatherForecasts}
+        />
       )}
 
-      {/* Search overlay — full-screen, slides up from the bottom */}
-      <SearchOverlay
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        liveScores={liveScores}
-        userLocation={userLocation}
-        onSelectSpot={handleSelectSpot}
-        onSuggestSpot={handleSuggestFromSearch}
-      />
+      {/* Filter Menu — explore-only; weather mode has its own controls panel. */}
+      {appMode === 'explore' && (
+        <FilterMenu
+          open={menuOpen}
+          filters={filters}
+          onChange={setFilters}
+          onReset={handleReset}
+          onClose={() => setMenuOpen(false)}
+          liveScores={liveScores}
+          onSuggestSpot={handleSuggestFromMenu}
+        />
+      )}
 
-      <SuggestSpotOverlay
-        open={suggestOpen}
-        onClose={() => setSuggestOpen(false)}
-        initialName={suggestSeed}
-      />
+      {appMode === 'weather' && (
+        <BottomPanel
+          weatherMetric={weatherMetric}
+          onWeatherMetricChange={setWeatherMetric}
+          weatherHourKeys={weatherHourKeys}
+          weatherHourKey={weatherHourKey}
+          onWeatherHourChange={setWeatherHourKey}
+          weatherNowIndex={weatherNowIndex}
+          weatherForecasts={weatherForecasts}
+          weatherSheetExpanded={weatherSheetExpanded}
+          onWeatherSheetExpandedChange={setWeatherSheetExpanded}
+        />
+      )}
 
-      {/* Score Panel — modal overlay, doesn't take layout space */}
-      {selectedSpot && (
+      {/* Search overlay — explore-only, full-screen, slides up from the bottom */}
+      {appMode === 'explore' && (
+        <SearchOverlay
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          liveScores={liveScores}
+          userLocation={userLocation}
+          onSelectSpot={handleSelectSpot}
+          onSuggestSpot={handleSuggestFromSearch}
+        />
+      )}
+
+      {appMode === 'explore' && (
+        <SuggestSpotOverlay
+          open={suggestOpen}
+          onClose={() => setSuggestOpen(false)}
+          initialName={suggestSeed}
+        />
+      )}
+
+      {/* Score Panel — explore-only modal overlay */}
+      {appMode === 'explore' && selectedSpot && (
         <ScorePanel
           key={selectedSpot.id}
           spot={selectedSpot}
@@ -195,9 +301,157 @@ function App() {
           userLocation={userLocation}
           initialCardType={initialCardType}
           travelMode={travelMode}
+          onTravelModeChange={setTravelMode}
           liveScores={liveScores}
         />
       )}
+    </div>
+  );
+}
+
+interface BottomPanelProps {
+  weatherMetric: WeatherMetric;
+  onWeatherMetricChange: (m: WeatherMetric) => void;
+  weatherHourKeys: string[];
+  weatherHourKey: string;
+  onWeatherHourChange: (key: string) => void;
+  weatherNowIndex: number;
+  weatherForecasts: ReturnType<typeof useNeighborhoodForecasts>['forecasts'];
+  weatherSheetExpanded: boolean;
+  onWeatherSheetExpandedChange: (expanded: boolean) => void;
+}
+
+/**
+ * Weather-mode bottom sheet. The pill handle only appears when the sheet
+ * is expanded (so swipe-down can collapse it); in the compact state we
+ * show a chevron-up affordance instead so users never see a drag handle
+ * for a gesture that does nothing.
+ */
+function BottomPanel({
+  weatherMetric,
+  onWeatherMetricChange,
+  weatherHourKeys,
+  weatherHourKey,
+  onWeatherHourChange,
+  weatherNowIndex,
+  weatherForecasts,
+  weatherSheetExpanded,
+  onWeatherSheetExpandedChange,
+}: BottomPanelProps) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  const canSwipeDown = weatherSheetExpanded;
+
+  const handleDismiss = useCallback(() => {
+    onWeatherSheetExpandedChange(false);
+  }, [onWeatherSheetExpandedChange]);
+
+  const { dragY, isDragging, suppressClickRef, handlers, reset } = useSwipeDismiss({
+    onDismiss: handleDismiss,
+    enabled: canSwipeDown,
+    distanceThreshold: 80,
+  });
+
+  // If the parent collapses the sheet (e.g. mode switch), make sure any
+  // in-flight drag transform clears so the panel doesn't snap back from a
+  // stale offset on the next interaction.
+  useEffect(() => {
+    if (!canSwipeDown) reset();
+  }, [canSwipeDown, reset]);
+
+  const handlePillClick = () => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (weatherSheetExpanded) {
+      onWeatherSheetExpandedChange(false);
+    }
+  };
+
+  const showPill = canSwipeDown;
+  const showExpandChevron = !weatherSheetExpanded;
+
+  return (
+    <div className="absolute bottom-0 left-0 right-0 z-30 pb-[env(safe-area-inset-bottom)]">
+      <div
+        ref={panelRef}
+        className="mx-auto w-[min(560px,100%)] rounded-t-3xl bg-[rgba(250,250,248,0.97)] backdrop-blur-md border-t border-x border-white/60 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]"
+        style={{
+          transform: dragY ? `translate3d(0, ${dragY}px, 0)` : undefined,
+          transition: isDragging ? 'none' : 'transform 220ms cubic-bezier(0.32, 0.72, 0, 1)',
+          willChange: isDragging ? 'transform' : undefined,
+        }}
+      >
+        {showPill ? (
+          <button
+            type="button"
+            onClick={handlePillClick}
+            onPointerDown={handlers.onPointerDown}
+            onPointerMove={handlers.onPointerMove}
+            onPointerUp={handlers.onPointerUp}
+            onPointerCancel={handlers.onPointerCancel}
+            className="w-full flex justify-center pt-2 pb-1 group touch-none"
+            style={{ touchAction: 'none' }}
+            aria-label="Swipe down to collapse weather details"
+            aria-expanded={weatherSheetExpanded}
+          >
+            <span className="block w-9 h-1 rounded-full bg-gray-300 group-hover:bg-gray-400 transition-colors" />
+          </button>
+        ) : showExpandChevron ? (
+          <button
+            type="button"
+            onClick={() => onWeatherSheetExpandedChange(true)}
+            className="w-full flex justify-center pt-1.5 pb-0.5 group"
+            aria-label="Expand weather details"
+            aria-expanded={false}
+          >
+            <svg
+              width="18"
+              height="10"
+              viewBox="0 0 18 10"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className="text-gray-400 group-hover:text-gray-600 transition-colors"
+            >
+              <path d="M2 7l7-5 7 5" />
+            </svg>
+          </button>
+        ) : (
+          <div className="h-2.5" aria-hidden="true" />
+        )}
+
+        <div className="px-3 pb-3">
+          <WeatherControls
+            metric={weatherMetric}
+            onMetricChange={onWeatherMetricChange}
+            hourKeys={weatherHourKeys}
+            hourKey={weatherHourKey}
+            onHourChange={onWeatherHourChange}
+            nowIndex={weatherNowIndex}
+          />
+        </div>
+
+        <div
+          className="overflow-hidden transition-[max-height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] border-t border-black/5"
+          style={{
+            maxHeight: weatherSheetExpanded ? '380px' : '0px',
+          }}
+          aria-hidden={!weatherSheetExpanded}
+        >
+          <WeatherSheetExpanded
+            metric={weatherMetric}
+            hourKey={weatherHourKey}
+            hourKeys={weatherHourKeys}
+            forecasts={weatherForecasts}
+            onHourChange={onWeatherHourChange}
+          />
+        </div>
+      </div>
     </div>
   );
 }
