@@ -262,6 +262,13 @@ interface ScorePanelProps {
   travelMode: TravelMode;
   onTravelModeChange: (mode: TravelMode) => void;
   liveScores: LiveScoresMap;
+  /**
+   * Fired the first time the user actually swipes between cards (i.e.
+   * the active card type changes from whatever it landed on at mount).
+   * Used by the onboarding flow to dismiss the "scroll to see all 3
+   * cards" hint as soon as the user proves they got it.
+   */
+  onCardSwipe?: () => void;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -275,7 +282,7 @@ interface ScorePanelProps {
 const SPEED_MPH: Record<TravelMode, number> = { walk: 2.5, car: 15 };
 const DETOUR_FACTOR: Record<TravelMode, number> = { walk: 1.4, car: 1.5 };
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe }: ScorePanelProps) {
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
     : null;
@@ -314,9 +321,22 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const [expanded, setExpanded] = useState(true);
   // Which card is currently centered in the swipe scroller — drives the
   // active page-indicator dot at the bottom of the sheet.
+  const initialActiveCardType: CardType =
+    initialCardType ?? cards[0]?.type ?? 'sunrise';
   const [activeCardType, setActiveCardType] = useState<CardType>(
-    initialCardType ?? cards[0]?.type ?? 'sunrise'
+    initialActiveCardType,
   );
+  // Onboarding hand-off: fire `onCardSwipe` exactly once when the user
+  // moves to a card other than the one we mounted on. Tracking via a
+  // ref (instead of a derived effect) means we don't re-fire on
+  // unrelated re-renders or on dot-tap navigations after the first.
+  const cardSwipeFiredRef = useRef(false);
+  useEffect(() => {
+    if (cardSwipeFiredRef.current) return;
+    if (activeCardType === initialActiveCardType) return;
+    cardSwipeFiredRef.current = true;
+    onCardSwipe?.();
+  }, [activeCardType, initialActiveCardType, onCardSwipe]);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);

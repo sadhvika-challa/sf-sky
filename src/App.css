@@ -4,6 +4,10 @@
   --font-sans: 'DM Sans', sans-serif;
   --font-serif: 'Source Serif 4', serif;
   --font-mono: 'DM Mono', monospace;
+  /* Casual handwritten face used by the onboarding flow (welcome card +
+     contextual hints). Kept narrow in scope so it doesn't bleed into the
+     rest of the UI. */
+  --font-handwritten: 'Caveat', 'Bradley Hand', 'Comic Sans MS', cursive;
   --color-amber-warm: #D97706;
   --color-blue-soft: #60A5FA;
   --color-green-muted: #6B9E6B;

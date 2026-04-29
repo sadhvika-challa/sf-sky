@@ -72,6 +72,12 @@ const userIcon = L.divIcon({
   iconAnchor: [USER_HIT / 2, USER_HIT / 2],
 });
 
+/** Screen position in CSS pixels relative to the map container. */
+export interface MapPoint {
+  x: number;
+  y: number;
+}
+
 interface MapViewProps {
   selectedSpot: Spot | null;
   /** Spot the user just dismissed; map will pan to it and pulse its pin. */
@@ -85,6 +91,15 @@ interface MapViewProps {
   weatherMetric: WeatherMetric;
   weatherHourKey: string;
   weatherForecasts: Map<number, SpotForecast>;
+  /**
+   * When true, MapView picks the visible pin closest to the map's
+   * working center and reports its screen position via
+   * `onTapSpotAnchorChange`. App.tsx uses that point to render the
+   * tap-spot onboarding hint right below the chosen pin so the arrow
+   * has a real target instead of pointing at empty space.
+   */
+  tapSpotHintActive?: boolean;
+  onTapSpotAnchorChange?: (point: MapPoint | null) => void;
 }
 
 /**
@@ -111,6 +126,85 @@ function ModeBoundsController({ appMode }: { appMode: AppMode }) {
       map.setMaxBounds(SF_BOUNDS as L.LatLngBoundsLiteral);
     }
   }, [appMode, map]);
+  return null;
+}
+
+/**
+ * Picks the visible pin closest to the working center of the map and
+ * reports its screen position to the parent so the tap-spot onboarding
+ * hint can anchor itself directly under a real pin.
+ *
+ * Why a helper component (vs. computing in App.tsx): we need
+ * `useMap()` and the leaflet `move`/`zoom` event stream to keep the
+ * point in sync as the user pans/zooms while the hint is visible. The
+ * choice of pin is locked in once on activation so the hint doesn't
+ * jitter between candidates as the map moves; we just track the
+ * locked pin's coords from then on.
+ */
+function TapSpotAnchorTracker({
+  active,
+  onAnchor,
+}: {
+  active: boolean;
+  onAnchor: ((point: MapPoint | null) => void) | undefined;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!active || !onAnchor) {
+      onAnchor?.(null);
+      return;
+    }
+
+    let lockedLatLng: L.LatLng | null = null;
+
+    function pickAnchor(): L.LatLng | null {
+      const size = map.getSize();
+      // Prefer pins in the upper-middle band — the lower portion of the
+      // screen is where the hint itself sits, so we don't want to pick
+      // a pin that's about to be covered by the hint's text.
+      const targetX = size.x / 2;
+      const targetY = size.y * 0.42;
+      const sideMargin = 56;
+      const topMargin = 110; // clear of the toggle / search row
+      const bottomMargin = 160; // clear of the hint text + safe area
+
+      let best: { dist: number; latLng: L.LatLng } | null = null;
+      for (const spot of spots) {
+        const p = map.latLngToContainerPoint([spot.lat, spot.lng]);
+        if (p.x < sideMargin || p.x > size.x - sideMargin) continue;
+        if (p.y < topMargin || p.y > size.y - bottomMargin) continue;
+        const dist = Math.hypot(p.x - targetX, p.y - targetY);
+        if (!best || dist < best.dist) {
+          best = { dist, latLng: L.latLng(spot.lat, spot.lng) };
+        }
+      }
+      return best?.latLng ?? null;
+    }
+
+    function reportLocked() {
+      if (!lockedLatLng) return;
+      const p = map.latLngToContainerPoint(lockedLatLng);
+      onAnchor?.({ x: p.x, y: p.y });
+    }
+
+    lockedLatLng = pickAnchor();
+    if (lockedLatLng) {
+      reportLocked();
+    } else {
+      // No good candidate (extreme zoom, weird viewport) — fall back to
+      // a point in the upper-middle map area so the hint still has
+      // somewhere reasonable to sit.
+      const size = map.getSize();
+      onAnchor({ x: size.x / 2, y: size.y * 0.42 });
+    }
+
+    map.on('move zoom moveend zoomend resize', reportLocked);
+    return () => {
+      map.off('move zoom moveend zoomend resize', reportLocked);
+    };
+  }, [map, active, onAnchor]);
+
   return null;
 }
 
@@ -365,6 +459,8 @@ export default function MapView({
   weatherMetric,
   weatherHourKey,
   weatherForecasts,
+  tapSpotHintActive,
+  onTapSpotAnchorChange,
 }: MapViewProps) {
   // Both modes share the Carto Voyager palette (cream-white land + soft blue
   // water) so toggling between Explore and Weather feels like the same map.
@@ -433,6 +529,10 @@ export default function MapView({
           <MapController selectedSpot={selectedSpot} />
           <HighlightController highlightedSpot={highlightedSpot} />
           <MapClickHandler onDeselect={onDeselectSpot} />
+          <TapSpotAnchorTracker
+            active={!!tapSpotHintActive}
+            onAnchor={onTapSpotAnchorChange}
+          />
         </>
       ) : (
         <WeatherLayer

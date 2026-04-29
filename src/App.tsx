@@ -4,7 +4,7 @@ import { useGeolocation } from './hooks/useGeolocation';
 import { useLiveScores } from './hooks/useLiveScores';
 import { useNeighborhoodForecasts } from './hooks/useNeighborhoodForecasts';
 import { useSwipeDismiss } from './hooks/useSwipeDismiss';
-import MapView from './components/MapView';
+import MapView, { type MapPoint } from './components/MapView';
 import ModeToggle from './components/ModeToggle';
 import ScorePanel from './components/ScorePanel';
 import FilterMenu from './components/FilterMenu';
@@ -16,8 +16,15 @@ import WeatherControls from './components/WeatherControls';
 import WeatherMetricToggle from './components/WeatherMetricToggle';
 import WeatherSheetExpanded from './components/WeatherSheetExpanded';
 import InsightCard from './components/InsightCard';
+import WelcomeCard from './components/WelcomeCard';
+import OnboardingHint from './components/OnboardingHint';
 import type { ScoreTier } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
+import {
+  ONBOARDING_KEYS,
+  isOnboardingDone,
+  markOnboardingDone,
+} from './utils/onboarding';
 import './App.css';
 
 // Per-event tier filter. Empty array = no constraint (show everything for
@@ -98,6 +105,26 @@ function App() {
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [weatherHourKey, setWeatherHourKey] = useState<string>('');
   const [weatherSheetExpanded, setWeatherSheetExpanded] = useState(false);
+  // Onboarding: welcome card on first load, then a chain of one-time
+  // hints tied to specific interactions. Each step is gated by a
+  // localStorage flag (see `utils/onboarding.ts`); the component-level
+  // state below tracks the in-session "is this currently visible"
+  // question. Order roughly mirrors the natural usage path:
+  //   welcome → tap-spot → scroll-cards → weather-mode →
+  //   metrics + scrub-timeline → complete
+  const [showWelcome, setShowWelcome] = useState(
+    () => !isOnboardingDone(ONBOARDING_KEYS.welcome),
+  );
+  const [showTapSpotHint, setShowTapSpotHint] = useState(false);
+  // Pixel position of the pin we anchor the tap-spot hint to. Driven
+  // by MapView's `TapSpotAnchorTracker` so the hint follows the chosen
+  // pin as the user pans/zooms while the hint is up.
+  const [tapSpotAnchor, setTapSpotAnchor] = useState<MapPoint | null>(null);
+  const [showScrollCardsHint, setShowScrollCardsHint] = useState(false);
+  const [showWeatherModeHint, setShowWeatherModeHint] = useState(false);
+  const [showMetricsHint, setShowMetricsHint] = useState(false);
+  const [showScrubHint, setShowScrubHint] = useState(false);
+  const [showCompleteHint, setShowCompleteHint] = useState(false);
   const userLocation = useGeolocation();
   const liveScores = useLiveScores(spots);
   const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
@@ -146,10 +173,31 @@ function App() {
       // they left off scrubbing in a previous session. The effect
       // below picks up the empty key and resolves it to the live hour.
       setWeatherHourKey('');
+      // Onboarding: switching into Weather satisfies the "switch to
+      // weather" hint, and is the trigger to surface both the metrics
+      // and the scrub-timeline hints (one-shot each). The two are at
+      // opposite ends of the screen — top toggle vs bottom scrubber —
+      // so showing them together doesn't crowd either.
+      if (!isOnboardingDone(ONBOARDING_KEYS.weatherMode)) {
+        markOnboardingDone(ONBOARDING_KEYS.weatherMode);
+        setShowWeatherModeHint(false);
+      }
+      if (!isOnboardingDone(ONBOARDING_KEYS.metrics)) {
+        setShowMetricsHint(true);
+      }
+      if (!isOnboardingDone(ONBOARDING_KEYS.scrubTimeline)) {
+        setShowScrubHint(true);
+      }
     } else {
       // Collapse the expanded weather sheet on mode-out so the next visit
       // to weather mode starts in the default compact layout.
       setWeatherSheetExpanded(false);
+      // Hide weather-only hints when leaving weather; their flags are
+      // only set on real interactions / explicit dismiss, so they can
+      // re-appear on a future entry if still pending.
+      setShowMetricsHint(false);
+      setShowScrubHint(false);
+      setShowCompleteHint(false);
     }
   }, []);
 
@@ -190,10 +238,30 @@ function App() {
     // disappears into the crowd the moment the card slides away.
     if (spot === null && prev !== null) {
       setHighlightedSpot(prev);
+      // Onboarding: dismissing a score panel is the trigger for the
+      // "switch to weather" hint (one-shot). Also clear the in-panel
+      // scroll-cards hint; if the user closed the panel without
+      // swiping, we don't keep the hint queued forever, but we also
+      // don't burn the flag — they may re-open another spot and we
+      // still want them to see it.
+      if (!isOnboardingDone(ONBOARDING_KEYS.weatherMode)) {
+        setShowWeatherModeHint(true);
+      }
+      setShowScrollCardsHint(false);
     } else if (spot !== null) {
       // Selecting a new spot supersedes any lingering highlight from a
       // previous dismiss.
       setHighlightedSpot(null);
+      // Onboarding: tapping any pin satisfies the "tap a spot" hint
+      // and triggers the next step in the chain — the in-panel
+      // "scroll between cards" hint.
+      if (!isOnboardingDone(ONBOARDING_KEYS.tapSpot)) {
+        markOnboardingDone(ONBOARDING_KEYS.tapSpot);
+        setShowTapSpotHint(false);
+      }
+      if (!isOnboardingDone(ONBOARDING_KEYS.scrollCards)) {
+        setShowScrollCardsHint(true);
+      }
     }
     setSelectedSpot(spot);
     setInitialCardType(undefined);
@@ -232,10 +300,96 @@ function App() {
     setBugReportOpen(true);
   }, []);
 
+  // Onboarding dismissal handlers. Each writes the corresponding flag
+  // so the prompt never reappears across sessions.
+  const handleDismissWelcome = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.welcome);
+    setShowWelcome(false);
+    // Hand off to the tap-spot hint immediately, but only when this is a
+    // genuine first-visit chain — if the user has already tapped a pin
+    // in some prior session, skip it entirely.
+    if (!isOnboardingDone(ONBOARDING_KEYS.tapSpot)) {
+      setShowTapSpotHint(true);
+    }
+  }, []);
+
+  const handleDismissTapSpotHint = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.tapSpot);
+    setShowTapSpotHint(false);
+  }, []);
+
+  const handleDismissScrollCardsHint = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.scrollCards);
+    setShowScrollCardsHint(false);
+  }, []);
+
+  // Card swipe inside the score panel — first time the user swipes
+  // between cards, treat the scroll-cards hint as "got it" and put it
+  // away. Tapping the hint or closing the panel are the two other
+  // exit paths; this one is the most natural.
+  const handleScorePanelCardSwipe = useCallback(() => {
+    if (isOnboardingDone(ONBOARDING_KEYS.scrollCards)) return;
+    markOnboardingDone(ONBOARDING_KEYS.scrollCards);
+    setShowScrollCardsHint(false);
+  }, []);
+
+  const handleDismissWeatherModeHint = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.weatherMode);
+    setShowWeatherModeHint(false);
+  }, []);
+
+  const handleDismissMetricsHint = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.metrics);
+    setShowMetricsHint(false);
+  }, []);
+
+  // Wrap the metric setter so picking any metric (temp / clouds /
+  // precip / wind / fog) auto-dismisses the metrics hint.
+  const handleWeatherMetricChange = useCallback((metric: WeatherMetric) => {
+    setWeatherMetric(metric);
+    if (!isOnboardingDone(ONBOARDING_KEYS.metrics)) {
+      markOnboardingDone(ONBOARDING_KEYS.metrics);
+      setShowMetricsHint(false);
+    }
+  }, []);
+
+  const handleDismissScrubHint = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.scrubTimeline);
+    setShowScrubHint(false);
+  }, []);
+
+  const handleDismissCompleteHint = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.complete);
+    setShowCompleteHint(false);
+  }, []);
+
+  // Wrap the scrubber callback so any user-driven hour change auto-
+  // dismisses the scrub-timeline hint AND fires the final "enjoy" hint
+  // (the wrap-up of the onboarding flow). The "default to now" effect
+  // calls `setWeatherHourKey` directly, so it doesn't fire this path
+  // and won't accidentally dismiss / advance before the user actually
+  // touches the slider.
+  const handleWeatherHourChange = useCallback((key: string) => {
+    setWeatherHourKey(key);
+    if (!isOnboardingDone(ONBOARDING_KEYS.scrubTimeline)) {
+      markOnboardingDone(ONBOARDING_KEYS.scrubTimeline);
+      setShowScrubHint(false);
+      // Final step: only show the wrap-up if the user actually got
+      // here through the onboarding flow (i.e. they hadn't already
+      // completed it on a previous session).
+      if (!isOnboardingDone(ONBOARDING_KEYS.complete)) {
+        setShowCompleteHint(true);
+      }
+    }
+  }, []);
+
   return (
     <div className="h-dvh min-h-dvh w-screen relative bg-cream font-mono overflow-hidden">
-      {/* Map fills the full viewport; the header and outlook bar float over it. */}
-      <div className="absolute inset-0 z-0">
+      {/* Map is pinned to the actual viewport (not just `dvh`) so it always
+          paints behind the bottom sheet — including the home-indicator
+          safe-area zone where any uncovered pixel would otherwise read as
+          the body's water-blue fallback. */}
+      <div className="fixed inset-0 z-0">
         <MapView
           selectedSpot={selectedSpot}
           highlightedSpot={highlightedSpot}
@@ -248,6 +402,10 @@ function App() {
           weatherMetric={weatherMetric}
           weatherHourKey={weatherHourKey}
           weatherForecasts={weatherForecasts}
+          tapSpotHintActive={
+            appMode === 'explore' && showTapSpotHint && !selectedSpot
+          }
+          onTapSpotAnchorChange={setTapSpotAnchor}
         />
       </div>
 
@@ -287,7 +445,7 @@ function App() {
             </button>
           </>
         ) : (
-          <WeatherMetricToggle metric={weatherMetric} onChange={setWeatherMetric} />
+          <WeatherMetricToggle metric={weatherMetric} onChange={handleWeatherMetricChange} />
         )}
       </div>
 
@@ -321,7 +479,7 @@ function App() {
           weatherMetric={weatherMetric}
           weatherHourKeys={weatherHourKeys}
           weatherHourKey={weatherHourKey}
-          onWeatherHourChange={setWeatherHourKey}
+          onWeatherHourChange={handleWeatherHourChange}
           weatherNowIndex={weatherNowIndex}
           weatherForecasts={weatherForecasts}
           weatherSheetExpanded={weatherSheetExpanded}
@@ -367,8 +525,101 @@ function App() {
           travelMode={travelMode}
           onTravelModeChange={setTravelMode}
           liveScores={liveScores}
+          onCardSwipe={handleScorePanelCardSwipe}
         />
       )}
+
+      {/* Onboarding hints — handwritten labels with hand-drawn arrows
+          pointing at the relevant UI. The chain is sequenced to follow
+          a real user's path through the app:
+            1. tap-spot       (explore, no panel) → arrow up at the map
+            2. scroll-cards   (panel open)        → swipe arrow on panel
+            3. weather-mode   (panel just closed) → arrow at mode toggle
+            4. metrics        (weather mode)      → arrow at top toggle
+            5. scrub-timeline (weather mode)      → arrow at scrubber
+            6. complete       (after first scrub) → centered wrap-up
+          Mode-scoping (e.g. the scrub hint never paints in explore)
+          keeps each prompt anchored to the UI it's actually about. */}
+      {appMode === 'explore' && showTapSpotHint && !selectedSpot && tapSpotAnchor && (
+        <OnboardingHint
+          message="Tap a spot to see tonight's score"
+          arrow="up"
+          // Anchored to the chosen pin's screen position via MapView.
+          // `top` sits ~22px below the pin so the up-arrow's tip points
+          // back at the pin; the -50% translateX centers the hint
+          // horizontally on the pin.
+          style={{
+            left: tapSpotAnchor.x,
+            top: tapSpotAnchor.y + 22,
+            transform: 'translateX(-50%)',
+          }}
+          onDismiss={handleDismissTapSpotHint}
+        />
+      )}
+
+      {/* Scroll-cards hint hugs the panel's top edge so it sits right
+          above the cards (which start ~100px into the panel). The
+          score panel caps at min(82dvh, 680px); on phones this sits
+          just inside the panel header, on iPad-class screens it
+          floats slightly above the panel — both read as "by the
+          cards" rather than "at the top of the screen". */}
+      {appMode === 'explore' && showScrollCardsHint && selectedSpot && (
+        <OnboardingHint
+          message="Swipe to see all 3 cards"
+          arrow="swipe"
+          positionClassName="bottom-[calc(min(82dvh,680px)-1rem)] left-1/2 -translate-x-1/2"
+          onDismiss={handleDismissScrollCardsHint}
+        />
+      )}
+
+      {/* Weather-mode hint uses the dedicated 'to-cloud' arrow whose
+          tip is geometrically aligned to land on the cloud icon (the
+          right-hand pill of the mode toggle). The arrow lives outside
+          the clickable button (see OnboardingHint), so a tap on the
+          cloud icon under the arrow goes straight to the toggle and
+          switches modes — which auto-dismisses the hint via
+          handleModeChange. */}
+      {appMode === 'explore' && showWeatherModeHint && !selectedSpot && (
+        <OnboardingHint
+          message="Weather mode to see weather across the city"
+          arrow="to-cloud"
+          positionClassName="top-[calc(env(safe-area-inset-top)+4.25rem)] left-[3.0625rem]"
+          onDismiss={handleDismissWeatherModeHint}
+        />
+      )}
+
+      {appMode === 'weather' && showMetricsHint && (
+        <OnboardingHint
+          message="Click to switch between modes to see different things"
+          arrow="up"
+          positionClassName="top-[calc(env(safe-area-inset-top)+3.75rem)] left-1/2 -translate-x-1/2"
+          onDismiss={handleDismissMetricsHint}
+        />
+      )}
+
+      {appMode === 'weather' && showScrubHint && (
+        <OnboardingHint
+          message="Drag to see how conditions change tonight"
+          arrow="down"
+          positionClassName="bottom-[calc(env(safe-area-inset-bottom)+6rem)] left-1/2 -translate-x-1/2"
+          onDismiss={handleDismissScrubHint}
+        />
+      )}
+
+      {appMode === 'weather' && showCompleteHint && (
+        <OnboardingHint
+          message="That's it — enjoy the view :)"
+          arrow="none"
+          positionClassName="top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+          onDismiss={handleDismissCompleteHint}
+          autoDismissMs={3200}
+          ariaLabel="Onboarding complete. Tap to dismiss."
+        />
+      )}
+
+      {/* Welcome card — first-ever load only. Rendered last so its
+          backdrop sits above all other floating UI. */}
+      {showWelcome && <WelcomeCard onDismiss={handleDismissWelcome} />}
     </div>
   );
 }
@@ -435,11 +686,16 @@ function BottomPanel({
   const showExpandChevron = !weatherSheetExpanded;
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-30 pb-[env(safe-area-inset-bottom)]">
+    <div className="absolute bottom-0 left-0 right-0 z-30">
+      {/* Panel chrome bleeds all the way to the screen bottom (safe area
+          absorbed as inner padding) so the cream never lifts off the
+          edge — otherwise the body's water-blue bg shows as a strip
+          below the panel on devices with a home indicator. */}
       <div
         ref={panelRef}
         className="mx-auto w-[min(560px,100%)] rounded-t-3xl bg-[rgba(250,250,248,0.97)] backdrop-blur-md border-t border-x border-white/60 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]"
         style={{
+          paddingBottom: 'env(safe-area-inset-bottom)',
           transform: dragY ? `translate3d(0, ${dragY}px, 0)` : undefined,
           transition: isDragging ? 'none' : 'transform 220ms cubic-bezier(0.32, 0.72, 0, 1)',
           willChange: isDragging ? 'transform' : undefined,
