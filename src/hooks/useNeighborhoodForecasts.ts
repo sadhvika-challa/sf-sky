@@ -64,11 +64,22 @@ export function useNeighborhoodForecasts(enabled: boolean): NeighborhoodForecast
   return { forecasts, hourKeys };
 }
 
+// How many hours before "now" the scrubber is allowed to reach. The app is
+// a forecast tool, so we keep just a small backward buffer (e.g. for
+// catching a sunset that already kicked off) and let the rest of the
+// window face forward.
+const BACKWARD_HOUR_BUFFER = 2;
+
 /**
  * Pull the union of hour keys across all loaded forecasts and return them
  * sorted. Open-Meteo gives every spot the same 72-hour window in practice,
  * but unioning is cheap and tolerates a partially-loaded state on first
  * paint.
+ *
+ * Trims the head so the earliest key is at most `BACKWARD_HOUR_BUFFER`
+ * hours before the current local hour. This keeps the time scrubber
+ * forward-looking — the "Now" indicator lands near the start of the rail
+ * instead of drifting into the middle as the day progresses.
  */
 function deriveHourKeys(forecasts: NeighborhoodForecasts): string[] {
   if (forecasts.size === 0) return [];
@@ -76,7 +87,19 @@ function deriveHourKeys(forecasts: NeighborhoodForecasts): string[] {
   for (const f of forecasts.values()) {
     for (const k of Object.keys(f.hours)) set.add(k);
   }
-  return Array.from(set).sort();
+  const sorted = Array.from(set).sort();
+  const nowIdx = sorted.indexOf(currentHourKey());
+  if (nowIdx <= BACKWARD_HOUR_BUFFER) return sorted;
+  return sorted.slice(nowIdx - BACKWARD_HOUR_BUFFER);
+}
+
+function currentHourKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}`;
 }
 
 export function getNeighborhoods(): ReadonlyArray<Neighborhood> {

@@ -74,6 +74,8 @@ const userIcon = L.divIcon({
 
 interface MapViewProps {
   selectedSpot: Spot | null;
+  /** Spot the user just dismissed; map will pan to it and pulse its pin. */
+  highlightedSpot: Spot | null;
   onSelectSpot: (spot: Spot) => void;
   onDeselectSpot: () => void;
   userLocation: UserLocation | null;
@@ -123,6 +125,26 @@ function MapClickHandler({ onDeselect }: { onDeselect: () => void }) {
     map.on('click', handler);
     return () => { map.off('click', handler); };
   }, [map, onDeselect]);
+  return null;
+}
+
+/**
+ * Pans the map to a spot the user just dismissed so they can see where the
+ * pin is, now that the score panel isn't covering the lower half. Unlike
+ * `MapController`, this aims for the true viewport center (no panel offset)
+ * and runs once per highlight — the highlight then auto-clears upstream.
+ */
+function HighlightController({ highlightedSpot }: { highlightedSpot: Spot | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!highlightedSpot) return;
+    map.panTo([highlightedSpot.lat, highlightedSpot.lng], {
+      animate: true,
+      duration: 0.5,
+    });
+  }, [highlightedSpot, map]);
+
   return null;
 }
 
@@ -222,6 +244,7 @@ function getNextEventScore(spot: Spot, liveScores: LiveScoresMap): number {
  */
 interface SpotClusterLayerProps {
   selectedSpot: Spot | null;
+  highlightedSpotId: number | null;
   onSelectSpot: (spot: Spot) => void;
   filters: Filters;
   liveScores: LiveScoresMap;
@@ -233,7 +256,13 @@ interface ClusterPayload {
   quip: string | undefined;
 }
 
-function SpotClusterLayer({ selectedSpot, onSelectSpot, filters, liveScores }: SpotClusterLayerProps) {
+function SpotClusterLayer({
+  selectedSpot,
+  highlightedSpotId,
+  onSelectSpot,
+  filters,
+  liveScores,
+}: SpotClusterLayerProps) {
   const map = useMap();
 
   // Bundle everything a marker needs into the cluster point so we don't redo
@@ -314,6 +343,7 @@ function SpotClusterLayer({ selectedSpot, onSelectSpot, filters, liveScores }: S
             spot={payload.spot}
             score={payload.score}
             isActive={selectedSpot?.id === payload.spot.id}
+            isHighlighted={highlightedSpotId === payload.spot.id}
             onClick={onSelectSpot}
             quip={payload.quip}
           />
@@ -325,6 +355,7 @@ function SpotClusterLayer({ selectedSpot, onSelectSpot, filters, liveScores }: S
 
 export default function MapView({
   selectedSpot,
+  highlightedSpot,
   onSelectSpot,
   onDeselectSpot,
   userLocation,
@@ -394,11 +425,13 @@ export default function MapView({
         <>
           <SpotClusterLayer
             selectedSpot={selectedSpot}
+            highlightedSpotId={highlightedSpot?.id ?? null}
             onSelectSpot={onSelectSpot}
             filters={filters}
             liveScores={liveScores}
           />
           <MapController selectedSpot={selectedSpot} />
+          <HighlightController highlightedSpot={highlightedSpot} />
           <MapClickHandler onDeselect={onDeselectSpot} />
         </>
       ) : (

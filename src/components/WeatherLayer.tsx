@@ -30,11 +30,17 @@ import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 // polygon plus a few hundred meters of ocean/bay padding so the soft mask
 // edge has room to fade. The visible shape is controlled by the SF mask
 // inside `rasterize`, not by this rectangle.
+//
+// Bounds extend a touch past the easternmost (Hunters Point peninsula) and
+// northernmost (breakwater) polygon vertices so the MASK_BLUR_PX halo
+// fades cleanly into transparency instead of being clipped by the canvas
+// edge — clipping there would re-introduce a hard line right where we're
+// trying to soften the coastline.
 const HEATMAP_BOUNDS: { south: number; west: number; north: number; east: number } = {
-  south: 37.700,
-  west: -122.520,
-  north: 37.820,
-  east: -122.355,
+  south: 37.698,
+  west: -122.524,
+  north: 37.825,
+  east: -122.346,
 };
 
 const HEATMAP_LEAFLET_BOUNDS: LatLngBoundsExpression = [

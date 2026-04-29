@@ -11,6 +11,7 @@ import FilterMenu from './components/FilterMenu';
 import SearchBar from './components/SearchBar';
 import SearchOverlay from './components/SearchOverlay';
 import SuggestSpotOverlay from './components/SuggestSpotOverlay';
+import BugReportOverlay from './components/BugReportOverlay';
 import WeatherControls from './components/WeatherControls';
 import WeatherMetricToggle from './components/WeatherMetricToggle';
 import WeatherSheetExpanded from './components/WeatherSheetExpanded';
@@ -70,12 +71,24 @@ function isCardType(value: string | null): value is CardType {
   return value === 'sunrise' || value === 'sunset' || value === 'stargazing';
 }
 
+// How long the just-dismissed pin keeps its highlight ring + how long the
+// map "remembers" to recenter on it. Long enough for the eye to land on the
+// pulse, short enough that it fades before it starts to feel like noise.
+const DISMISS_HIGHLIGHT_MS = 1600;
+
 function App() {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [initialCardType, setInitialCardType] = useState<CardType | undefined>(undefined);
+  // After the score card is dismissed, briefly remember the spot the user
+  // was just looking at so the map can pan to it and pulse the pin. This is
+  // separate from `selectedSpot` because the card is already gone — we
+  // don't want to reopen it, just give the user spatial context for where
+  // they were.
+  const [highlightedSpot, setHighlightedSpot] = useState<Spot | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [bugReportOpen, setBugReportOpen] = useState(false);
   // Pre-fill the suggest form when the user lands there from a no-results
   // search; otherwise it opens blank.
   const [suggestSeed, setSuggestSeed] = useState('');
@@ -125,8 +138,14 @@ function App() {
     if (mode === 'weather') {
       setSelectedSpot(null);
       setInitialCardType(undefined);
+      setHighlightedSpot(null);
       setMenuOpen(false);
       setSearchOpen(false);
+      // Snap the scrubber back to "now" on every entry so the user
+      // always lands on present-time conditions instead of wherever
+      // they left off scrubbing in a previous session. The effect
+      // below picks up the empty key and resolves it to the live hour.
+      setWeatherHourKey('');
     } else {
       // Collapse the expanded weather sheet on mode-out so the next visit
       // to weather mode starts in the default compact layout.
@@ -155,10 +174,40 @@ function App() {
     window.history.replaceState({}, '', cleanUrl);
   }, []);
 
+  // Latest-selected spot, mirrored into a ref so `handleSelectSpot` (which
+  // intentionally has no deps) can branch on the prior selection without
+  // capturing a stale closure or doing a setState-from-updater.
+  const selectedSpotRef = useRef<Spot | null>(null);
+  useEffect(() => {
+    selectedSpotRef.current = selectedSpot;
+  }, [selectedSpot]);
+
   const handleSelectSpot = useCallback((spot: Spot | null) => {
+    const prev = selectedSpotRef.current;
+    // Card is being dismissed (spot is null) and there *was* something
+    // selected — remember it so the map can recenter + pulse the pin the
+    // user was just reading about. Without this hand-off, the pin
+    // disappears into the crowd the moment the card slides away.
+    if (spot === null && prev !== null) {
+      setHighlightedSpot(prev);
+    } else if (spot !== null) {
+      // Selecting a new spot supersedes any lingering highlight from a
+      // previous dismiss.
+      setHighlightedSpot(null);
+    }
     setSelectedSpot(spot);
     setInitialCardType(undefined);
   }, []);
+
+  // Auto-clear the dismiss highlight so the pulse doesn't loop forever and
+  // the map stops trying to recenter once the user moves on.
+  useEffect(() => {
+    if (!highlightedSpot) return;
+    const timer = window.setTimeout(() => {
+      setHighlightedSpot(null);
+    }, DISMISS_HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [highlightedSpot]);
 
   const handleOpenSuggest = useCallback((seed = '') => {
     setSuggestSeed(seed);
@@ -178,12 +227,18 @@ function App() {
     handleOpenSuggest('');
   }, [handleOpenSuggest]);
 
+  const handleReportBugFromMenu = useCallback(() => {
+    setMenuOpen(false);
+    setBugReportOpen(true);
+  }, []);
+
   return (
     <div className="h-dvh min-h-dvh w-screen relative bg-cream font-mono overflow-hidden">
       {/* Map fills the full viewport; the header and outlook bar float over it. */}
       <div className="absolute inset-0 z-0">
         <MapView
           selectedSpot={selectedSpot}
+          highlightedSpot={highlightedSpot}
           onSelectSpot={handleSelectSpot}
           onDeselectSpot={() => handleSelectSpot(null)}
           userLocation={userLocation}
@@ -201,7 +256,9 @@ function App() {
           settings) or the weather metric selector. Single line so the map
           bleeds straight up to the status bar. */}
       <div
-        className="absolute top-0 left-0 right-0 z-20 flex items-center gap-2 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2"
+        className={`absolute top-0 left-0 right-0 z-20 flex items-center px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 ${
+          appMode === 'explore' ? 'gap-1.5' : 'gap-2'
+        }`}
       >
         <ModeToggle mode={appMode} onChange={handleModeChange} />
         {appMode === 'explore' ? (
@@ -255,6 +312,7 @@ function App() {
           onClose={() => setMenuOpen(false)}
           liveScores={liveScores}
           onSuggestSpot={handleSuggestFromMenu}
+          onReportBug={handleReportBugFromMenu}
         />
       )}
 
@@ -288,6 +346,13 @@ function App() {
           open={suggestOpen}
           onClose={() => setSuggestOpen(false)}
           initialName={suggestSeed}
+        />
+      )}
+
+      {appMode === 'explore' && (
+        <BugReportOverlay
+          open={bugReportOpen}
+          onClose={() => setBugReportOpen(false)}
         />
       )}
 
@@ -424,7 +489,6 @@ function BottomPanel({
 
         <div className="px-3 pb-3">
           <WeatherControls
-            metric={weatherMetric}
             hourKeys={weatherHourKeys}
             hourKey={weatherHourKey}
             onHourChange={onWeatherHourChange}
@@ -435,7 +499,7 @@ function BottomPanel({
         <div
           className="overflow-hidden transition-[max-height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] border-t border-black/5"
           style={{
-            maxHeight: weatherSheetExpanded ? '380px' : '0px',
+            maxHeight: weatherSheetExpanded ? '540px' : '0px',
           }}
           aria-hidden={!weatherSheetExpanded}
         >

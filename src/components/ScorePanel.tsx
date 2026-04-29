@@ -264,15 +264,23 @@ interface ScorePanelProps {
   liveScores: LiveScoresMap;
 }
 
-// Straight-line speed estimates (mph) — actual routed distance will differ
-const SPEED_MPH: Record<TravelMode, number> = { walk: 3, car: 25 };
+// We don't hit a routing API — `travelMinutes` is a calibrated estimate
+// from the great-circle distance. Two corrections get us close to a real
+// SF ETA without a network call:
+//   1. SPEED_MPH uses SF-realistic averages (hilly walking, congested
+//      surface streets) rather than open-road textbook speeds.
+//   2. DETOUR_FACTOR scales crow-flies up to road-network distance —
+//      SF's grid + hills + water means real routes are noticeably longer
+//      than a straight line, more so for driving (bridges, one-ways).
+const SPEED_MPH: Record<TravelMode, number> = { walk: 2.5, car: 15 };
+const DETOUR_FACTOR: Record<TravelMode, number> = { walk: 1.4, car: 1.5 };
 
 export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores }: ScorePanelProps) {
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
     : null;
   const travelMinutes = distanceMi !== null
-    ? Math.round((distanceMi / SPEED_MPH[travelMode]) * 60)
+    ? Math.round((distanceMi * DETOUR_FACTOR[travelMode] / SPEED_MPH[travelMode]) * 60)
     : null;
 
   const handleDirections = () => {
@@ -722,8 +730,12 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                       strokeLinejoin="round"
                       aria-hidden="true"
                     >
-                      <path d="M14.5 5h-5L7.5 7.5H4.5a1.5 1.5 0 0 0-1.5 1.5v9a1.5 1.5 0 0 0 1.5 1.5h15a1.5 1.5 0 0 0 1.5-1.5V9A1.5 1.5 0 0 0 19.5 7.5h-3z" />
-                      <circle cx="12" cy="13" r="3.25" />
+                      <path d="M5 7V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3" />
+                      <path d="M15 7V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3" />
+                      <path d="M4 21a2 2 0 0 1-2-2v-3.85c0-1.39 2-2.96 2-4.83V8a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v11a2 2 0 0 1-2 2z" />
+                      <path d="M20 21a2 2 0 0 0 2-2v-3.85c0-1.39-2-2.96-2-4.83V8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v11a2 2 0 0 0 2 2z" />
+                      <path d="M10 10h4" />
+                      <path d="M2 16h20" />
                     </svg>
                   </button>
                 </div>

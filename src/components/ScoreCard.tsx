@@ -4,6 +4,7 @@ import { toBlob } from 'html-to-image';
 import { type Spot, type AccessAlert, getConditionLabel, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { useSpotForecast } from '../hooks/useSpotForecast';
+import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
 import { getForecastAt, type HourlyForecast } from '../utils/weather';
 import { cloudCoverLabel, computeLiveScore, visibilityPercent } from '../utils/scoring';
 import { getKarlComment } from '../utils/karl-copy';
@@ -282,6 +283,48 @@ function AccessAlertBadge({ alert, spotName }: AccessAlertBadgeProps) {
   );
 }
 
+// Tiny segmented pill that swaps the temperature display between °F and °C.
+// Lives inside the temp tile so the toggle reads as part of the number it
+// controls, not a separate piece of chrome. The active slot inverts to a
+// dark fill so it's unambiguous at this size.
+interface TempUnitToggleProps {
+  unit: TempUnit;
+  onChange: (next: TempUnit) => void;
+}
+
+function TempUnitToggle({ unit, onChange }: TempUnitToggleProps) {
+  return (
+    <div
+      role="group"
+      aria-label="Temperature unit"
+      className="mt-2 inline-flex items-center rounded-full bg-white/70 p-[2px] font-mono text-[9px] tracking-[1px]"
+    >
+      {(['F', 'C'] as const).map((opt) => {
+        const active = opt === unit;
+        return (
+          <button
+            key={opt}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(opt);
+            }}
+            aria-pressed={active}
+            aria-label={opt === 'F' ? 'Show degrees Fahrenheit' : 'Show degrees Celsius'}
+            className={`px-1.5 py-[1px] rounded-full transition-colors ${
+              active
+                ? 'bg-gray-800 text-white'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            °{opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 const dotColors: Record<CardType, string[]> = {
   sunrise: ['rgba(244,114,182,0.5)', 'rgba(251,191,36,0.4)', 'rgba(249,168,212,0.3)'],
   sunset: ['rgba(167,139,250,0.5)', 'rgba(251,146,60,0.5)', 'rgba(244,114,182,0.4)'],
@@ -332,10 +375,14 @@ export default function ScoreCard({ spot, type, eventDate }: ScoreCardProps) {
   const poetic = getPoetic(type, score);
   const karlLine = getKarlComment(score, type, spot.id, eventDate);
   const gradient = getSkyGradient(type, score);
-  const temp = hourly && Number.isFinite(hourly.tempF)
-    ? Math.round(hourly.tempF)
+  // Internal temp stays in °F so getTempCopy's thresholds keep their meaning;
+  // the displayed value is converted on the fly per the user's preference.
+  const tempF = hourly && Number.isFinite(hourly.tempF)
+    ? hourly.tempF
     : getEstimatedTemp();
-  const tempCopy = getTempCopy(temp);
+  const [tempUnit, setTempUnit] = useTempUnit();
+  const displayTemp = Math.round(convertTempF(tempF, tempUnit));
+  const tempCopy = getTempCopy(tempF);
   const cloud = hourly ? cloudCoverLabel(hourly.cloud) : '—';
   // Bar shows actual cloud coverage — short bar = clear sky, full bar = overcast.
   const cloudBarValue = hourly && Number.isFinite(hourly.cloud)
@@ -514,11 +561,12 @@ export default function ScoreCard({ spot, type, eventDate }: ScoreCardProps) {
         <div className="mt-auto pt-1 grid grid-cols-[96px_1fr] gap-2.5 items-stretch">
           <div className="rounded-lg bg-cream-dark/30 px-2 py-3 flex flex-col items-center justify-center text-center">
             <span className="font-serif text-[34px] font-light leading-none text-gray-800 tabular-nums">
-              {temp}°
+              {displayTemp}°
             </span>
-            <span className="font-serif italic text-[11px] text-gray-500 mt-2 leading-tight">
+            <span className="font-serif italic text-[11px] text-gray-500 mt-1.5 leading-tight">
               {tempCopy}
             </span>
+            <TempUnitToggle unit={tempUnit} onChange={setTempUnit} />
           </div>
           <div className="grid grid-cols-2 grid-rows-2 gap-x-4 gap-y-2.5 content-around">
             <MetricCell

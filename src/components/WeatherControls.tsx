@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { metricLabel, type WeatherMetric } from '../utils/interpolate';
 
 interface WeatherControlsProps {
-  metric: WeatherMetric;
   hourKeys: string[];
   hourKey: string;
   onHourChange: (key: string) => void;
@@ -15,7 +13,6 @@ interface WeatherControlsProps {
 const SCRUBBER_HOUR_LIMIT = 48;
 
 export default function WeatherControls({
-  metric,
   hourKeys,
   hourKey,
   onHourChange,
@@ -47,8 +44,6 @@ export default function WeatherControls({
       role="group"
       aria-label="Weather map controls"
     >
-      <LegendRow metric={metric} />
-
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -181,84 +176,3 @@ function formatHourLabel(hourKey: string): string {
   return `${weekday} ${time}`;
 }
 
-interface LegendRowProps {
-  metric: WeatherMetric;
-}
-
-/**
- * Three-dot legend specific to the active layer. Re-renders when the metric
- * pill changes so the user always sees the color↔meaning mapping for the
- * currently visible heatmap.
- */
-function LegendRow({ metric }: LegendRowProps) {
-  const items = legendForMetric(metric);
-  return (
-    <div
-      className="flex items-center justify-center gap-3 text-[10px] text-gray-500"
-      aria-label={`${metricLabel(metric)} legend`}
-    >
-      {items.map((item, i) => (
-        <span key={item.label} className="flex items-center gap-1.5">
-          <span
-            aria-hidden="true"
-            className="w-1.5 h-1.5 rounded-full"
-            style={{ backgroundColor: item.color }}
-          />
-          <span
-            style={{
-              letterSpacing: '0.4px',
-              textTransform: 'uppercase',
-              fontWeight: i === 1 ? 400 : 500,
-            }}
-          >
-            {item.label}
-          </span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-interface LegendItem {
-  label: string;
-  color: string;
-}
-
-function legendForMetric(metric: WeatherMetric): [LegendItem, LegendItem, LegendItem] {
-  switch (metric) {
-    case 'temp':
-      return [
-        { label: 'Colder', color: '#4a8ac4' },
-        { label: 'Avg', color: 'rgba(0,0,0,0.25)' },
-        { label: 'Warmer', color: '#d4733a' },
-      ];
-    case 'clouds':
-      return [
-        { label: 'Cloudy', color: '#3a6e9e' },
-        { label: 'Avg', color: 'rgba(0,0,0,0.25)' },
-        { label: 'Clear', color: '#d4733a' },
-      ];
-    case 'precip':
-      return [
-        { label: 'Heavy', color: '#3c64b4' },
-        { label: 'Light', color: '#6496d2' },
-        { label: 'Dry', color: 'rgba(0,0,0,0.25)' },
-      ];
-    case 'wind':
-      return [
-        { label: 'Windy', color: '#d4733a' },
-        { label: 'Avg', color: 'rgba(0,0,0,0.25)' },
-        { label: 'Calm', color: '#4a8ac4' },
-      ];
-    case 'fog':
-      return [
-        { label: 'Foggy', color: '#7a7a90' },
-        { label: 'Hazy', color: '#bababa' },
-        { label: 'Clear', color: '#3a8a5c' },
-      ];
-    default: {
-      const _exhaustive: never = metric;
-      throw new Error(`Unhandled metric: ${String(_exhaustive)}`);
-    }
-  }
-}
