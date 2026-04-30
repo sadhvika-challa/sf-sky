@@ -1,0 +1,170 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic:
+      - generic:
+        - button "62" [ref=e6] [cursor=pointer]:
+          - generic [ref=e9]: "62"
+        - button "65" [ref=e10] [cursor=pointer]:
+          - generic [ref=e13]: "65"
+        - button "45" [ref=e14] [cursor=pointer]:
+          - generic [ref=e17]: "45"
+        - button "45" [ref=e18] [cursor=pointer]:
+          - generic [ref=e21]: "45"
+        - button "62" [ref=e22] [cursor=pointer]:
+          - generic [ref=e25]: "62"
+        - button [ref=e26] [cursor=pointer]
+        - button [ref=e29] [cursor=pointer]
+        - button [ref=e32] [cursor=pointer]
+        - button "50" [ref=e35] [cursor=pointer]:
+          - generic [ref=e38]: "50"
+        - button "75" [ref=e39] [cursor=pointer]:
+          - generic [ref=e42]: "75"
+        - button [ref=e43] [cursor=pointer]
+        - button [ref=e46] [cursor=pointer]
+        - button "68" [ref=e49] [cursor=pointer]:
+          - generic [ref=e52]: "68"
+        - button [ref=e53] [cursor=pointer]
+        - button "5 spots" [ref=e56] [cursor=pointer]:
+          - generic [ref=e58]:
+            - generic [ref=e59]: "5"
+            - generic [ref=e60]: spots
+        - button [ref=e61] [cursor=pointer]
+        - button [ref=e64] [cursor=pointer]
+        - button "70" [ref=e67] [cursor=pointer]:
+          - generic [ref=e70]: "70"
+        - button "74" [ref=e71] [cursor=pointer]:
+          - generic [ref=e74]: "74"
+        - button "2 spots" [ref=e75] [cursor=pointer]:
+          - generic [ref=e77]:
+            - generic [ref=e78]: "2"
+            - generic [ref=e79]: spots
+        - button "78" [ref=e80] [cursor=pointer]:
+          - generic [ref=e83]: "78"
+        - button [ref=e84] [cursor=pointer]
+        - button "80" [ref=e87] [cursor=pointer]:
+          - generic [ref=e90]: "80"
+        - button "72" [ref=e91] [cursor=pointer]:
+          - generic [ref=e94]: "72"
+        - button "2 spots" [ref=e95] [cursor=pointer]:
+          - generic [ref=e97]:
+            - generic [ref=e98]: "2"
+            - generic [ref=e99]: spots
+        - button "52" [ref=e100] [cursor=pointer]:
+          - generic [ref=e103]: "52"
+        - button "70" [ref=e104] [cursor=pointer]:
+          - generic [ref=e107]: "70"
+        - button [ref=e108] [cursor=pointer]
+        - button "70" [ref=e111] [cursor=pointer]:
+          - generic [ref=e114]: "70"
+        - button "58" [ref=e115] [cursor=pointer]:
+          - generic [ref=e118]: "58"
+        - button "80" [ref=e119] [cursor=pointer]:
+          - generic [ref=e122]: "80"
+        - button [ref=e123] [cursor=pointer]
+        - button "55" [ref=e126] [cursor=pointer]:
+          - generic [ref=e129]: "55"
+        - button [ref=e130] [cursor=pointer]
+        - button "90" [ref=e133] [cursor=pointer]:
+          - generic [ref=e136]: "90"
+        - button [ref=e137] [cursor=pointer]
+        - button "65" [ref=e140] [cursor=pointer]:
+          - generic [ref=e143]: "65"
+        - button "50" [ref=e144] [cursor=pointer]:
+          - generic [ref=e147]: "50"
+        - button "2 spots" [ref=e148] [cursor=pointer]:
+          - generic [ref=e150]:
+            - generic [ref=e151]: "2"
+            - generic [ref=e152]: spots
+        - button "2 spots" [ref=e153] [cursor=pointer]:
+          - generic [ref=e155]:
+            - generic [ref=e156]: "2"
+            - generic [ref=e157]: spots
+        - button "2 spots" [ref=e158] [cursor=pointer]:
+          - generic [ref=e160]:
+            - generic [ref=e161]: "2"
+            - generic [ref=e162]: spots
+        - button [ref=e163] [cursor=pointer]
+        - button "2 spots" [ref=e166] [cursor=pointer]:
+          - generic [ref=e168]:
+            - generic [ref=e169]: "2"
+            - generic [ref=e170]: spots
+        - button "75" [ref=e171] [cursor=pointer]:
+          - generic [ref=e174]: "75"
+        - button "90" [ref=e175] [cursor=pointer]:
+          - generic [ref=e178]: "90"
+        - button "65" [ref=e179] [cursor=pointer]:
+          - generic [ref=e182]: "65"
+        - button "85" [ref=e183] [cursor=pointer]:
+          - generic [ref=e186]: "85"
+        - button "92" [ref=e187] [cursor=pointer]:
+          - generic [ref=e190]: "92"
+        - button "2 spots" [ref=e191] [cursor=pointer]:
+          - generic [ref=e193]:
+            - generic [ref=e194]: "2"
+            - generic [ref=e195]: spots
+        - button "85" [ref=e196] [cursor=pointer]:
+          - generic [ref=e199]: "85"
+        - button "85" [ref=e200] [cursor=pointer]:
+          - generic [ref=e203]: "85"
+        - button "92" [ref=e204] [cursor=pointer]:
+          - generic [ref=e207]: "92"
+        - button "82" [ref=e208] [cursor=pointer]:
+          - generic [ref=e211]: "82"
+        - button "85" [ref=e212] [cursor=pointer]:
+          - generic [ref=e215]: "85"
+        - button "50" [ref=e216] [cursor=pointer]:
+          - generic [ref=e219]: "50"
+        - button [ref=e220] [cursor=pointer]
+        - button [ref=e223] [cursor=pointer]
+        - button [ref=e226] [cursor=pointer]
+        - button [ref=e229] [cursor=pointer]
+        - button [ref=e232] [cursor=pointer]
+        - button "55" [ref=e235] [cursor=pointer]:
+          - generic [ref=e238]: "55"
+        - button "60" [ref=e239] [cursor=pointer]:
+          - generic [ref=e242]: "60"
+        - button "82" [ref=e243] [cursor=pointer]:
+          - generic [ref=e246]: "82"
+        - button "45" [ref=e247] [cursor=pointer]:
+          - generic [ref=e250]: "45"
+  - generic [ref=e251]:
+    - tablist "App mode" [ref=e252]:
+      - tab "Explore spots mode" [selected] [ref=e253]:
+        - img [ref=e254]
+      - tab "Weather map mode" [ref=e260]:
+        - img [ref=e261]
+    - button "Search spots" [ref=e263]:
+      - img [ref=e264]
+      - generic [ref=e267]: Search spots…
+    - button "Settings" [ref=e268]:
+      - img [ref=e269]
+  - generic:
+    - dialog "Sky outlook":
+      - generic:
+        - generic:
+          - heading "Tonight's Sky" [level=2]
+          - button "Close":
+            - img
+        - generic:
+          - button "Show only":
+            - generic: Show only
+            - img
+        - generic:
+          - generic:
+            - button "What these mean":
+              - generic: What these mean
+              - img
+        - generic:
+          - button "Suggest a spot":
+            - generic: Suggest a spot
+            - img
+          - button "Report a bug":
+            - generic: Report a bug
+            - img
+  - dialog "Welcome. Let's find you a view." [ref=e272]:
+    - generic [ref=e274]:
+      - heading "Welcome. Let's find you a view." [level=2] [ref=e275]
+      - paragraph [ref=e276]: 116 spots across SF, scored for sunset, sunrise, and stargazing based on live conditions. Tap a spot to see if it's worth the trip.
+      - button "Show me the spots" [ref=e277]:
+        - generic [ref=e278]: Show me the spots
+        - img [ref=e279]

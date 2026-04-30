@@ -1,0 +1,206 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - generic:
+      - generic:
+        - button "71" [ref=e6] [cursor=pointer]:
+          - generic [ref=e9]: "71"
+        - button "72" [ref=e10] [cursor=pointer]:
+          - generic [ref=e13]: "72"
+        - button "62" [ref=e14] [cursor=pointer]:
+          - generic [ref=e17]: "62"
+        - button "62" [ref=e18] [cursor=pointer]:
+          - generic [ref=e21]: "62"
+        - button "71" [ref=e22] [cursor=pointer]:
+          - generic [ref=e25]: "71"
+        - button "49" [ref=e26] [cursor=pointer]:
+          - generic [ref=e29]: "49"
+        - button "49" [ref=e30] [cursor=pointer]:
+          - generic [ref=e33]: "49"
+        - button "51" [ref=e34] [cursor=pointer]:
+          - generic [ref=e37]: "51"
+        - button "65" [ref=e38] [cursor=pointer]:
+          - generic [ref=e41]: "65"
+        - button "77" [ref=e42] [cursor=pointer]:
+          - generic [ref=e45]: "77"
+        - button "47" [ref=e46] [cursor=pointer]:
+          - generic [ref=e49]: "47"
+        - button "51" [ref=e50] [cursor=pointer]:
+          - generic [ref=e53]: "51"
+        - button "74" [ref=e54] [cursor=pointer]:
+          - generic [ref=e57]: "74"
+        - button "50" [ref=e58] [cursor=pointer]:
+          - generic [ref=e61]: "50"
+        - button "5 spots" [ref=e62] [cursor=pointer]:
+          - generic [ref=e64]:
+            - generic [ref=e65]: "5"
+            - generic [ref=e66]: spots
+        - button "49" [ref=e67] [cursor=pointer]:
+          - generic [ref=e70]: "49"
+        - button "60" [ref=e71] [cursor=pointer]:
+          - generic [ref=e74]: "60"
+        - button "75" [ref=e300] [cursor=pointer]:
+          - generic [ref=e303]: "75"
+        - button "77" [ref=e79] [cursor=pointer]:
+          - generic [ref=e82]: "77"
+        - button "2 spots" [ref=e83] [cursor=pointer]:
+          - generic [ref=e305]:
+            - generic [ref=e306]: "2"
+            - generic [ref=e307]: spots
+        - button "79" [ref=e88] [cursor=pointer]:
+          - generic [ref=e91]: "79"
+        - button "52" [ref=e92] [cursor=pointer]:
+          - generic [ref=e95]: "52"
+        - button "80" [ref=e96] [cursor=pointer]:
+          - generic [ref=e99]: "80"
+        - button "76" [ref=e100] [cursor=pointer]:
+          - generic [ref=e103]: "76"
+        - button "2 spots" [ref=e104] [cursor=pointer]:
+          - generic [ref=e106]:
+            - generic [ref=e107]: "2"
+            - generic [ref=e108]: spots
+        - button "66" [ref=e109] [cursor=pointer]:
+          - generic [ref=e112]: "66"
+        - button "75" [ref=e113] [cursor=pointer]:
+          - generic [ref=e116]: "75"
+        - button "57" [ref=e117] [cursor=pointer]:
+          - generic [ref=e120]: "57"
+        - button "75" [ref=e308] [cursor=pointer]:
+          - generic [ref=e311]: "75"
+        - button "69" [ref=e125] [cursor=pointer]:
+          - generic [ref=e128]: "69"
+        - button "80" [ref=e129] [cursor=pointer]:
+          - generic [ref=e132]: "80"
+        - button "60" [ref=e133] [cursor=pointer]:
+          - generic [ref=e136]: "60"
+        - button "67" [ref=e137] [cursor=pointer]:
+          - generic [ref=e140]: "67"
+        - button "54" [ref=e141] [cursor=pointer]:
+          - generic [ref=e144]: "54"
+        - button "85" [ref=e145] [cursor=pointer]:
+          - generic [ref=e148]: "85"
+        - button "60" [ref=e149] [cursor=pointer]:
+          - generic [ref=e152]: "60"
+        - button "72" [ref=e312] [cursor=pointer]:
+          - generic [ref=e315]: "72"
+        - button "65" [ref=e157] [cursor=pointer]:
+          - generic [ref=e160]: "65"
+        - button "2 spots" [ref=e161] [cursor=pointer]:
+          - generic [ref=e163]:
+            - generic [ref=e164]: "2"
+            - generic [ref=e165]: spots
+        - button "2 spots" [ref=e166] [cursor=pointer]:
+          - generic [ref=e168]:
+            - generic [ref=e169]: "2"
+            - generic [ref=e170]: spots
+        - button "2 spots" [ref=e171] [cursor=pointer]:
+          - generic [ref=e173]:
+            - generic [ref=e174]: "2"
+            - generic [ref=e175]: spots
+        - button "57" [ref=e176] [cursor=pointer]:
+          - generic [ref=e179]: "57"
+        - button "2 spots" [ref=e180] [cursor=pointer]:
+          - generic [ref=e182]:
+            - generic [ref=e183]: "2"
+            - generic [ref=e184]: spots
+        - button "77" [ref=e316] [cursor=pointer]:
+          - generic [ref=e319]: "77"
+        - button "85" [ref=e320] [cursor=pointer]:
+          - generic [ref=e323]: "85"
+        - button "72" [ref=e193] [cursor=pointer]:
+          - generic [ref=e196]: "72"
+        - button "82" [ref=e324] [cursor=pointer]:
+          - generic [ref=e327]: "82"
+        - button "86" [ref=e201] [cursor=pointer]:
+          - generic [ref=e204]: "86"
+        - button "2 spots" [ref=e205] [cursor=pointer]:
+          - generic [ref=e207]:
+            - generic [ref=e208]: "2"
+            - generic [ref=e209]: spots
+        - button "82" [ref=e210] [cursor=pointer]:
+          - generic [ref=e213]: "82"
+        - button "82" [ref=e214] [cursor=pointer]:
+          - generic [ref=e217]: "82"
+        - button "86" [ref=e328] [cursor=pointer]:
+          - generic [ref=e331]: "86"
+        - button "81" [ref=e332] [cursor=pointer]:
+          - generic [ref=e335]: "81"
+        - button "82" [ref=e336] [cursor=pointer]:
+          - generic [ref=e339]: "82"
+        - button "65" [ref=e230] [cursor=pointer]:
+          - generic [ref=e233]: "65"
+        - button "57" [ref=e234] [cursor=pointer]:
+          - generic [ref=e237]: "57"
+        - button "50" [ref=e238] [cursor=pointer]:
+          - generic [ref=e241]: "50"
+        - button "51" [ref=e242] [cursor=pointer]:
+          - generic [ref=e245]: "51"
+        - button "52" [ref=e246] [cursor=pointer]:
+          - generic [ref=e249]: "52"
+        - button "50" [ref=e250] [cursor=pointer]:
+          - generic [ref=e253]: "50"
+        - button "67" [ref=e254] [cursor=pointer]:
+          - generic [ref=e257]: "67"
+        - button "70" [ref=e258] [cursor=pointer]:
+          - generic [ref=e261]: "70"
+        - button "81" [ref=e262] [cursor=pointer]:
+          - generic [ref=e265]: "81"
+        - button "62" [ref=e266] [cursor=pointer]:
+          - generic [ref=e269]: "62"
+        - button [ref=e340] [cursor=pointer]
+      - generic:
+        - tooltip "Twin Peaks"
+  - generic [ref=e270]:
+    - tablist "App mode" [ref=e271]:
+      - tab "Explore spots mode" [selected] [ref=e272]:
+        - img [ref=e273]
+      - tab "Weather map mode" [ref=e279]:
+        - img [ref=e280]
+    - button "Search spots" [ref=e282]:
+      - img [ref=e283]
+      - generic [ref=e286]: Search spots…
+    - button "Settings" [ref=e287]:
+      - img [ref=e288]
+  - generic:
+    - dialog "Sky outlook":
+      - generic:
+        - generic:
+          - heading "Tonight's Sky" [level=2]
+          - button "Close":
+            - img
+        - generic:
+          - generic:
+            - button "Sunrise 74 Karl's Lurking":
+              - generic: Sunrise
+              - generic: "74"
+              - generic:
+                - generic: Karl's Lurking
+            - button "Sunset 85 Karl-Free":
+              - generic: Sunset
+              - generic: "85"
+              - generic:
+                - generic: Karl-Free
+            - button "Stargazing 77 Karl-Free":
+              - generic: Stargazing
+              - generic: "77"
+              - generic:
+                - generic: Karl-Free
+        - generic:
+          - button "Show only":
+            - generic: Show only
+            - img
+        - generic:
+          - generic:
+            - button "What these mean":
+              - generic: What these mean
+              - img
+        - generic:
+          - button "Suggest a spot":
+            - generic: Suggest a spot
+            - img
+          - button "Report a bug":
+            - generic: Report a bug
+            - img
+  - generic:
+    - img
+    - 'button "Tip: Tap a spot to see tonight''s score. Tap to dismiss." [ref=e343] [cursor=pointer]':
+      - generic [ref=e344]: Tap a spot to see tonight's score

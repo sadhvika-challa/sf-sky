@@ -18,6 +18,7 @@ import WeatherSheetExpanded from './components/WeatherSheetExpanded';
 import InsightCard from './components/InsightCard';
 import WelcomeCard from './components/WelcomeCard';
 import OnboardingHint from './components/OnboardingHint';
+import PWAInstallPrompt from './components/PWAInstallPrompt';
 import type { ScoreTier } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
@@ -620,6 +621,8 @@ function App() {
       {/* Welcome card — first-ever load only. Rendered last so its
           backdrop sits above all other floating UI. */}
       {showWelcome && <WelcomeCard onDismiss={handleDismissWelcome} />}
+
+      <PWAInstallPrompt spotInteracted={!!selectedSpot} />
     </div>
   );
 }
