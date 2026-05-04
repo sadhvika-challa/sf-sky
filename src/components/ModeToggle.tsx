@@ -1,18 +1,23 @@
 import type { AppMode } from '../App';
+import type { City } from '../data/spots';
 
 interface ModeToggleProps {
   mode: AppMode;
   onChange: (mode: AppMode) => void;
+  city: City;
 }
 
 /**
  * Tight icon-only segmented control. Sits in the top-left corner over the
  * map and leaves the rest of the top row free for explore/weather chrome.
+ * Weather mode is SF-only for now — the cloud pill is hidden for Austin.
  */
-export default function ModeToggle({ mode, onChange }: ModeToggleProps) {
+export default function ModeToggle({ mode, onChange, city }: ModeToggleProps) {
+  const weatherAvailable = city === 'sf';
+
   return (
     <div
-      className="inline-grid grid-cols-2 gap-0.5 rounded-full bg-[rgba(250,250,248,0.95)] border-[0.5px] border-black/[0.08] p-0.5 shadow-sm flex-shrink-0"
+      className={`inline-grid ${weatherAvailable ? 'grid-cols-2' : 'grid-cols-1'} gap-0.5 rounded-full bg-[rgba(250,250,248,0.95)] border-[0.5px] border-black/[0.08] p-0.5 shadow-sm flex-shrink-0`}
       role="tablist"
       aria-label="App mode"
     >
@@ -23,13 +28,15 @@ export default function ModeToggle({ mode, onChange }: ModeToggleProps) {
       >
         <SunHorizonIcon />
       </ModePill>
-      <ModePill
-        active={mode === 'weather'}
-        onClick={() => onChange('weather')}
-        ariaLabel="Weather map mode"
-      >
-        <CloudIcon />
-      </ModePill>
+      {weatherAvailable && (
+        <ModePill
+          active={mode === 'weather'}
+          onClick={() => onChange('weather')}
+          ariaLabel="Weather map mode"
+        >
+          <CloudIcon />
+        </ModePill>
+      )}
     </div>
   );
 }

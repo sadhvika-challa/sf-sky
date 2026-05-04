@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import SunCalc from 'suncalc';
-import { type Spot } from '../data/spots';
+import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
 import { getScoreTier, tierColors, type ScoreTier } from '../utils/scoring';
@@ -262,13 +262,8 @@ interface ScorePanelProps {
   travelMode: TravelMode;
   onTravelModeChange: (mode: TravelMode) => void;
   liveScores: LiveScoresMap;
-  /**
-   * Fired the first time the user actually swipes between cards (i.e.
-   * the active card type changes from whatever it landed on at mount).
-   * Used by the onboarding flow to dismiss the "scroll to see all 3
-   * cards" hint as soon as the user proves they got it.
-   */
   onCardSwipe?: () => void;
+  city: City;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -282,7 +277,7 @@ interface ScorePanelProps {
 const SPEED_MPH: Record<TravelMode, number> = { walk: 2.5, car: 15 };
 const DETOUR_FACTOR: Record<TravelMode, number> = { walk: 1.4, car: 1.5 };
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city }: ScorePanelProps) {
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
     : null;
@@ -778,6 +773,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     spot={spot}
                     type={card.type}
                     eventDate={card.eventDate}
+                    city={city}
                   />
                 </div>
               ))}

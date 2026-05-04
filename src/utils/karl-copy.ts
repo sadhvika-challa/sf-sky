@@ -1,6 +1,8 @@
-// Karl voice for per-spot score commentary. Picks a deterministic line per
-// (spotId, day) so the same spot reads the same all session, but spots vary.
+// Per-spot score commentary. Karl voice for SF, neutral sky language for Austin.
+// Picks a deterministic line per (spotId, day) so the same spot reads the same
+// all session, but spots vary.
 
+import type { City } from '../data/spots';
 import type { ScoreType } from './scoring';
 
 type Bucket = 'incredible' | 'great' | 'decent' | 'meh' | 'bad' | 'terrible';
@@ -83,6 +85,84 @@ const STAR_LINES: Record<Bucket, readonly string[]> = {
   ],
 };
 
+const ATX_SUN_LINES: Record<Bucket, readonly string[]> = {
+  incredible: [
+    'This is going to be incredible.',
+    'Clear skies and wide open views.',
+    'The Hill Country sky is showing off tonight.',
+    'Perfect conditions. Get out there.',
+  ],
+  great: [
+    'Looking really good tonight.',
+    'Worth the drive.',
+    'Strong conditions. Should be a great show.',
+    'The sky is cooperating. Enjoy it.',
+  ],
+  decent: [
+    'Decent conditions. Could be nice.',
+    'Not bad at all.',
+    'Solid evening for it. Worth a look.',
+    'Should be pleasant out there.',
+  ],
+  meh: [
+    'Might want to check the forecast first.',
+    'Could go either way.',
+    'Mixed signals. Bring low expectations.',
+    'Not the best, not the worst.',
+  ],
+  bad: [
+    'Probably not worth the trip tonight.',
+    'Save it for a better evening.',
+    'Conditions aren\'t looking great.',
+    'Maybe stay closer to home tonight.',
+  ],
+  terrible: [
+    'Skip it tonight.',
+    'The sky\'s not cooperating.',
+    'Not happening tonight. Try again tomorrow.',
+    'Overcast and hazy. Save your gas.',
+  ],
+};
+
+const ATX_STAR_LINES: Record<Bucket, readonly string[]> = {
+  incredible: [
+    'Dark skies and clear conditions. Perfect.',
+    'The stars are putting on a show tonight.',
+    'Couldn\'t ask for better stargazing weather.',
+    'Wide open and crystal clear. Look up.',
+  ],
+  great: [
+    'Solid stargazing night. Get somewhere dark.',
+    'Clear enough for a good session.',
+    'The sky is cooperating. Bring a blanket.',
+    'Good visibility tonight. Worth the drive.',
+  ],
+  decent: [
+    'Some haze but you\'ll see the bright ones.',
+    'Not pristine, but still worth a look.',
+    'Decent enough. Pick a darker spot.',
+    'Constellations are findable tonight.',
+  ],
+  meh: [
+    'Patchy clouds. Bring low expectations.',
+    'Half clear, half not. Could be frustrating.',
+    'Maybe a few stars. Maybe not.',
+    'Mixed conditions for stargazing.',
+  ],
+  bad: [
+    'Too much cloud cover tonight.',
+    'Not great for stars. Try another night.',
+    'The clouds are winning.',
+    'Don\'t drive far. Save it for clearer skies.',
+  ],
+  terrible: [
+    'No stars tonight. Completely overcast.',
+    'Skip stargazing tonight.',
+    'The sky is shut. Try again tomorrow.',
+    'Total cloud cover. Nothing to see.',
+  ],
+};
+
 function bucketFor(score: number): Bucket {
   if (score >= 90) return 'incredible';
   if (score >= 75) return 'great';
@@ -111,17 +191,24 @@ function todayKey(date: Date = new Date()): string {
 }
 
 /**
- * Returns a short, in-character Karl line for a spot's live score. Same
- * spot/day pair yields the same line; different spots get variety.
+ * Returns a short commentary line for a spot's live score. Karl voice for SF,
+ * neutral sky language for Austin. Same spot/day pair yields the same line;
+ * different spots get variety.
  */
 export function getKarlComment(
   score: number,
   eventType: ScoreType,
-  spotId: number,
+  spotId: string,
   date: Date = new Date(),
+  city: City = 'sf',
 ): string {
   const bucket = bucketFor(score);
-  const lines = eventType === 'stargazing' ? STAR_LINES[bucket] : SUN_LINES[bucket];
+  let lines: readonly string[];
+  if (city === 'austin') {
+    lines = eventType === 'stargazing' ? ATX_STAR_LINES[bucket] : ATX_SUN_LINES[bucket];
+  } else {
+    lines = eventType === 'stargazing' ? STAR_LINES[bucket] : SUN_LINES[bucket];
+  }
   const idx = hash(`${spotId}|${eventType}|${todayKey(date)}`) % lines.length;
   return lines[idx];
 }

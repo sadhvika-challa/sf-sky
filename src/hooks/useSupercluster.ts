@@ -18,7 +18,7 @@ import Supercluster, { type AnyProps, type ClusterFeature, type PointFeature } f
  *   `maxZoom` is 17, so this leaves three levels of "everything separated".
  */
 export interface ClusterPointProps<T extends AnyProps> {
-  spotId: number;
+  spotId: string;
   payload: T;
 }
 
@@ -33,7 +33,7 @@ export function isClusterFeature(
 }
 
 interface UseSuperclusterArgs<T extends AnyProps> {
-  points: Array<{ id: number; lat: number; lng: number; payload: T }>;
+  points: Array<{ id: string; lat: number; lng: number; payload: T }>;
   /** Stop clustering above this zoom — individual pins from here on. */
   maxClusterZoom?: number;
   /** Pixel radius for cluster grouping. */

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Filters } from '../App';
+import type { City } from '../data/spots';
 import type { LiveScoresMap } from '../hooks/useLiveScores';
 import {
   computeCityOutlook,
@@ -19,6 +20,8 @@ interface FilterMenuProps {
   liveScores: LiveScoresMap;
   onSuggestSpot: () => void;
   onReportBug: () => void;
+  city: City;
+  onCityChange: (city: City) => void;
 }
 
 type FilterKey = keyof Filters;
@@ -121,7 +124,7 @@ function TierFilterRow({
   );
 }
 
-function OutlookCards({ outlook }: { outlook: CityOutlook }) {
+function OutlookCards({ outlook, city }: { outlook: CityOutlook; city: City }) {
   const [expanded, setExpanded] = useState<ScoreType | null>(null);
 
   if (!outlook.isLive) return null;
@@ -132,7 +135,7 @@ function OutlookCards({ outlook }: { outlook: CityOutlook }) {
         {eventOrder.map((type) => {
           const entry = outlook[type];
           const isOpen = expanded === type;
-          const message = outlookMessage(type, entry.status);
+          const message = outlookMessage(type, entry.status, city);
           const canExpand = message.length > 0;
           return (
             <button
@@ -158,26 +161,23 @@ function OutlookCards({ outlook }: { outlook: CityOutlook }) {
                   aria-hidden="true"
                 />
                 <span className="text-[10px] font-mono text-gray-600">
-                  {statusLabel(entry.status)}
+                  {statusLabel(entry.status, city)}
                 </span>
               </div>
             </button>
           );
         })}
       </div>
-      {expanded && outlookMessage(expanded, outlook[expanded].status) && (
+      {expanded && outlookMessage(expanded, outlook[expanded].status, city) && (
         <p className="text-[10px] font-mono text-gray-500 mt-2 px-1 leading-snug">
-          {outlookMessage(expanded, outlook[expanded].status)}
+          {outlookMessage(expanded, outlook[expanded].status, city)}
         </p>
       )}
     </div>
   );
 }
 
-// Plain-language definitions for the metrics shown on the score card. Lives
-// here in the settings sheet so the cards themselves stay clean — one place
-// to learn what everything means, instead of a tiny "i" next to every label.
-const GLOSSARY: { label: string; body: string }[] = [
+const SF_GLOSSARY: { label: string; body: string }[] = [
   {
     label: 'Conditions',
     body: "Karl's overall read for this event — blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality.",
@@ -204,8 +204,36 @@ const GLOSSARY: { label: string; body: string }[] = [
   },
 ];
 
-function GlossaryAccordion() {
+const ATX_GLOSSARY: { label: string; body: string }[] = [
+  {
+    label: 'Conditions',
+    body: "Overall read for this event — blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality.",
+  },
+  {
+    label: 'Temp',
+    body: "Forecast air temperature at the event time, in °F. Falls back to a seasonal average when live data isn't loaded.",
+  },
+  {
+    label: 'Clouds',
+    body: "Total sky coverage right now: Clear (<20%), Partly (<60%), Mid (<85%), Overcast. For sunsets, a little mid/high cloud is good — too much low cloud isn't.",
+  },
+  {
+    label: 'Humidity',
+    body: "Relative humidity at the event time. High humidity often means haze and washed-out colors — especially in Austin summers.",
+  },
+  {
+    label: 'Light Pollution',
+    body: "How dark the sky is overhead at this spot. Low = best for stars, High = city glow drowns them out. Intrinsic to the location, not the forecast.",
+  },
+  {
+    label: '% Full Visibility',
+    body: "How far you can see through the air, scaled 0–100% (≥30 km = 100%). Low values usually mean haze or humidity.",
+  },
+];
+
+function GlossaryAccordion({ city }: { city: City }) {
   const [open, setOpen] = useState(false);
+  const glossary = city === 'austin' ? ATX_GLOSSARY : SF_GLOSSARY;
 
   return (
     <div className="border-t border-cream-dark pt-2.5">
@@ -231,7 +259,7 @@ function GlossaryAccordion() {
       </button>
       {open && (
         <dl className="pt-1.5 pb-0.5 space-y-2">
-          {GLOSSARY.map((entry) => (
+          {glossary.map((entry) => (
             <div key={entry.label}>
               <dt className="font-mono text-[9px] tracking-[1.5px] uppercase text-gray-500">
                 {entry.label}
@@ -301,6 +329,36 @@ function QualityFilterAccordion({
   );
 }
 
+const CITY_OPTIONS: { value: City; label: string }[] = [
+  { value: 'sf', label: 'San Francisco' },
+  { value: 'austin', label: 'Austin' },
+];
+
+function CitySelector({ city, onChange }: { city: City; onChange: (c: City) => void }) {
+  return (
+    <div className="mb-3 pb-2.5 border-b border-cream-dark">
+      <div className="text-[10px] tracking-[1.5px] uppercase font-mono text-gray-500 mb-1.5">City</div>
+      <div className="inline-grid grid-cols-2 gap-0.5 rounded-full bg-cream-dark/40 p-0.5 w-full">
+        {CITY_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`px-3 py-1.5 rounded-full text-[10px] tracking-[1px] uppercase font-mono transition-all duration-150 ${
+              city === opt.value
+                ? 'bg-white text-gray-800 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            aria-pressed={city === opt.value}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FilterContent({
   filters,
   onChange,
@@ -309,6 +367,8 @@ function FilterContent({
   liveScores,
   onSuggestSpot,
   onReportBug,
+  city,
+  onCityChange,
 }: Omit<FilterMenuProps, 'open'>) {
   const isFiltered = Object.values(filters).some((tiers) => !isUnfiltered(tiers));
   const outlook = useMemo(() => computeCityOutlook(liveScores), [liveScores]);
@@ -329,7 +389,9 @@ function FilterContent({
         </button>
       </div>
 
-      <OutlookCards outlook={outlook} />
+      <CitySelector city={city} onChange={onCityChange} />
+
+      <OutlookCards outlook={outlook} city={city} />
 
       <QualityFilterAccordion filters={filters} onChange={onChange} isFiltered={isFiltered} />
 
@@ -343,8 +405,14 @@ function FilterContent({
       )}
 
       <div className="mt-3">
-        <GlossaryAccordion />
+        <GlossaryAccordion city={city} />
       </div>
+
+      {city === 'austin' && (
+        <p className="mt-2 text-[9px] font-mono text-gray-400 italic">
+          Weather mode coming soon for Austin.
+        </p>
+      )}
 
       <div className="mt-3 pt-2.5 border-t border-cream-dark">
         <button
@@ -403,6 +471,8 @@ export default function FilterMenu({
   liveScores,
   onSuggestSpot,
   onReportBug,
+  city,
+  onCityChange,
 }: FilterMenuProps) {
   useEffect(() => {
     if (!open) return;
@@ -421,6 +491,8 @@ export default function FilterMenu({
     liveScores,
     onSuggestSpot,
     onReportBug,
+    city,
+    onCityChange,
   };
 
   return (

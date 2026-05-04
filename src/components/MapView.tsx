@@ -1,7 +1,7 @@
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
-import { type Spot, spots } from '../data/spots';
+import { type Spot } from '../data/spots';
 import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { getKarlComment } from '../utils/karl-copy';
@@ -21,27 +21,22 @@ const isCoarsePointer =
   window.matchMedia('(hover: none)').matches;
 
 const SF_CENTER: [number, number] = [37.7649, -122.4494];
+const ATX_CENTER: [number, number] = [30.30, -97.78];
 
-/**
- * Pannable area derived from the actual spot list with ~0.15° of padding on
- * each side. Hard-coding a tight SF box used to make regional spots like
- * Mt Diablo, Pt Reyes, and Pigeon Point unreachable on touch — the
- * rubber-band from `maxBoundsViscosity` felt like a wall on mobile. Computing
- * from data keeps this honest as the dataset grows.
- */
 const PAN_PADDING_DEG = 0.15;
-const SF_BOUNDS: LatLngBoundsExpression = (() => {
-  const lats = spots.map((s) => s.lat);
-  const lngs = spots.map((s) => s.lng);
+
+function boundsFromSpots(spotList: ReadonlyArray<Spot>): LatLngBoundsExpression {
+  if (spotList.length === 0) {
+    return [[37.6, -122.6], [37.9, -122.3]];
+  }
+  const lats = spotList.map((s) => s.lat);
+  const lngs = spotList.map((s) => s.lng);
   const south = Math.min(...lats) - PAN_PADDING_DEG;
   const north = Math.max(...lats) + PAN_PADDING_DEG;
   const west = Math.min(...lngs) - PAN_PADDING_DEG;
   const east = Math.max(...lngs) + PAN_PADDING_DEG;
-  return [
-    [south, west],
-    [north, east],
-  ];
-})();
+  return [[south, west], [north, east]];
+}
 
 // Weather mode keeps the user inside the heatmap area. Numbers outside SF
 // would float over an empty basemap with no gradient, which looked broken.
@@ -79,6 +74,7 @@ export interface MapPoint {
 }
 
 interface MapViewProps {
+  spots: ReadonlyArray<Spot>;
   selectedSpot: Spot | null;
   /** Spot the user just dismissed; map will pan to it and pulse its pin. */
   highlightedSpot: Spot | null;
@@ -108,8 +104,18 @@ interface MapViewProps {
  * onto the map instance ourselves and clamp the view back inside the new
  * bounds. Otherwise the user could be stranded zoomed-out over the bay.
  */
-function ModeBoundsController({ appMode }: { appMode: AppMode }) {
+function ModeBoundsController({
+  appMode,
+  exploreBounds,
+  center,
+}: {
+  appMode: AppMode;
+  exploreBounds: LatLngBoundsExpression;
+  center: [number, number];
+}) {
   const map = useMap();
+  const prevCenterRef = useRef(center);
+
   useEffect(() => {
     if (appMode === 'weather') {
       map.setMinZoom(WEATHER_MIN_ZOOM);
@@ -123,9 +129,17 @@ function ModeBoundsController({ appMode }: { appMode: AppMode }) {
       }
     } else {
       map.setMinZoom(9);
-      map.setMaxBounds(SF_BOUNDS as L.LatLngBoundsLiteral);
+      map.setMaxBounds(exploreBounds as L.LatLngBoundsLiteral);
+      // If the city changed (center moved), fly to the new city.
+      if (
+        prevCenterRef.current[0] !== center[0] ||
+        prevCenterRef.current[1] !== center[1]
+      ) {
+        map.flyTo(center, 11, { duration: 0.6 });
+      }
+      prevCenterRef.current = center;
     }
-  }, [appMode, map]);
+  }, [appMode, map, exploreBounds, center]);
   return null;
 }
 
@@ -144,9 +158,11 @@ function ModeBoundsController({ appMode }: { appMode: AppMode }) {
 function TapSpotAnchorTracker({
   active,
   onAnchor,
+  spots: spotList,
 }: {
   active: boolean;
   onAnchor: ((point: MapPoint | null) => void) | undefined;
+  spots: ReadonlyArray<Spot>;
 }) {
   const map = useMap();
 
@@ -160,17 +176,14 @@ function TapSpotAnchorTracker({
 
     function pickAnchor(): L.LatLng | null {
       const size = map.getSize();
-      // Prefer pins in the upper-middle band — the lower portion of the
-      // screen is where the hint itself sits, so we don't want to pick
-      // a pin that's about to be covered by the hint's text.
       const targetX = size.x / 2;
       const targetY = size.y * 0.42;
       const sideMargin = 56;
-      const topMargin = 110; // clear of the toggle / search row
-      const bottomMargin = 160; // clear of the hint text + safe area
+      const topMargin = 110;
+      const bottomMargin = 160;
 
       let best: { dist: number; latLng: L.LatLng } | null = null;
-      for (const spot of spots) {
+      for (const spot of spotList) {
         const p = map.latLngToContainerPoint([spot.lat, spot.lng]);
         if (p.x < sideMargin || p.x > size.x - sideMargin) continue;
         if (p.y < topMargin || p.y > size.y - bottomMargin) continue;
@@ -192,9 +205,6 @@ function TapSpotAnchorTracker({
     if (lockedLatLng) {
       reportLocked();
     } else {
-      // No good candidate (extreme zoom, weird viewport) — fall back to
-      // a point in the upper-middle map area so the hint still has
-      // somewhere reasonable to sit.
       const size = map.getSize();
       onAnchor({ x: size.x / 2, y: size.y * 0.42 });
     }
@@ -203,7 +213,7 @@ function TapSpotAnchorTracker({
     return () => {
       map.off('move zoom moveend zoomend resize', reportLocked);
     };
-  }, [map, active, onAnchor]);
+  }, [map, active, onAnchor, spotList]);
 
   return null;
 }
@@ -279,21 +289,15 @@ function MapController({ selectedSpot }: { selectedSpot: Spot | null }) {
   return null;
 }
 
-/**
- * If the spot's best live score is rough (< 30), surface a Karl quip in the
- * marker tooltip. Returns undefined for static-only spots so we don't spoof
- * a "live" read with stale base scores.
- */
 function getMarkerQuip(spot: Spot, liveScores: LiveScoresMap): string | undefined {
   const entry = liveScores.get(spot.id);
   if (!entry || !entry.isLive) return undefined;
   const best = Math.max(entry.sunrise, entry.sunset, entry.stargazing);
   if (best >= 30) return undefined;
-  // Use the event type the spot is best at for a slightly less brutal line.
   let bestType: ScoreType = 'sunset';
   if (entry.sunrise >= entry.sunset && entry.sunrise >= entry.stargazing) bestType = 'sunrise';
   else if (entry.stargazing > entry.sunset) bestType = 'stargazing';
-  return getKarlComment(best, bestType, spot.id);
+  return getKarlComment(best, bestType, spot.id, undefined, spot.city);
 }
 
 // Tier-bucket filter. An empty (or full) selection for an event means "no
@@ -337,8 +341,9 @@ function getNextEventScore(spot: Spot, liveScores: LiveScoresMap): number {
  * `useSupercluster` (which wraps `useMap`) has the map instance available.
  */
 interface SpotClusterLayerProps {
+  spots: ReadonlyArray<Spot>;
   selectedSpot: Spot | null;
-  highlightedSpotId: number | null;
+  highlightedSpotId: string | null;
   onSelectSpot: (spot: Spot) => void;
   filters: Filters;
   liveScores: LiveScoresMap;
@@ -351,6 +356,7 @@ interface ClusterPayload {
 }
 
 function SpotClusterLayer({
+  spots: spotList,
   selectedSpot,
   highlightedSpotId,
   onSelectSpot,
@@ -359,11 +365,8 @@ function SpotClusterLayer({
 }: SpotClusterLayerProps) {
   const map = useMap();
 
-  // Bundle everything a marker needs into the cluster point so we don't redo
-  // this work later. Recomputed only when filters or live scores actually
-  // change reference, not on every parent render.
   const points = useMemo(() => {
-    return spots
+    return spotList
       .filter((s) => passesFilter(s, filters, liveScores))
       .map((spot) => ({
         id: spot.id,
@@ -375,7 +378,7 @@ function SpotClusterLayer({
           quip: getMarkerQuip(spot, liveScores),
         } satisfies ClusterPayload,
       }));
-  }, [filters, liveScores]);
+  }, [spotList, filters, liveScores]);
 
   const { clusters, supercluster } = useSupercluster<ClusterPayload>({
     points,
@@ -448,6 +451,7 @@ function SpotClusterLayer({
 }
 
 export default function MapView({
+  spots: spotList,
   selectedSpot,
   highlightedSpot,
   onSelectSpot,
@@ -462,22 +466,22 @@ export default function MapView({
   tapSpotHintActive,
   onTapSpotAnchorChange,
 }: MapViewProps) {
-  // Both modes share the Carto Voyager palette (cream-white land + soft blue
-  // water) so toggling between Explore and Weather feels like the same map.
-  // Explore keeps the labeled variant so users can read street/place names;
-  // Weather drops labels so they don't fight the heatmap + smart labels.
   const tileUrl =
     appMode === 'weather'
       ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png'
       : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 
+  const exploreBounds = useMemo(() => boundsFromSpots(spotList), [spotList]);
+  const city = spotList.length > 0 ? spotList[0].city : 'sf';
+  const center: [number, number] = city === 'austin' ? ATX_CENTER : SF_CENTER;
+
   const isWeather = appMode === 'weather';
   return (
     <MapContainer
-      center={SF_CENTER}
+      center={center}
       zoom={12.5}
       zoomSnap={0.5}
-      maxBounds={isWeather ? WEATHER_BOUNDS : SF_BOUNDS}
+      maxBounds={isWeather ? WEATHER_BOUNDS : exploreBounds}
       maxBoundsViscosity={isWeather ? 1 : 0.8}
       minZoom={isWeather ? WEATHER_MIN_ZOOM : 9}
       maxZoom={17}
@@ -487,15 +491,10 @@ export default function MapView({
       preferCanvas
     >
       <TileLayer
-        // Key the tile layer on the URL so leaflet swaps cleanly when the
-        // user toggles mode (instead of trying to reuse the old layer).
         key={tileUrl}
         url={tileUrl}
         subdomains={['a', 'b', 'c', 'd']}
         detectRetina
-        // Smoother tiling on dense screens: keep an extra ring of cached
-        // tiles around the viewport, and skip mid-zoom redraws so the
-        // basemap doesn't strobe through partial loads while pinching.
         keepBuffer={4}
         updateWhenZooming={false}
         updateWhenIdle
@@ -515,11 +514,12 @@ export default function MapView({
         </Marker>
       )}
 
-      <ModeBoundsController appMode={appMode} />
+      <ModeBoundsController appMode={appMode} exploreBounds={exploreBounds} center={center} />
 
       {appMode === 'explore' ? (
         <>
           <SpotClusterLayer
+            spots={spotList}
             selectedSpot={selectedSpot}
             highlightedSpotId={highlightedSpot?.id ?? null}
             onSelectSpot={onSelectSpot}
@@ -532,6 +532,7 @@ export default function MapView({
           <TapSpotAnchorTracker
             active={!!tapSpotHintActive}
             onAnchor={onTapSpotAnchorChange}
+            spots={spotList}
           />
         </>
       ) : (

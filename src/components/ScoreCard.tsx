@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toBlob } from 'html-to-image';
-import { type Spot, type AccessAlert, getConditionLabel, getPoetic } from '../data/spots';
+import { type Spot, type City, type AccessAlert, getConditionLabel, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { useSpotForecast } from '../hooks/useSpotForecast';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
@@ -15,6 +15,7 @@ interface ScoreCardProps {
   spot: Spot;
   type: CardType;
   eventDate: Date;
+  city: City;
 }
 
 function formatTime(date: Date): { time: string; period: string } {
@@ -337,7 +338,7 @@ const typeTitle: Record<CardType, string> = {
   stargazing: "STARGAZING",
 };
 
-export default function ScoreCard({ spot, type, eventDate }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventDate, city }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const times = SunCalc.getTimes(eventDate, spot.lat, spot.lng);
@@ -373,7 +374,7 @@ export default function ScoreCard({ spot, type, eventDate }: ScoreCardProps) {
 
   const condition = getConditionLabel(score);
   const poetic = getPoetic(type, score);
-  const karlLine = getKarlComment(score, type, spot.id, eventDate);
+  const karlLine = getKarlComment(score, type, spot.id, eventDate, city);
   const gradient = getSkyGradient(type, score);
   // Internal temp stays in °F so getTempCopy's thresholds keep their meaning;
   // the displayed value is converted on the fly per the user's preference.
@@ -546,12 +547,14 @@ export default function ScoreCard({ spot, type, eventDate }: ScoreCardProps) {
 
         <p
           className="font-serif italic text-[12px] leading-snug text-gray-600"
-          aria-label="Karl's take"
+          aria-label={city === 'sf' ? "Karl's take" : 'Sky conditions'}
         >
           &ldquo;{karlLine}&rdquo;
-          <span className="not-italic font-mono text-[8px] tracking-[2px] uppercase text-gray-400 ml-1.5">
-            — Karl
-          </span>
+          {city === 'sf' && (
+            <span className="not-italic font-mono text-[8px] tracking-[2px] uppercase text-gray-400 ml-1.5">
+              — Karl
+            </span>
+          )}
         </p>
 
         {/* Featured temperature tile + compact 2x2 metric grid. The temp

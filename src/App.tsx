@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { spots, type Spot } from './data/spots';
+import { type Spot, type City } from './data/spots';
+import { allSpots } from './data/all-spots';
 import { useGeolocation } from './hooks/useGeolocation';
 import { useLiveScores } from './hooks/useLiveScores';
 import { useNeighborhoodForecasts } from './hooks/useNeighborhoodForecasts';
@@ -45,6 +46,7 @@ export type AppMode = 'explore' | 'weather';
 type CardType = 'sunrise' | 'sunset' | 'stargazing';
 
 const APP_MODE_STORAGE_KEY = 'sf-sky:appMode';
+const CITY_STORAGE_KEY = 'sf-sky:selectedCity';
 
 function readStoredAppMode(): AppMode {
   if (typeof window === 'undefined') return 'explore';
@@ -53,6 +55,16 @@ function readStoredAppMode(): AppMode {
     return raw === 'weather' ? 'weather' : 'explore';
   } catch {
     return 'explore';
+  }
+}
+
+function readStoredCity(): City {
+  if (typeof window === 'undefined') return 'sf';
+  try {
+    const raw = window.localStorage.getItem(CITY_STORAGE_KEY);
+    return raw === 'austin' ? 'austin' : 'sf';
+  } catch {
+    return 'sf';
   }
 }
 
@@ -103,6 +115,7 @@ function App() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [travelMode, setTravelMode] = useState<TravelMode>('walk');
   const [appMode, setAppMode] = useState<AppMode>(readStoredAppMode);
+  const [selectedCity, setSelectedCity] = useState<City>(readStoredCity);
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [weatherHourKey, setWeatherHourKey] = useState<string>('');
   const [weatherSheetExpanded, setWeatherSheetExpanded] = useState(false);
@@ -126,8 +139,12 @@ function App() {
   const [showMetricsHint, setShowMetricsHint] = useState(false);
   const [showScrubHint, setShowScrubHint] = useState(false);
   const [showCompleteHint, setShowCompleteHint] = useState(false);
+  const activeSpots = useMemo(
+    () => allSpots.filter((s) => s.city === selectedCity),
+    [selectedCity],
+  );
   const userLocation = useGeolocation();
-  const liveScores = useLiveScores(spots);
+  const liveScores = useLiveScores(activeSpots);
   const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
     useNeighborhoodForecasts(appMode === 'weather');
 
@@ -140,6 +157,30 @@ function App() {
       window.localStorage.setItem(APP_MODE_STORAGE_KEY, appMode);
     } catch {
       // Storage disabled / quota exceeded — non-fatal.
+    }
+  }, [appMode]);
+
+  // Persist city selection.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(CITY_STORAGE_KEY, selectedCity);
+    } catch {
+      // Storage disabled / quota exceeded — non-fatal.
+    }
+  }, [selectedCity]);
+
+  const handleCityChange = useCallback((city: City) => {
+    setSelectedCity(city);
+    setSelectedSpot(null);
+    setHighlightedSpot(null);
+    setInitialCardType(undefined);
+    setMenuOpen(false);
+    setSearchOpen(false);
+    setFilters(defaultFilters);
+    // Austin doesn't support weather mode yet.
+    if (city === 'austin' && appMode === 'weather') {
+      setAppMode('explore');
     }
   }, [appMode]);
 
@@ -209,18 +250,18 @@ function App() {
     const viewParam = params.get('view');
     if (!spotParam) return;
 
-    const spotId = Number(spotParam);
-    if (!Number.isFinite(spotId)) return;
-
-    const match = spots.find((s) => s.id === spotId);
+    const match = allSpots.find((s) => s.id === spotParam);
     if (!match) return;
 
+    if (match.city !== selectedCity) {
+      setSelectedCity(match.city);
+    }
     setSelectedSpot(match);
     if (isCardType(viewParam)) setInitialCardType(viewParam);
 
-    // Clean the URL so future shares don't accumulate stale params
     const cleanUrl = `${window.location.pathname}${window.location.hash}`;
     window.history.replaceState({}, '', cleanUrl);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Latest-selected spot, mirrored into a ref so `handleSelectSpot` (which
@@ -392,6 +433,7 @@ function App() {
           the body's water-blue fallback. */}
       <div className="fixed inset-0 z-0">
         <MapView
+          spots={activeSpots}
           selectedSpot={selectedSpot}
           highlightedSpot={highlightedSpot}
           onSelectSpot={handleSelectSpot}
@@ -419,7 +461,7 @@ function App() {
           appMode === 'explore' ? 'gap-1.5' : 'gap-2'
         }`}
       >
-        <ModeToggle mode={appMode} onChange={handleModeChange} />
+        <ModeToggle mode={appMode} onChange={handleModeChange} city={selectedCity} />
         {appMode === 'explore' ? (
           <>
             <SearchBar onOpen={() => setSearchOpen(true)} />
@@ -472,6 +514,8 @@ function App() {
           liveScores={liveScores}
           onSuggestSpot={handleSuggestFromMenu}
           onReportBug={handleReportBugFromMenu}
+          city={selectedCity}
+          onCityChange={handleCityChange}
         />
       )}
 
@@ -493,10 +537,12 @@ function App() {
         <SearchOverlay
           open={searchOpen}
           onClose={() => setSearchOpen(false)}
+          spots={activeSpots}
           liveScores={liveScores}
           userLocation={userLocation}
           onSelectSpot={handleSelectSpot}
           onSuggestSpot={handleSuggestFromSearch}
+          city={selectedCity}
         />
       )}
 
@@ -527,6 +573,7 @@ function App() {
           onTravelModeChange={setTravelMode}
           liveScores={liveScores}
           onCardSwipe={handleScorePanelCardSwipe}
+          city={selectedCity}
         />
       )}
 

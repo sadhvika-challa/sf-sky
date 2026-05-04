@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { spots, type Spot } from '../data/spots';
+import { type Spot, type City } from '../data/spots';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { getUpcomingEventTimes } from '../utils/events';
@@ -9,14 +9,12 @@ import { getScoreTier, tierColors, type ScoreType } from '../utils/scoring';
 interface SearchOverlayProps {
   open: boolean;
   onClose: () => void;
+  spots: ReadonlyArray<Spot>;
   liveScores: LiveScoresMap;
   userLocation: UserLocation | null;
   onSelectSpot: (spot: Spot) => void;
-  /**
-   * Hand off to the suggest-a-spot flow. Receives the current query so the
-   * suggest form can pre-fill the name field with whatever the user typed.
-   */
   onSuggestSpot: (seed: string) => void;
+  city: City;
 }
 
 interface RankedSpot {
@@ -41,10 +39,11 @@ function formatEventTime(date: Date): string {
 }
 
 function buildRanking(
+  spotList: ReadonlyArray<Spot>,
   liveScores: LiveScoresMap,
   userLocation: UserLocation | null,
 ): RankedSpot[] {
-  return spots.map((spot) => {
+  return spotList.map((spot) => {
     const events = getUpcomingEventTimes(spot);
     const order: ScoreType[] = (['sunrise', 'sunset', 'stargazing'] as ScoreType[])
       .filter((t) => !Number.isNaN(events[t].getTime()))
@@ -62,10 +61,12 @@ function buildRanking(
 export default function SearchOverlay({
   open,
   onClose,
+  spots: spotList,
   liveScores,
   userLocation,
   onSelectSpot,
   onSuggestSpot,
+  city,
 }: SearchOverlayProps) {
   const [query, setQuery] = useState('');
   // Render-vs-mount split so we can play exit animation before unmounting.
@@ -105,8 +106,8 @@ export default function SearchOverlay({
   }, [open, onClose]);
 
   const ranked = useMemo(
-    () => buildRanking(liveScores, userLocation),
-    [liveScores, userLocation],
+    () => buildRanking(spotList, liveScores, userLocation),
+    [spotList, liveScores, userLocation],
   );
 
   const trimmed = query.trim().toLowerCase();
@@ -205,7 +206,7 @@ export default function SearchOverlay({
               const tier = getScoreTier(r.score);
               const distance =
                 r.distanceMi !== null ? ` · ${r.distanceMi.toFixed(1)} mi` : '';
-              const karl = getKarlComment(r.score, r.nextType, r.spot.id);
+              const karl = getKarlComment(r.score, r.nextType, r.spot.id, undefined, city);
               return (
                 <li
                   key={r.spot.id}

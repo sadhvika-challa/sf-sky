@@ -13,7 +13,7 @@ export interface LiveSpotScores {
   isLive: boolean;
 }
 
-export type LiveScoresMap = Map<number, LiveSpotScores>;
+export type LiveScoresMap = Map<string, LiveSpotScores>;
 
 function staticScores(spot: Spot): LiveSpotScores {
   return {
