@@ -62,7 +62,8 @@ function readStoredCity(): City {
   if (typeof window === 'undefined') return 'sf';
   try {
     const raw = window.localStorage.getItem(CITY_STORAGE_KEY);
-    return raw === 'austin' ? 'austin' : 'sf';
+    if (raw === 'austin' || raw === 'santa-cruz') return raw;
+    return 'sf';
   } catch {
     return 'sf';
   }
@@ -178,8 +179,8 @@ function App() {
     setMenuOpen(false);
     setSearchOpen(false);
     setFilters(defaultFilters);
-    // Austin doesn't support weather mode yet.
-    if (city === 'austin' && appMode === 'weather') {
+    // Weather mode is SF-only for now.
+    if (city !== 'sf' && appMode === 'weather') {
       setAppMode('explore');
     }
   }, [appMode]);

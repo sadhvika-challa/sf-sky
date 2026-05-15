@@ -332,13 +332,14 @@ function QualityFilterAccordion({
 const CITY_OPTIONS: { value: City; label: string }[] = [
   { value: 'sf', label: 'San Francisco' },
   { value: 'austin', label: 'Austin' },
+  { value: 'santa-cruz', label: 'Santa Cruz' },
 ];
 
 function CitySelector({ city, onChange }: { city: City; onChange: (c: City) => void }) {
   return (
     <div className="mb-3 pb-2.5 border-b border-cream-dark">
       <div className="text-[10px] tracking-[1.5px] uppercase font-mono text-gray-500 mb-1.5">City</div>
-      <div className="inline-grid grid-cols-2 gap-0.5 rounded-full bg-cream-dark/40 p-0.5 w-full">
+      <div className="inline-grid grid-cols-3 gap-0.5 rounded-full bg-cream-dark/40 p-0.5 w-full">
         {CITY_OPTIONS.map((opt) => (
           <button
             key={opt.value}
@@ -408,9 +409,9 @@ function FilterContent({
         <GlossaryAccordion city={city} />
       </div>
 
-      {city === 'austin' && (
+      {city !== 'sf' && (
         <p className="mt-2 text-[9px] font-mono text-gray-400 italic">
-          Weather mode coming soon for Austin.
+          Weather mode coming soon for {city === 'austin' ? 'Austin' : 'Santa Cruz'}.
         </p>
       )}
 

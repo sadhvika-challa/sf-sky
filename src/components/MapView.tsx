@@ -22,6 +22,7 @@ const isCoarsePointer =
 
 const SF_CENTER: [number, number] = [37.7649, -122.4494];
 const ATX_CENTER: [number, number] = [30.30, -97.78];
+const SC_CENTER: [number, number] = [36.974, -122.030];
 
 const PAN_PADDING_DEG = 0.15;
 
@@ -473,7 +474,8 @@ export default function MapView({
 
   const exploreBounds = useMemo(() => boundsFromSpots(spotList), [spotList]);
   const city = spotList.length > 0 ? spotList[0].city : 'sf';
-  const center: [number, number] = city === 'austin' ? ATX_CENTER : SF_CENTER;
+  const center: [number, number] =
+    city === 'austin' ? ATX_CENTER : city === 'santa-cruz' ? SC_CENTER : SF_CENTER;
 
   const isWeather = appMode === 'weather';
   return (

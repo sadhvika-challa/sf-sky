@@ -2,7 +2,7 @@ export type SpotCategory = 'hilltop' | 'waterfront' | 'park';
 
 export type AccessAlertType = 'hike' | 'tide' | 'hours' | 'paid' | 'info';
 
-export type City = 'sf' | 'austin';
+export type City = 'sf' | 'austin' | 'santa-cruz';
 
 // Optional, sparingly applied. Only attach when there's something a visitor
 // genuinely needs to know before going (gate hours, tide windows, hike

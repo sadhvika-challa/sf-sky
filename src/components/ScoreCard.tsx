@@ -547,10 +547,10 @@ export default function ScoreCard({ spot, type, eventDate, city }: ScoreCardProp
 
         <p
           className="font-serif italic text-[12px] leading-snug text-gray-600"
-          aria-label={city === 'sf' ? "Karl's take" : 'Sky conditions'}
+          aria-label={city !== 'austin' ? "Karl's take" : 'Sky conditions'}
         >
           &ldquo;{karlLine}&rdquo;
-          {city === 'sf' && (
+          {city !== 'austin' && (
             <span className="not-italic font-mono text-[8px] tracking-[2px] uppercase text-gray-400 ml-1.5">
               — Karl
             </span>
