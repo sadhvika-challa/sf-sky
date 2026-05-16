@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type Spot, type City } from './data/spots';
 import { allSpots } from './data/all-spots';
-import { getCityById, getValidCityId, type CityConfig } from './data/cities';
+import { getCityById, getValidCityId } from './data/cities';
 import { useGeolocation } from './hooks/useGeolocation';
 import { useLiveScores } from './hooks/useLiveScores';
 import { useNeighborhoodForecasts } from './hooks/useNeighborhoodForecasts';
