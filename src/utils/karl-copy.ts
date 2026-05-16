@@ -204,7 +204,7 @@ export function getKarlComment(
 ): string {
   const bucket = bucketFor(score);
   let lines: readonly string[];
-  if (city === 'austin') {
+  if (city === 'austin' || city === 'santa-cruz') {
     lines = eventType === 'stargazing' ? ATX_STAR_LINES[bucket] : ATX_SUN_LINES[bucket];
   } else {
     lines = eventType === 'stargazing' ? STAR_LINES[bucket] : SUN_LINES[bucket];

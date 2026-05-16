@@ -74,7 +74,7 @@ export function computeCityOutlook(scores: LiveScoresMap): CityOutlook {
  * Citywide outlook commentary. Karl voice for SF, neutral for Austin.
  */
 export function outlookMessage(type: ScoreType, status: OutlookStatus, city: City = 'sf'): string {
-  if (city === 'austin') return atxOutlookMessage(type, status);
+  if (city !== 'sf') return genericOutlookMessage(type, status);
   switch (status) {
     case 'good':
       switch (type) {
@@ -122,7 +122,7 @@ export function outlookMessage(type: ScoreType, status: OutlookStatus, city: Cit
   }
 }
 
-function atxOutlookMessage(type: ScoreType, status: OutlookStatus): string {
+function genericOutlookMessage(type: ScoreType, status: OutlookStatus): string {
   switch (status) {
     case 'good':
       switch (type) {
@@ -171,7 +171,7 @@ function atxOutlookMessage(type: ScoreType, status: OutlookStatus): string {
 }
 
 export function statusLabel(status: OutlookStatus, city: City = 'sf'): string {
-  if (city === 'austin') {
+  if (city !== 'sf') {
     switch (status) {
       case 'good': return 'Clear Skies';
       case 'mixed': return 'Mixed Conditions';

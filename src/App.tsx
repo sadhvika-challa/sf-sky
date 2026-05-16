@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type Spot, type City } from './data/spots';
 import { allSpots } from './data/all-spots';
+import { getCityById, getValidCityId, type CityConfig } from './data/cities';
 import { useGeolocation } from './hooks/useGeolocation';
 import { useLiveScores } from './hooks/useLiveScores';
 import { useNeighborhoodForecasts } from './hooks/useNeighborhoodForecasts';
@@ -20,6 +21,7 @@ import InsightCard from './components/InsightCard';
 import WelcomeCard from './components/WelcomeCard';
 import OnboardingHint from './components/OnboardingHint';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
+import CitySheet from './components/CitySheet';
 import type { ScoreTier } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
@@ -46,7 +48,8 @@ export type AppMode = 'explore' | 'weather';
 type CardType = 'sunrise' | 'sunset' | 'stargazing';
 
 const APP_MODE_STORAGE_KEY = 'sf-sky:appMode';
-const CITY_STORAGE_KEY = 'sf-sky:selectedCity';
+const HOME_CITY_KEY = 'sky:homeCity';
+const ACTIVE_CITY_KEY = 'sky:activeCity';
 
 function readStoredAppMode(): AppMode {
   if (typeof window === 'undefined') return 'explore';
@@ -58,14 +61,23 @@ function readStoredAppMode(): AppMode {
   }
 }
 
-function readStoredCity(): City {
+function readStoredHomeCity(): City {
   if (typeof window === 'undefined') return 'sf';
   try {
-    const raw = window.localStorage.getItem(CITY_STORAGE_KEY);
-    if (raw === 'austin' || raw === 'santa-cruz') return raw;
-    return 'sf';
+    const raw = window.localStorage.getItem(HOME_CITY_KEY);
+    return getValidCityId(raw);
   } catch {
     return 'sf';
+  }
+}
+
+function readStoredActiveCity(fallback: City): City {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_CITY_KEY);
+    return getValidCityId(raw || fallback);
+  } catch {
+    return fallback;
   }
 }
 
@@ -116,7 +128,10 @@ function App() {
   const [filters, setFilters] = useState<Filters>(defaultFilters);
   const [travelMode, setTravelMode] = useState<TravelMode>('walk');
   const [appMode, setAppMode] = useState<AppMode>(readStoredAppMode);
-  const [selectedCity, setSelectedCity] = useState<City>(readStoredCity);
+  const [homeCityId, setHomeCityIdRaw] = useState<City>(readStoredHomeCity);
+  const [activeCityId, setActiveCityIdRaw] = useState<City>(() => readStoredActiveCity(readStoredHomeCity()));
+  const [citySheetOpen, setCitySheetOpen] = useState(false);
+  const activeCityConfig = getCityById(activeCityId) ?? getCityById('sf')!;
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [weatherHourKey, setWeatherHourKey] = useState<string>('');
   const [weatherSheetExpanded, setWeatherSheetExpanded] = useState(false);
@@ -141,8 +156,8 @@ function App() {
   const [showScrubHint, setShowScrubHint] = useState(false);
   const [showCompleteHint, setShowCompleteHint] = useState(false);
   const activeSpots = useMemo(
-    () => allSpots.filter((s) => s.city === selectedCity),
-    [selectedCity],
+    () => allSpots.filter((s) => s.city === activeCityId),
+    [activeCityId],
   );
   const userLocation = useGeolocation();
   const liveScores = useLiveScores(activeSpots);
@@ -161,29 +176,40 @@ function App() {
     }
   }, [appMode]);
 
-  // Persist city selection.
+  // Persist city selections.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(CITY_STORAGE_KEY, selectedCity);
-    } catch {
-      // Storage disabled / quota exceeded — non-fatal.
-    }
-  }, [selectedCity]);
+      window.localStorage.setItem(HOME_CITY_KEY, homeCityId);
+    } catch { /* non-fatal */ }
+  }, [homeCityId]);
 
-  const handleCityChange = useCallback((city: City) => {
-    setSelectedCity(city);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(ACTIVE_CITY_KEY, activeCityId);
+    } catch { /* non-fatal */ }
+  }, [activeCityId]);
+
+  const setActiveCity = useCallback((city: City) => {
+    setActiveCityIdRaw(city);
     setSelectedSpot(null);
     setHighlightedSpot(null);
     setInitialCardType(undefined);
     setMenuOpen(false);
     setSearchOpen(false);
     setFilters(defaultFilters);
-    // Weather mode is SF-only for now.
-    if (city !== 'sf' && appMode === 'weather') {
+    setCitySheetOpen(false);
+    const config = getCityById(city);
+    if (config && !config.hasWeatherMode && appMode === 'weather') {
       setAppMode('explore');
     }
   }, [appMode]);
+
+  const setHomeCity = useCallback((city: City) => {
+    setHomeCityIdRaw(city);
+    setActiveCity(city);
+  }, [setActiveCity]);
 
   // When weather forecasts arrive (or change), default the scrubber to the
   // hour closest to "now" so the user lands on real-time data first.
@@ -254,8 +280,8 @@ function App() {
     const match = allSpots.find((s) => s.id === spotParam);
     if (!match) return;
 
-    if (match.city !== selectedCity) {
-      setSelectedCity(match.city);
+    if (match.city !== activeCityId) {
+      setActiveCityIdRaw(match.city);
     }
     setSelectedSpot(match);
     if (isCardType(viewParam)) setInitialCardType(viewParam);
@@ -443,6 +469,7 @@ function App() {
           filters={filters}
           liveScores={liveScores}
           appMode={appMode}
+          cityConfig={activeCityConfig}
           weatherMetric={weatherMetric}
           weatherHourKey={weatherHourKey}
           weatherForecasts={weatherForecasts}
@@ -462,7 +489,7 @@ function App() {
           appMode === 'explore' ? 'gap-1.5' : 'gap-2'
         }`}
       >
-        <ModeToggle mode={appMode} onChange={handleModeChange} city={selectedCity} />
+        <ModeToggle mode={appMode} onChange={handleModeChange} city={activeCityId} />
         {appMode === 'explore' ? (
           <>
             <SearchBar onOpen={() => setSearchOpen(true)} />
@@ -515,8 +542,9 @@ function App() {
           liveScores={liveScores}
           onSuggestSpot={handleSuggestFromMenu}
           onReportBug={handleReportBugFromMenu}
-          city={selectedCity}
-          onCityChange={handleCityChange}
+          city={activeCityId}
+          homeCityId={homeCityId}
+          onOpenCitySheet={() => setCitySheetOpen(true)}
         />
       )}
 
@@ -543,7 +571,7 @@ function App() {
           userLocation={userLocation}
           onSelectSpot={handleSelectSpot}
           onSuggestSpot={handleSuggestFromSearch}
-          city={selectedCity}
+          city={activeCityId}
         />
       )}
 
@@ -574,7 +602,7 @@ function App() {
           onTravelModeChange={setTravelMode}
           liveScores={liveScores}
           onCardSwipe={handleScorePanelCardSwipe}
-          city={selectedCity}
+          city={activeCityId}
         />
       )}
 
@@ -665,6 +693,16 @@ function App() {
           ariaLabel="Onboarding complete. Tap to dismiss."
         />
       )}
+
+      {/* City picker bottom sheet — rendered at App level so it overlays everything */}
+      <CitySheet
+        open={citySheetOpen}
+        onClose={() => setCitySheetOpen(false)}
+        activeCityId={activeCityId}
+        homeCityId={homeCityId}
+        onSelectCity={setActiveCity}
+        onSetHomeCity={setHomeCity}
+      />
 
       {/* Welcome card — first-ever load only. Rendered last so its
           backdrop sits above all other floating UI. */}

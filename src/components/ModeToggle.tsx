@@ -1,5 +1,6 @@
 import type { AppMode } from '../App';
 import type { City } from '../data/spots';
+import { getCityById } from '../data/cities';
 
 interface ModeToggleProps {
   mode: AppMode;
@@ -7,13 +8,9 @@ interface ModeToggleProps {
   city: City;
 }
 
-/**
- * Tight icon-only segmented control. Sits in the top-left corner over the
- * map and leaves the rest of the top row free for explore/weather chrome.
- * Weather mode is SF-only for now — the cloud pill is hidden for Austin.
- */
 export default function ModeToggle({ mode, onChange, city }: ModeToggleProps) {
-  const weatherAvailable = city === 'sf';
+  const config = getCityById(city);
+  const weatherAvailable = config?.hasWeatherMode ?? false;
 
   return (
     <div

@@ -2,6 +2,7 @@ import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet'
 import { useEffect, useMemo, useRef } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
 import { type Spot } from '../data/spots';
+import { type CityConfig } from '../data/cities';
 import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { getKarlComment } from '../utils/karl-copy';
@@ -19,10 +20,6 @@ const isCoarsePointer =
   typeof window !== 'undefined' &&
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(hover: none)').matches;
-
-const SF_CENTER: [number, number] = [37.7649, -122.4494];
-const ATX_CENTER: [number, number] = [30.30, -97.78];
-const SC_CENTER: [number, number] = [36.974, -122.030];
 
 const PAN_PADDING_DEG = 0.15;
 
@@ -77,7 +74,6 @@ export interface MapPoint {
 interface MapViewProps {
   spots: ReadonlyArray<Spot>;
   selectedSpot: Spot | null;
-  /** Spot the user just dismissed; map will pan to it and pulse its pin. */
   highlightedSpot: Spot | null;
   onSelectSpot: (spot: Spot) => void;
   onDeselectSpot: () => void;
@@ -85,16 +81,10 @@ interface MapViewProps {
   filters: Filters;
   liveScores: LiveScoresMap;
   appMode: AppMode;
+  cityConfig: CityConfig;
   weatherMetric: WeatherMetric;
   weatherHourKey: string;
   weatherForecasts: Map<number, SpotForecast>;
-  /**
-   * When true, MapView picks the visible pin closest to the map's
-   * working center and reports its screen position via
-   * `onTapSpotAnchorChange`. App.tsx uses that point to render the
-   * tap-spot onboarding hint right below the chosen pin so the arrow
-   * has a real target instead of pointing at empty space.
-   */
   tapSpotHintActive?: boolean;
   onTapSpotAnchorChange?: (point: MapPoint | null) => void;
 }
@@ -109,10 +99,12 @@ function ModeBoundsController({
   appMode,
   exploreBounds,
   center,
+  defaultZoom,
 }: {
   appMode: AppMode;
   exploreBounds: LatLngBoundsExpression;
   center: [number, number];
+  defaultZoom: number;
 }) {
   const map = useMap();
   const prevCenterRef = useRef(center);
@@ -131,16 +123,20 @@ function ModeBoundsController({
     } else {
       map.setMinZoom(9);
       map.setMaxBounds(exploreBounds as L.LatLngBoundsLiteral);
-      // If the city changed (center moved), fly to the new city.
       if (
         prevCenterRef.current[0] !== center[0] ||
         prevCenterRef.current[1] !== center[1]
       ) {
-        map.flyTo(center, 11, { duration: 0.6 });
+        const distance = Math.hypot(
+          center[0] - prevCenterRef.current[0],
+          center[1] - prevCenterRef.current[1],
+        );
+        const duration = distance > 2 ? 1.2 : 0.6;
+        map.flyTo(center, defaultZoom, { duration });
       }
       prevCenterRef.current = center;
     }
-  }, [appMode, map, exploreBounds, center]);
+  }, [appMode, map, exploreBounds, center, defaultZoom]);
   return null;
 }
 
@@ -461,6 +457,7 @@ export default function MapView({
   filters,
   liveScores,
   appMode,
+  cityConfig,
   weatherMetric,
   weatherHourKey,
   weatherForecasts,
@@ -473,15 +470,13 @@ export default function MapView({
       : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 
   const exploreBounds = useMemo(() => boundsFromSpots(spotList), [spotList]);
-  const city = spotList.length > 0 ? spotList[0].city : 'sf';
-  const center: [number, number] =
-    city === 'austin' ? ATX_CENTER : city === 'santa-cruz' ? SC_CENTER : SF_CENTER;
+  const center = cityConfig.center;
 
   const isWeather = appMode === 'weather';
   return (
     <MapContainer
       center={center}
-      zoom={12.5}
+      zoom={cityConfig.defaultZoom}
       zoomSnap={0.5}
       maxBounds={isWeather ? WEATHER_BOUNDS : exploreBounds}
       maxBoundsViscosity={isWeather ? 1 : 0.8}
@@ -516,7 +511,7 @@ export default function MapView({
         </Marker>
       )}
 
-      <ModeBoundsController appMode={appMode} exploreBounds={exploreBounds} center={center} />
+      <ModeBoundsController appMode={appMode} exploreBounds={exploreBounds} center={center} defaultZoom={cityConfig.defaultZoom} />
 
       {appMode === 'explore' ? (
         <>

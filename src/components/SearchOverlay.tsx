@@ -182,7 +182,7 @@ export default function SearchOverlay({
         {!hasQuery && (
           <div className="px-4 pt-4 pb-2">
             <p className="font-mono text-[10px] tracking-[2px] uppercase text-gray-500">
-              Tonight per Karl
+              {city === 'sf' ? 'Tonight per Karl' : "Tonight's outlook"}
             </p>
           </div>
         )}
@@ -190,14 +190,18 @@ export default function SearchOverlay({
         {results.length === 0 ? (
           <div className="px-4 py-10 text-center">
             <p className="font-serif text-base italic text-gray-500">
-              No spots match. Karl can't help with that one.
+              {city === 'sf'
+                ? "No spots match. Karl can't help with that one."
+                : 'No spots match that search.'}
             </p>
             <button
               type="button"
               onClick={() => onSuggestSpot(query.trim())}
               className="mt-4 text-[10px] tracking-[2px] uppercase font-mono text-gray-600 hover:text-gray-900 transition-colors underline underline-offset-2"
             >
-              Don't see your spot? Tell Karl about it.
+              {city === 'sf'
+                ? "Don't see your spot? Tell Karl about it."
+                : "Don't see your spot? Suggest one."}
             </button>
           </div>
         ) : (

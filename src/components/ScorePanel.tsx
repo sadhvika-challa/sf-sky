@@ -66,10 +66,23 @@ function formatStripTime(date: Date): string {
 }
 
 // Karl is SF fog: clear sky = Karl-free, mixed = Karl's lurking, socked in =
-// Karl wins. Three tiers, mapped to the same palette as the map pins so the
-// whole UI reads as one system.
-function getKarlPill(score: number): { label: string; tier: ScoreTier } {
+// Karl wins. Non-SF cities get neutral sky language.
+function getKarlPill(score: number, city: City): { label: string; tier: ScoreTier } {
   const tier = getScoreTier(score);
+  if (city !== 'sf') {
+    switch (tier) {
+      case 'great':
+        return { label: 'Clear skies', tier };
+      case 'decent':
+        return { label: 'Partly cloudy', tier };
+      case 'poor':
+        return { label: 'Overcast', tier };
+      default: {
+        const _exhaustive: never = tier;
+        throw new Error(`Unhandled tier: ${String(_exhaustive)}`);
+      }
+    }
+  }
   switch (tier) {
     case 'great':
       return { label: 'Karl-free', tier };
@@ -305,7 +318,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const primary = cards[0];
   const live = liveScores.get(spot.id);
   const primaryScore = live ? live[primary.type] : spot[primary.type];
-  const karlPill = getKarlPill(primaryScore);
+  const karlPill = getKarlPill(primaryScore, city);
   const scoreColor = getScoreColor(primaryScore);
 
   const getScoreFor = (type: CardType): number =>
