@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { submitBugReport } from '../utils/supabase';
 
 interface BugReportOverlayProps {
   open: boolean;
@@ -32,6 +33,7 @@ function buildMailto(description: string): string {
 export default function BugReportOverlay({ open, onClose }: BugReportOverlayProps) {
   const [description, setDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   // Render-vs-mount split so the slide-out animation can play before
   // unmounting (mirrors SuggestSpotOverlay / SearchOverlay).
   const [mounted, setMounted] = useState(open);
@@ -68,14 +70,23 @@ export default function BugReportOverlay({ open, onClose }: BugReportOverlayProp
     return () => window.removeEventListener('keydown', handleKey);
   }, [open, onClose]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = description.trim();
-    if (!trimmed) return;
-    // Hand off to the user's mail client. We can't observe whether they
-    // actually send the message, so we optimistically show the success state.
-    window.location.href = buildMailto(trimmed);
-    setSubmitted(true);
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+    const ok = await submitBugReport({
+      description: trimmed,
+      page_context: typeof window !== 'undefined' ? window.location.href : null,
+      user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+    });
+    setSubmitting(false);
+    if (ok) {
+      setSubmitted(true);
+    } else {
+      window.location.href = buildMailto(trimmed);
+      setSubmitted(true);
+    }
   }
 
   if (!mounted) return null;
@@ -141,10 +152,10 @@ export default function BugReportOverlay({ open, onClose }: BugReportOverlayProp
 
             <button
               type="submit"
-              disabled={!canSubmit}
+              disabled={!canSubmit || submitting}
               className="w-full h-11 rounded-lg bg-gray-700 text-cream font-mono text-[11px] tracking-[2px] uppercase transition-colors hover:bg-gray-800 active:bg-gray-900 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              Send to Karl
+              {submitting ? 'Sending...' : 'Send to Karl'}
             </button>
 
             <p className="mt-3 text-[10px] font-mono text-gray-400 text-center leading-snug">

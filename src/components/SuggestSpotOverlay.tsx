@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { submitSpotSuggestion } from '../utils/supabase';
 
 interface SuggestSpotOverlayProps {
   open: boolean;
@@ -33,6 +34,7 @@ export default function SuggestSpotOverlay({
   const [name, setName] = useState(initialName);
   const [why, setWhy] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   // Render-vs-mount split so the slide-out animation can play before
   // unmounting (mirrors SearchOverlay).
   const [mounted, setMounted] = useState(open);
@@ -76,14 +78,24 @@ export default function SuggestSpotOverlay({
     return () => window.removeEventListener('keydown', handleKey);
   }, [open, onClose]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmedName = name.trim();
-    if (!trimmedName) return;
-    // Hand off to the user's mail client. We can't observe whether they
-    // actually send the message, so we optimistically show the success state.
-    window.location.href = buildMailto(trimmedName, why.trim());
-    setSubmitted(true);
+    if (!trimmedName || submitting) return;
+    setSubmitting(true);
+    const ok = await submitSpotSuggestion({
+      name: trimmedName,
+      location: '',
+      notes: why.trim() || null,
+      city: 'sf',
+    });
+    setSubmitting(false);
+    if (ok) {
+      setSubmitted(true);
+    } else {
+      window.location.href = buildMailto(trimmedName, why.trim());
+      setSubmitted(true);
+    }
   }
 
   if (!mounted) return null;
@@ -164,10 +176,10 @@ export default function SuggestSpotOverlay({
 
             <button
               type="submit"
-              disabled={!canSubmit}
+              disabled={!canSubmit || submitting}
               className="w-full h-11 rounded-lg bg-gray-700 text-cream font-mono text-[11px] tracking-[2px] uppercase transition-colors hover:bg-gray-800 active:bg-gray-900 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              Send it to Karl
+              {submitting ? 'Sending...' : 'Send it to Karl'}
             </button>
 
             <p className="mt-3 text-[10px] font-mono text-gray-400 text-center leading-snug">
