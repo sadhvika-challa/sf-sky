@@ -1,73 +1,68 @@
-# React + TypeScript + Vite
+# SF Sky
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A sunset, sunrise, and stargazing spot finder for San Francisco and the Bay Area. Scores every viewpoint in real-time by blending terrain quality with live weather forecasts from Open-Meteo.
 
-Currently, two official plugins are available:
+Personality by **Karl** — SF's famous fog.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Tech Stack
 
-## React Compiler
+- React 19 + TypeScript + Vite
+- Tailwind CSS v4
+- Leaflet / react-leaflet (interactive map)
+- Open-Meteo API (weather + air quality, free, no key)
+- SunCalc (sunrise/sunset/moon calculations)
+- Supabase (anonymous form submissions)
+- PWA with service worker
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Getting Started
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open [http://localhost:5173](http://localhost:5173).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Build & Deploy
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build    # outputs to dist/
+npm run preview  # preview the production build locally
 ```
+
+Deployed to Vercel.
+
+## Scoring Model
+
+Each spot has a **base score** (0-100) for sunrise, sunset, and stargazing based on terrain, light pollution, and horizon quality. At runtime, the base score is blended with a **weather score** derived from the Open-Meteo forecast at event time:
+
+- **Sun events:** 35% base + 65% weather
+- **Stargazing:** 45% base + 55% weather
+
+Condition overrides cap the score when conditions are objectively terrible (heavy fog, full overcast, very low visibility).
+
+## Adding a Spot
+
+Add an entry to `src/data/spots.ts`:
+
+```ts
+{
+  id: "sf-your-spot",
+  name: "Your Spot Name",
+  lat: 37.xxxx, lng: -122.xxxx,
+  city: 'sf',
+  category: 'hilltop' | 'waterfront' | 'park',
+  elevation: 100,  // meters
+  lightPollution: 'Low' | 'Mid' | 'High',
+  horizonQuality: 'Open' | 'Partial' | 'Blocked',
+  sunrise: 70,   // 0-100
+  sunset: 70,    // 0-100
+  stargazing: 70, // 0-100
+}
+```
+
+## Conventions
+
+- **Commits:** conventional commits (`fix:`, `feat:`, `refactor:`, `chore:`, `test:`)
+- **Branches:** one feature branch per concern, PRed independently
+- **Tests:** `npm test` (vitest)
