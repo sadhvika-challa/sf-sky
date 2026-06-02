@@ -988,7 +988,7 @@ export const spots: Spot[] = [
     accessAlert: { message: "EBMUD permit required. Access from Grizzly Peak Blvd or Scott's Peak trailhead. Adjacent to Cal Shakes theater.", type: 'paid' },
   },
   {
-    id: "sf-inspiration-point", name: "Inspiration Point",
+    id: "sf-tilden-inspiration-point", name: "Inspiration Point",
     lat: 37.8950, lng: -122.2250,
     city: 'sf',
     category: 'hilltop', elevation: 315,
