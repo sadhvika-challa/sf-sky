@@ -3,14 +3,14 @@
 // no React, no fetch, easy to reason about and to test.
 
 import type { Spot } from '../data/spots';
-import type { HourlyForecast } from './weather';
+import { fogDensity, type HourlyForecast } from './weather';
 
 export type ScoreType = 'sunrise' | 'sunset' | 'stargazing';
 
-const SUN_BASE_WEIGHT = 0.5;
-const SUN_WEATHER_WEIGHT = 0.5;
-const STAR_BASE_WEIGHT = 0.55;
-const STAR_WEATHER_WEIGHT = 0.45;
+const SUN_BASE_WEIGHT = 0.35;
+const SUN_WEATHER_WEIGHT = 0.65;
+const STAR_BASE_WEIGHT = 0.45;
+const STAR_WEATHER_WEIGHT = 0.55;
 
 function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
@@ -49,12 +49,6 @@ function scoreSunWeather(h: HourlyForecast): number {
   const overcastPenalty = total > 90 ? (total - 90) * 4 : 0;
 
   let cloudScore = midScore * 0.6 + highScore * 0.4 - lowPenalty - overcastPenalty;
-  // Floors for clean evenings: a clear sky isn't "fire", but it's still a
-  // pleasant view and shouldn't read as obscured.
-  if (Number.isFinite(total) && total < 10) cloudScore = Math.max(cloudScore, 70);
-  if (Number.isFinite(total) && total < 25 && cloudLow < 25) {
-    cloudScore = Math.max(cloudScore, 65);
-  }
   cloudScore = clamp(cloudScore, 0, 100);
 
   // Visibility bonus: 15+ km is excellent (Open-Meteo's SF readings rarely
@@ -69,7 +63,12 @@ function scoreSunWeather(h: HourlyForecast): number {
   const pm25 = safe(h.pm25, 0);
   const aqiPenalty = pm25 > 35 ? Math.min(40, (pm25 - 35) * 1.5) : 0;
 
-  const weighted = cloudScore * 0.7 + visScore * 0.3 - aqiPenalty;
+  // Fog penalty: fogDensity composites visibility + low-cloud + humidity
+  // into 0..1. Above 0.5, fog starts meaningfully degrading the view.
+  const fog = fogDensity(h);
+  const fogPenalty = fog > 0.5 ? fog * 40 : 0;
+
+  const weighted = cloudScore * 0.7 + visScore * 0.3 - aqiPenalty - fogPenalty;
   return clamp(weighted, 0, 100);
 }
 
@@ -127,6 +126,22 @@ export function computeLiveScore(
   }
 
   const blended = base * baseWeight + weather * weatherWeight;
+
+  // Post-blend reality checks: cap the score when conditions are
+  // objectively terrible, regardless of how good the base score is.
+  const fog = fogDensity(hourly);
+  if (type === 'sunrise' || type === 'sunset') {
+    if (fog > 0.7) return Math.min(Math.round(clamp(blended, 0, 100)), 35);
+    if (Number.isFinite(hourly.cloud) && hourly.cloud > 95)
+      return Math.min(Math.round(clamp(blended, 0, 100)), 30);
+    if (Number.isFinite(hourly.visibilityKm) && hourly.visibilityKm < 2)
+      return Math.min(Math.round(clamp(blended, 0, 100)), 40);
+  }
+  if (type === 'stargazing') {
+    if (Number.isFinite(hourly.cloud) && hourly.cloud > 95)
+      return Math.min(Math.round(clamp(blended, 0, 100)), 20);
+  }
+
   return Math.round(clamp(blended, 0, 100));
 }
 
