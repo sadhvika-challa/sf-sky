@@ -22,6 +22,7 @@ import WelcomeCard from './components/WelcomeCard';
 import OnboardingHint from './components/OnboardingHint';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
+import BestNowPill from './components/BestNowPill';
 import type { ScoreTier } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
@@ -706,6 +707,15 @@ function App() {
 
       {/* Welcome card — first-ever load only. Rendered last so its
           backdrop sits above all other floating UI. */}
+      {/* "Best Right Now" pill — explore mode only, hidden when panel/search/suggest are open */}
+      {appMode === 'explore' && !selectedSpot && !searchOpen && !suggestOpen && !menuOpen && (
+        <BestNowPill
+          spots={activeSpots}
+          liveScores={liveScores}
+          onSelect={handleSelectSpot}
+        />
+      )}
+
       {showWelcome && <WelcomeCard onDismiss={handleDismissWelcome} />}
 
       <PWAInstallPrompt spotInteracted={!!selectedSpot} />

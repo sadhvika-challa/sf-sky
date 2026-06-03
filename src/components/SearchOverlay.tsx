@@ -119,9 +119,20 @@ export default function SearchOverlay({
       // matches still bubble up first.
       return ranked
         .filter((r) => r.spot.name.toLowerCase().includes(trimmed))
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => {
+          const scoreDiff = b.score - a.score;
+          if (scoreDiff !== 0) return scoreDiff;
+          // Tiebreaker: closer spots first (if geolocation available)
+          if (a.distanceMi !== null && b.distanceMi !== null) return a.distanceMi - b.distanceMi;
+          return 0;
+        });
     }
-    return [...ranked].sort((a, b) => b.score - a.score);
+    return [...ranked].sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) return scoreDiff;
+      if (a.distanceMi !== null && b.distanceMi !== null) return a.distanceMi - b.distanceMi;
+      return 0;
+    });
   }, [ranked, trimmed, hasQuery]);
 
   if (!mounted) return null;
