@@ -8,6 +8,7 @@ import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
 import { getForecastAt, type HourlyForecast } from '../utils/weather';
 import { cloudCoverLabel, computeLiveScore, visibilityPercent } from '../utils/scoring';
 import { getKarlComment } from '../utils/karl-copy';
+import { useCountdown } from '../hooks/useCountdown';
 
 type CardType = 'sunrise' | 'sunset' | 'stargazing';
 
@@ -338,6 +339,25 @@ const typeTitle: Record<CardType, string> = {
   stargazing: "STARGAZING",
 };
 
+const URGENCY_COLORS = {
+  normal: 'text-gray-400',
+  soon: 'text-amber-500',
+  imminent: 'text-red-400',
+  now: 'text-emerald-500',
+} as const;
+
+function CountdownBadge({ eventInstant }: { eventInstant: Date }) {
+  const { label, urgency } = useCountdown(eventInstant);
+  return (
+    <span
+      className={`ml-2 font-mono text-[10px] tracking-[1px] tabular-nums ${URGENCY_COLORS[urgency]}`}
+      aria-label={`${label} until event`}
+    >
+      {urgency === 'now' ? '• Now' : `in ${label}`}
+    </span>
+  );
+}
+
 export default function ScoreCard({ spot, type, eventDate, city }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -535,7 +555,7 @@ export default function ScoreCard({ spot, type, eventDate, city }: ScoreCardProp
           </span>
         </div>
 
-        {/* Large time + Karl's read */}
+        {/* Large time + countdown */}
         <div className="flex items-baseline gap-1 -mt-0.5">
           <span className="font-serif text-[32px] leading-none font-light text-gray-800 tracking-tight">
             {eventTimeData.time}
@@ -543,6 +563,7 @@ export default function ScoreCard({ spot, type, eventDate, city }: ScoreCardProp
           <span className="font-serif text-base text-gray-400 font-light">
             {eventTimeData.period}
           </span>
+          <CountdownBadge eventInstant={eventInstant} />
         </div>
 
         <p
