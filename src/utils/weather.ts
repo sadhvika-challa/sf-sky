@@ -181,39 +181,45 @@ function mergeResponses(
   forecast: OpenMeteoForecastResponse,
   air: OpenMeteoAirQualityResponse | null,
 ): SpotForecast {
-  const hours: Record<string, HourlyForecast> = {};
-  const times = forecast.hourly?.time ?? [];
+  try {
+    const hours: Record<string, HourlyForecast> = {};
+    const times = forecast.hourly?.time ?? [];
 
-  // Build an index of AQI hour -> array position for O(n) merging.
-  const aqiIndex = new Map<string, number>();
-  const aqiTimes = air?.hourly?.time ?? [];
-  for (let i = 0; i < aqiTimes.length; i++) {
-    aqiIndex.set(hourKeyFromOpenMeteo(aqiTimes[i]), i);
+    // Build an index of AQI hour -> array position for O(n) merging.
+    const aqiIndex = new Map<string, number>();
+    const aqiTimes = air?.hourly?.time ?? [];
+    for (let i = 0; i < aqiTimes.length; i++) {
+      aqiIndex.set(hourKeyFromOpenMeteo(aqiTimes[i]), i);
+    }
+
+    for (let i = 0; i < times.length; i++) {
+      const key = hourKeyFromOpenMeteo(times[i]);
+      const visibilityMeters = pick(forecast.hourly?.visibility, i);
+      const aqiI = aqiIndex.get(key);
+
+      hours[key] = {
+        cloud: pick(forecast.hourly?.cloud_cover, i),
+        cloudLow: pick(forecast.hourly?.cloud_cover_low, i),
+        cloudMid: pick(forecast.hourly?.cloud_cover_mid, i),
+        cloudHigh: pick(forecast.hourly?.cloud_cover_high, i),
+        visibilityKm: Number.isFinite(visibilityMeters) ? visibilityMeters / 1000 : NaN,
+        humidity: pick(forecast.hourly?.relative_humidity_2m, i),
+        tempF: pick(forecast.hourly?.temperature_2m, i),
+        precipProb: pick(forecast.hourly?.precipitation_probability, i),
+        pm25: aqiI !== undefined ? pick(air?.hourly?.pm2_5, aqiI) : NaN,
+        aqi: aqiI !== undefined ? pick(air?.hourly?.us_aqi, aqiI) : NaN,
+        windMph: pick(forecast.hourly?.wind_speed_10m, i),
+        gustMph: pick(forecast.hourly?.wind_gusts_10m, i),
+        windDir: pick(forecast.hourly?.wind_direction_10m, i),
+      };
+    }
+
+    return { hours, fetchedAt: Date.now() };
+  } catch {
+    // Malformed API response — return empty forecast so consumers
+    // fall back to static base scores instead of crashing.
+    return { hours: {}, fetchedAt: Date.now() };
   }
-
-  for (let i = 0; i < times.length; i++) {
-    const key = hourKeyFromOpenMeteo(times[i]);
-    const visibilityMeters = pick(forecast.hourly?.visibility, i);
-    const aqiI = aqiIndex.get(key);
-
-    hours[key] = {
-      cloud: pick(forecast.hourly?.cloud_cover, i),
-      cloudLow: pick(forecast.hourly?.cloud_cover_low, i),
-      cloudMid: pick(forecast.hourly?.cloud_cover_mid, i),
-      cloudHigh: pick(forecast.hourly?.cloud_cover_high, i),
-      visibilityKm: Number.isFinite(visibilityMeters) ? visibilityMeters / 1000 : NaN,
-      humidity: pick(forecast.hourly?.relative_humidity_2m, i),
-      tempF: pick(forecast.hourly?.temperature_2m, i),
-      precipProb: pick(forecast.hourly?.precipitation_probability, i),
-      pm25: aqiI !== undefined ? pick(air?.hourly?.pm2_5, aqiI) : NaN,
-      aqi: aqiI !== undefined ? pick(air?.hourly?.us_aqi, aqiI) : NaN,
-      windMph: pick(forecast.hourly?.wind_speed_10m, i),
-      gustMph: pick(forecast.hourly?.wind_gusts_10m, i),
-      windDir: pick(forecast.hourly?.wind_direction_10m, i),
-    };
-  }
-
-  return { hours, fetchedAt: Date.now() };
 }
 
 export async function fetchSpotForecast(lat: number, lng: number): Promise<SpotForecast> {

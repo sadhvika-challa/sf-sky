@@ -22,6 +22,8 @@ import WelcomeCard from './components/WelcomeCard';
 import OnboardingHint from './components/OnboardingHint';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
+import MapErrorBoundary from './components/MapErrorBoundary';
+import WeatherErrorBoundary from './components/WeatherErrorBoundary';
 import type { ScoreTier } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
@@ -459,6 +461,7 @@ function App() {
           safe-area zone where any uncovered pixel would otherwise read as
           the body's water-blue fallback. */}
       <div className="fixed inset-0 z-0">
+        <MapErrorBoundary>
         <MapView
           spots={activeSpots}
           selectedSpot={selectedSpot}
@@ -478,6 +481,7 @@ function App() {
           }
           onTapSpotAnchorChange={setTapSpotAnchor}
         />
+        </MapErrorBoundary>
       </div>
 
       {/* Floating top row — tight icon-only mode toggle on the left, with
@@ -520,8 +524,9 @@ function App() {
         )}
       </div>
 
-      {/* Insight card — Karl narrates the weather. Sits just below the
-          mode toggle in weather mode; updates on hour scrub. */}
+      {/* Insight card + bottom panel wrapped in an error boundary that
+          falls back to explore mode if weather data crashes. */}
+      <WeatherErrorBoundary onFallback={() => handleModeChange('explore')}>
       {appMode === 'weather' && (
         <InsightCard
           metric={weatherMetric}
@@ -560,6 +565,7 @@ function App() {
           onWeatherSheetExpandedChange={setWeatherSheetExpanded}
         />
       )}
+      </WeatherErrorBoundary>
 
       {/* Search overlay — explore-only, full-screen, slides up from the bottom */}
       {appMode === 'explore' && (
