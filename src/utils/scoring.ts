@@ -49,6 +49,25 @@ function scoreSunWeather(h: HourlyForecast): number {
   const overcastPenalty = total > 90 ? (total - 90) * 4 : 0;
 
   let cloudScore = midScore * 0.6 + highScore * 0.4 - lowPenalty - overcastPenalty;
+
+  // Fog density (0..1) composites visibility + low-cloud + humidity. Computed
+  // up front so the clear-sky floors below can defer to it: a clear-but-foggy
+  // hour (rare, but the marine layer can sit low with little mid/high cloud)
+  // shouldn't get floored up to "pleasant".
+  const fog = fogDensity(h);
+
+  // Clear-sky floors. The triangular cloud curve treats a cloudless sky as
+  // mediocre because there's no mid/high cloud to "catch fire" — but a clean,
+  // fog-free evening is still a perfectly good (if undramatic) view and must
+  // not score like a hazy one. Only apply when fog is low so genuinely socked-
+  // in nights still tank. (Removed in the scoring-accuracy pass to let fog bite
+  // harder; that also broke clear skies, which this restores.)
+  if (fog < 0.4) {
+    if (Number.isFinite(total) && total < 10) cloudScore = Math.max(cloudScore, 70);
+    if (Number.isFinite(total) && total < 25 && cloudLow < 25) {
+      cloudScore = Math.max(cloudScore, 65);
+    }
+  }
   cloudScore = clamp(cloudScore, 0, 100);
 
   // Visibility bonus: 15+ km is excellent (Open-Meteo's SF readings rarely
@@ -63,9 +82,7 @@ function scoreSunWeather(h: HourlyForecast): number {
   const pm25 = safe(h.pm25, 0);
   const aqiPenalty = pm25 > 35 ? Math.min(40, (pm25 - 35) * 1.5) : 0;
 
-  // Fog penalty: fogDensity composites visibility + low-cloud + humidity
-  // into 0..1. Above 0.5, fog starts meaningfully degrading the view.
-  const fog = fogDensity(h);
+  // Fog penalty: above 0.5, fog starts meaningfully degrading the view.
   const fogPenalty = fog > 0.5 ? fog * 40 : 0;
 
   const weighted = cloudScore * 0.7 + visScore * 0.3 - aqiPenalty - fogPenalty;

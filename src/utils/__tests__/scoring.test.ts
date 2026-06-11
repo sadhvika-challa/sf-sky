@@ -92,6 +92,40 @@ describe('Lands End foggy evening regression', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Regression: clear, fog-free evening must not score "mediocre"
+// The triangular cloud curve treats a cloudless sky as un-dramatic; without a
+// clear-sky floor a spot like Marina Green (base 78) scored ~61 on a perfectly
+// clear, 24km-visibility, fog-free sunset — looking broken next to the clear
+// weather layer. The floor only applies when fog is genuinely low.
+// ---------------------------------------------------------------------------
+
+describe('clear fog-free sunset floor', () => {
+  function marinaGreenClearSunsetHour(): HourlyForecast {
+    return makeHour({
+      cloud: 4,
+      cloudLow: 4,
+      cloudMid: 0,
+      cloudHigh: 0,
+      visibilityKm: 24.3,
+      humidity: 67,
+      pm25: 14.5,
+    });
+  }
+
+  it('rates a clear, fog-free sunset as a good evening (not mediocre)', () => {
+    const marinaGreen = makeSpot({ name: 'Marina Green', sunset: 78 });
+    const score = computeLiveScore(marinaGreen, 'sunset', marinaGreenClearSunsetHour());
+    expect(score).toBeGreaterThanOrEqual(70);
+  });
+
+  it('does not floor a foggy evening up to clear', () => {
+    const marinaGreen = makeSpot({ name: 'Marina Green', sunset: 78 });
+    const foggy = computeLiveScore(marinaGreen, 'sunset', makeFoggyHour());
+    expect(foggy).toBeLessThanOrEqual(35);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Condition override tests
 // ---------------------------------------------------------------------------
 

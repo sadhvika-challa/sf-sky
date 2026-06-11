@@ -54,6 +54,8 @@ function buildInitialMap(spots: ReadonlyArray<Spot>): LiveScoresMap {
   return map;
 }
 
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+
 /**
  * Fetch forecasts for every spot in parallel and expose a Map of spot id ->
  * live (or fallback) scores. Entries start as static scores and are upgraded
@@ -62,6 +64,27 @@ function buildInitialMap(spots: ReadonlyArray<Spot>): LiveScoresMap {
  */
 export function useLiveScores(spots: ReadonlyArray<Spot>): LiveScoresMap {
   const [scores, setScores] = useState<LiveScoresMap>(() => buildInitialMap(spots));
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  // Long-lived sessions never remount this hook: the installed PWA gets
+  // resumed from the home screen for days without a cold reload, so scores
+  // computed at mount (against mount-day event times and weather) would be
+  // served forever. Re-score every 15 minutes and immediately whenever the
+  // app returns to the foreground. The sessionStorage forecast cache
+  // (30-min TTL) absorbs most of the refetch cost; re-running the scoring
+  // also re-resolves "next event" times so we never score yesterday's sunset.
+  useEffect(() => {
+    const bump = () => setRefreshTick((t) => t + 1);
+    const interval = setInterval(bump, REFRESH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') bump();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,7 +108,7 @@ export function useLiveScores(spots: ReadonlyArray<Spot>): LiveScoresMap {
     return () => {
       cancelled = true;
     };
-  }, [spots]);
+  }, [spots, refreshTick]);
 
   return scores;
 }
