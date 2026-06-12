@@ -6,10 +6,13 @@
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const AIR_QUALITY_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 
-const CACHE_TTL_MS = 30 * 60 * 1000;
+const CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3h max, tightened by forecastTtlMs
 // Bump the version whenever the shape of HourlyForecast changes so we don't
 // hand stale entries (missing fields) to consumers after a deploy.
-const CACHE_PREFIX = 'weather:v3:';
+const CACHE_PREFIX = 'weather:v4:';
+
+const NEAR_EVENT_HOURS = 4;
+const NEAR_EVENT_TTL_MS = 45 * 60 * 1000;
 
 export interface HourlyForecast {
   /** Total cloud cover, 0-100. */
@@ -222,11 +225,39 @@ function mergeResponses(
   }
 }
 
-export async function fetchSpotForecast(lat: number, lng: number): Promise<SpotForecast> {
+/** TTL for a cached forecast, given how close we are to the next sun event. */
+export function forecastTtlMs(nextEventTime: Date | null, now: Date): number {
+  if (!nextEventTime || Number.isNaN(nextEventTime.getTime())) return CACHE_TTL_MS;
+  const hoursUntil = (nextEventTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+  if (hoursUntil > 0 && hoursUntil <= NEAR_EVENT_HOURS) return NEAR_EVENT_TTL_MS;
+  return CACHE_TTL_MS;
+}
+
+/** Human-readable "updated Xm ago" / "updated just now" string. */
+export function formatUpdatedAgo(fetchedAt: number, now: number): string {
+  const diffMs = now - fetchedAt;
+  if (diffMs < 60_000) return 'updated just now';
+  if (diffMs < 3_600_000) return `updated ${Math.floor(diffMs / 60_000)}m ago`;
+  return `updated ${Math.floor(diffMs / 3_600_000)}h ago`;
+}
+
+export async function fetchSpotForecast(
+  lat: number,
+  lng: number,
+  maxAgeMs?: number,
+): Promise<SpotForecast> {
   const key = cacheKey(lat, lng);
 
   const cached = readCache(key);
-  if (cached) return cached;
+  if (cached) {
+    if (maxAgeMs !== undefined && cached.fetchedAt + maxAgeMs < Date.now()) {
+      // Cached entry is fresh per storage TTL but stale for this caller's
+      // tighter window (e.g. near-event refresh). Evict and refetch.
+      if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(key);
+    } else {
+      return cached;
+    }
+  }
 
   const existing = inflight.get(key);
   if (existing) return existing;

@@ -212,3 +212,42 @@ export function getKarlComment(
   const idx = hash(`${spotId}|${eventType}|${todayKey(date)}`) % lines.length;
   return lines[idx];
 }
+
+// ── Karl 2x2 breakdown (sun events only) ────────────────────────────────
+// Maps the (spot tier, sky tier) pair to a Karl-voiced one-liner that
+// explains *why* the score is what it is, not just *what* it is. Tiers
+// use the same getScoreTier thresholds (>= 70 / 45-69 / < 45).
+
+export type BreakdownTier = 'good' | 'mixed' | 'poor';
+
+const KARL_BREAKDOWN_GRID: Record<BreakdownTier, Record<BreakdownTier, string>> = {
+  good: {
+    good: "Great spot, great sky. Karl clocked out. Go.",
+    mixed: "The spot's doing its part. Karl can't decide.",
+    poor: "Killer spot, but Karl owns the sky tonight.",
+  },
+  mixed: {
+    good: "The sky's carrying this one. Even an okay spot works tonight.",
+    mixed: "Coin flip. Karl likes it that way.",
+    poor: "Skip it. Karl took the night.",
+  },
+  poor: {
+    good: "Sky's gorgeous. This just isn't the seat for it. Try a hilltop.",
+    mixed: "Not the spot, not the night.",
+    poor: "Hard no from Karl on every axis.",
+  },
+};
+
+function toBreakdownTier(score: number): BreakdownTier {
+  if (score >= 70) return 'good';
+  if (score >= 45) return 'mixed';
+  return 'poor';
+}
+
+/**
+ * Karl-voiced line for the 3x3 (spot quality, sky quality) grid.
+ * Only meaningful for sun events where the breakdown splits cleanly.
+ */
+export function getKarlBreakdownLine(baseScore: number, weatherScore: number): string {
+  return KARL_BREAKDOWN_GRID[toBreakdownTier(baseScore)][toBreakdownTier(weatherScore)];
+}

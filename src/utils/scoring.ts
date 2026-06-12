@@ -12,6 +12,17 @@ const SUN_WEATHER_WEIGHT = 0.65;
 const STAR_BASE_WEIGHT = 0.45;
 const STAR_WEATHER_WEIGHT = 0.55;
 
+// Cloud band verdict thresholds (sun events). Keep next to the scoring
+// constants so they stay in sync with the triangular curves above.
+export const LOW_CLOUD_GOOD = 25;
+export const LOW_CLOUD_NEUTRAL = 40;
+export const MID_CLOUD_GOOD_LOW = 35;
+export const MID_CLOUD_GOOD_HIGH = 65;
+export const HIGH_CLOUD_GOOD_LOW = 25;
+export const HIGH_CLOUD_GOOD_HIGH = 55;
+export const VIS_GOOD_KM = 15;
+export const VIS_NEUTRAL_KM = 8;
+
 function clamp(value: number, min: number, max: number): number {
   if (value < min) return min;
   if (value > max) return max;
@@ -22,6 +33,113 @@ function safe(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }
 
+// ── Cloud band reads ────────────────────────────────────────────────────
+
+export interface CloudBandRead {
+  /** 0-100 coverage for this band, or null if not finite in the forecast. */
+  coverage: number | null;
+  /** Verdict tag for the UI. */
+  verdict: 'good' | 'neutral' | 'bad';
+  /** Short human label, e.g. "catches color", "fog risk", "thin". */
+  label: string;
+}
+
+function lowCloudRead(raw: number): CloudBandRead {
+  if (!Number.isFinite(raw)) return { coverage: null, verdict: 'neutral', label: 'no data' };
+  const v = clamp(raw, 0, 100);
+  if (v < LOW_CLOUD_GOOD) return { coverage: v, verdict: 'good', label: 'clear low' };
+  if (v <= LOW_CLOUD_NEUTRAL) return { coverage: v, verdict: 'neutral', label: 'ok' };
+  return { coverage: v, verdict: 'bad', label: 'fog risk' };
+}
+
+function midCloudRead(raw: number): CloudBandRead {
+  if (!Number.isFinite(raw)) return { coverage: null, verdict: 'neutral', label: 'no data' };
+  const v = clamp(raw, 0, 100);
+  if (v >= MID_CLOUD_GOOD_LOW && v <= MID_CLOUD_GOOD_HIGH) return { coverage: v, verdict: 'good', label: 'catches color' };
+  if (v < MID_CLOUD_GOOD_LOW) return { coverage: v, verdict: 'neutral', label: 'thin' };
+  return { coverage: v, verdict: 'bad', label: 'heavy' };
+}
+
+function highCloudRead(raw: number): CloudBandRead {
+  if (!Number.isFinite(raw)) return { coverage: null, verdict: 'neutral', label: 'no data' };
+  const v = clamp(raw, 0, 100);
+  if (v >= HIGH_CLOUD_GOOD_LOW && v <= HIGH_CLOUD_GOOD_HIGH) return { coverage: v, verdict: 'good', label: 'catches color' };
+  if (v < HIGH_CLOUD_GOOD_LOW) return { coverage: v, verdict: 'neutral', label: 'thin' };
+  return { coverage: v, verdict: 'bad', label: 'milky' };
+}
+
+function visibilityVerdict(km: number): 'good' | 'neutral' | 'bad' {
+  if (!Number.isFinite(km)) return 'neutral';
+  if (km >= VIS_GOOD_KM) return 'good';
+  if (km >= VIS_NEUTRAL_KM) return 'neutral';
+  return 'bad';
+}
+
+// ── Cloud quality sub-score ──────────────────────────────────────────────
+
+/**
+ * Cloud quality score: how favorable the cloud structure is for this event.
+ * For sunrise/sunset this is the "fire sky" assessment — mid/high cloud
+ * that catches color vs. low cloud that blocks the horizon.
+ * For stargazing it's simpler: less cloud = better.
+ *
+ * Returns 0-100 where 100 = ideal cloud setup for this event.
+ */
+export function cloudQualityScore(h: HourlyForecast, type: ScoreType): number {
+  if (type === 'stargazing') {
+    const total = clamp(safe(h.cloud, 50), 0, 100);
+    let score = 100 - total;
+    if (total < 15) score = Math.max(score, 90);
+    return clamp(score, 0, 100);
+  }
+
+  // sunrise / sunset
+  const cloudLow = clamp(safe(h.cloudLow, 50), 0, 100);
+  const cloudMid = clamp(safe(h.cloudMid, 30), 0, 100);
+  const cloudHigh = clamp(safe(h.cloudHigh, 30), 0, 100);
+  const total = clamp(safe(h.cloud, (cloudLow + cloudMid + cloudHigh) / 3), 0, 100);
+
+  const midScore = 100 - Math.abs(cloudMid - 50) * 1.5;
+  const highScore = 100 - Math.abs(cloudHigh - 40) * 1.5;
+  const lowPenalty = Math.max(0, cloudLow - 40) * 0.8;
+  const overcastPenalty = total > 90 ? (total - 90) * 4 : 0;
+
+  let score = midScore * 0.6 + highScore * 0.4 - lowPenalty - overcastPenalty;
+
+  const fog = fogDensity(h);
+  if (fog < 0.4) {
+    if (Number.isFinite(total) && total < 10) score = Math.max(score, 70);
+    if (Number.isFinite(total) && total < 25 && cloudLow < 25) {
+      score = Math.max(score, 65);
+    }
+  }
+  return clamp(score, 0, 100);
+}
+
+/**
+ * Human-readable one-word label for a cloud quality score.
+ * Labels are event-aware: sunset cares about drama potential,
+ * stargazing cares about clarity.
+ */
+export function cloudQualityLabel(score: number, type: ScoreType): string {
+  if (!Number.isFinite(score)) return '--';
+
+  if (type === 'stargazing') {
+    if (score >= 85) return 'Crystal';
+    if (score >= 70) return 'Clear';
+    if (score >= 50) return 'Hazy';
+    return 'Overcast';
+  }
+
+  // sunrise / sunset
+  if (score >= 80) return 'Vivid';
+  if (score >= 65) return 'Clean';
+  if (score >= 45) return 'Flat';
+  return 'Washed';
+}
+
+// ── Weather sub-scores ──────────────────────────────────────────────────
+
 /**
  * Score a sunrise/sunset based on cloud structure, visibility, and air quality.
  *
@@ -31,44 +149,8 @@ function safe(value: number, fallback: number): number {
  *
  * Returns 0-100.
  */
-function scoreSunWeather(h: HourlyForecast): number {
-  const cloudLow = clamp(safe(h.cloudLow, 50), 0, 100);
-  const cloudMid = clamp(safe(h.cloudMid, 30), 0, 100);
-  const cloudHigh = clamp(safe(h.cloudHigh, 30), 0, 100);
-  const total = clamp(safe(h.cloud, (cloudLow + cloudMid + cloudHigh) / 3), 0, 100);
-
-  // Mid clouds: triangular peak at ~50%, gentle falloff so a 30% setup still
-  // reads as a strong sunset rather than a near-miss.
-  const midScore = 100 - Math.abs(cloudMid - 50) * 1.5;
-  // High clouds: similar, but peak slightly lower (~40%).
-  const highScore = 100 - Math.abs(cloudHigh - 40) * 1.5;
-  // Low clouds: penalty that grows past ~40% (SF's marine layer routinely
-  // sits in the 30–40% band; penalizing earlier than that floors every spot).
-  const lowPenalty = Math.max(0, cloudLow - 40) * 0.8;
-  // Heavy total overcast caps everything.
-  const overcastPenalty = total > 90 ? (total - 90) * 4 : 0;
-
-  let cloudScore = midScore * 0.6 + highScore * 0.4 - lowPenalty - overcastPenalty;
-
-  // Fog density (0..1) composites visibility + low-cloud + humidity. Computed
-  // up front so the clear-sky floors below can defer to it: a clear-but-foggy
-  // hour (rare, but the marine layer can sit low with little mid/high cloud)
-  // shouldn't get floored up to "pleasant".
-  const fog = fogDensity(h);
-
-  // Clear-sky floors. The triangular cloud curve treats a cloudless sky as
-  // mediocre because there's no mid/high cloud to "catch fire" — but a clean,
-  // fog-free evening is still a perfectly good (if undramatic) view and must
-  // not score like a hazy one. Only apply when fog is low so genuinely socked-
-  // in nights still tank. (Removed in the scoring-accuracy pass to let fog bite
-  // harder; that also broke clear skies, which this restores.)
-  if (fog < 0.4) {
-    if (Number.isFinite(total) && total < 10) cloudScore = Math.max(cloudScore, 70);
-    if (Number.isFinite(total) && total < 25 && cloudLow < 25) {
-      cloudScore = Math.max(cloudScore, 65);
-    }
-  }
-  cloudScore = clamp(cloudScore, 0, 100);
+export function scoreSunWeather(h: HourlyForecast): number {
+  const cloudScore = cloudQualityScore(h, 'sunset');
 
   // Visibility bonus: 15+ km is excellent (Open-Meteo's SF readings rarely
   // exceed ~18 km even on sparkling days), < 5 km is bad.
@@ -83,6 +165,7 @@ function scoreSunWeather(h: HourlyForecast): number {
   const aqiPenalty = pm25 > 35 ? Math.min(40, (pm25 - 35) * 1.5) : 0;
 
   // Fog penalty: above 0.5, fog starts meaningfully degrading the view.
+  const fog = fogDensity(h);
   const fogPenalty = fog > 0.5 ? fog * 40 : 0;
 
   const weighted = cloudScore * 0.7 + visScore * 0.3 - aqiPenalty - fogPenalty;
@@ -95,12 +178,8 @@ function scoreSunWeather(h: HourlyForecast): number {
  *
  * Returns 0-100.
  */
-function scoreStargazingWeather(h: HourlyForecast, moonIllum: number): number {
-  const total = clamp(safe(h.cloud, 50), 0, 100);
-  // Less cloud = better. Linear inverse, with a floor for textbook-clear
-  // nights so they aren't penalized for the inverse curve's softness.
-  let cloudScore = 100 - total;
-  if (total < 15) cloudScore = Math.max(cloudScore, 90);
+export function scoreStargazingWeather(h: HourlyForecast, moonIllum: number): number {
+  const cloudScore = cloudQualityScore(h, 'stargazing');
 
   // Humidity above ~90% means hazy skies even when "clear".
   const humidity = clamp(safe(h.humidity, 60), 0, 100);
@@ -113,12 +192,32 @@ function scoreStargazingWeather(h: HourlyForecast, moonIllum: number): number {
   return clamp(weighted, 0, 100);
 }
 
-export function computeLiveScore(
+// ── Score breakdown ─────────────────────────────────────────────────────
+
+export interface ScoreBreakdown {
+  total: number;
+  base: number;
+  weather: number;
+  baseWeight: number;
+  weatherWeight: number;
+  type: ScoreType;
+  cloudLow: CloudBandRead | null;
+  cloudMid: CloudBandRead | null;
+  cloudHigh: CloudBandRead | null;
+  visibilityKm: number | null;
+  visibilityVerdict: 'good' | 'neutral' | 'bad';
+  aqiPenaltyActive: boolean;
+  totalCloud: number | null;
+  humidityPenaltyActive: boolean;
+  moonIllum: number | null;
+}
+
+export function computeScoreBreakdown(
   spot: Spot,
   type: ScoreType,
   hourly: HourlyForecast,
   moonIllum: number = 0,
-): number {
+): ScoreBreakdown {
   const base = spot[type];
   let weather: number;
   let baseWeight: number;
@@ -144,22 +243,61 @@ export function computeLiveScore(
 
   const blended = base * baseWeight + weather * weatherWeight;
 
-  // Post-blend reality checks: cap the score when conditions are
-  // objectively terrible, regardless of how good the base score is.
+  // Post-blend reality checks (identical to the original computeLiveScore).
+  let total: number;
   const fog = fogDensity(hourly);
   if (type === 'sunrise' || type === 'sunset') {
-    if (fog > 0.7) return Math.min(Math.round(clamp(blended, 0, 100)), 35);
-    if (Number.isFinite(hourly.cloud) && hourly.cloud > 95)
-      return Math.min(Math.round(clamp(blended, 0, 100)), 30);
-    if (Number.isFinite(hourly.visibilityKm) && hourly.visibilityKm < 2)
-      return Math.min(Math.round(clamp(blended, 0, 100)), 40);
-  }
-  if (type === 'stargazing') {
-    if (Number.isFinite(hourly.cloud) && hourly.cloud > 95)
-      return Math.min(Math.round(clamp(blended, 0, 100)), 20);
+    if (fog > 0.7) {
+      total = Math.min(Math.round(clamp(blended, 0, 100)), 35);
+    } else if (Number.isFinite(hourly.cloud) && hourly.cloud > 95) {
+      total = Math.min(Math.round(clamp(blended, 0, 100)), 30);
+    } else if (Number.isFinite(hourly.visibilityKm) && hourly.visibilityKm < 2) {
+      total = Math.min(Math.round(clamp(blended, 0, 100)), 40);
+    } else {
+      total = Math.round(clamp(blended, 0, 100));
+    }
+  } else if (type === 'stargazing') {
+    if (Number.isFinite(hourly.cloud) && hourly.cloud > 95) {
+      total = Math.min(Math.round(clamp(blended, 0, 100)), 20);
+    } else {
+      total = Math.round(clamp(blended, 0, 100));
+    }
+  } else {
+    total = Math.round(clamp(blended, 0, 100));
   }
 
-  return Math.round(clamp(blended, 0, 100));
+  const isSun = type === 'sunrise' || type === 'sunset';
+  const pm25 = safe(hourly.pm25, 0);
+  const humidity = clamp(safe(hourly.humidity, 60), 0, 100);
+  const visKm = Number.isFinite(hourly.visibilityKm) ? hourly.visibilityKm : null;
+  const totalCloud = Number.isFinite(hourly.cloud) ? hourly.cloud : null;
+
+  return {
+    total,
+    base,
+    weather,
+    baseWeight,
+    weatherWeight,
+    type,
+    cloudLow: isSun ? lowCloudRead(hourly.cloudLow) : null,
+    cloudMid: isSun ? midCloudRead(hourly.cloudMid) : null,
+    cloudHigh: isSun ? highCloudRead(hourly.cloudHigh) : null,
+    visibilityKm: isSun ? visKm : null,
+    visibilityVerdict: isSun ? visibilityVerdict(hourly.visibilityKm) : 'neutral',
+    aqiPenaltyActive: isSun && pm25 > 35,
+    totalCloud: type === 'stargazing' ? totalCloud : null,
+    humidityPenaltyActive: type === 'stargazing' && humidity > 90,
+    moonIllum: type === 'stargazing' ? clamp(moonIllum, 0, 1) : null,
+  };
+}
+
+export function computeLiveScore(
+  spot: Spot,
+  type: ScoreType,
+  hourly: HourlyForecast,
+  moonIllum: number = 0,
+): number {
+  return computeScoreBreakdown(spot, type, hourly, moonIllum).total;
 }
 
 /**

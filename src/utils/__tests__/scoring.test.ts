@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeLiveScore,
+  computeScoreBreakdown,
   getScoreTier,
   cloudCoverLabel,
   visibilityPercent,
+  type ScoreType,
 } from '../scoring';
 import type { Spot } from '../../data/spots';
 import type { HourlyForecast } from '../weather';
@@ -314,5 +316,77 @@ describe('visibilityPercent', () => {
 
   it('returns 0 for non-finite input', () => {
     expect(visibilityPercent(NaN)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeScoreBreakdown <-> computeLiveScore equivalence grid
+// ---------------------------------------------------------------------------
+
+describe('computeScoreBreakdown equivalence', () => {
+  const profiles: Record<string, HourlyForecast> = {
+    clear: makeClearHour(),
+    marinelayer: makeFoggyHour(),
+    firesky: makeHour({
+      cloud: 45, cloudLow: 8, cloudMid: 50, cloudHigh: 40,
+      visibilityKm: 12, humidity: 55, pm25: 5,
+    }),
+    overcast: makeHour({
+      cloud: 98, cloudLow: 60, cloudMid: 70, cloudHigh: 60,
+      visibilityKm: 6, humidity: 80, pm25: 10,
+    }),
+    smoky: makeHour({
+      cloud: 20, cloudLow: 10, cloudMid: 15, cloudHigh: 12,
+      visibilityKm: 5, humidity: 40, pm25: 60,
+    }),
+  };
+
+  const types: ScoreType[] = ['sunrise', 'sunset', 'stargazing'];
+  const spot = makeSpot({ sunrise: 75, sunset: 80, stargazing: 65 });
+
+  for (const [name, hour] of Object.entries(profiles)) {
+    for (const type of types) {
+      it(`${name} / ${type}: breakdown.total === computeLiveScore`, () => {
+        const moonIllum = type === 'stargazing' ? 0.3 : 0;
+        const legacy = computeLiveScore(spot, type, hour, moonIllum);
+        const breakdown = computeScoreBreakdown(spot, type, hour, moonIllum);
+        expect(breakdown.total).toBe(legacy);
+      });
+    }
+  }
+
+  it('breakdown exposes sub-scores for sun events', () => {
+    const bd = computeScoreBreakdown(spot, 'sunset', profiles.firesky);
+    expect(bd.base).toBe(80);
+    expect(bd.weather).toBeGreaterThan(0);
+    expect(bd.cloudLow).not.toBeNull();
+    expect(bd.cloudMid).not.toBeNull();
+    expect(bd.cloudHigh).not.toBeNull();
+    expect(bd.visibilityKm).not.toBeNull();
+    expect(bd.totalCloud).toBeNull();
+    expect(bd.moonIllum).toBeNull();
+  });
+
+  it('breakdown exposes sub-scores for stargazing', () => {
+    const bd = computeScoreBreakdown(spot, 'stargazing', profiles.clear, 0.7);
+    expect(bd.base).toBe(65);
+    expect(bd.cloudLow).toBeNull();
+    expect(bd.cloudMid).toBeNull();
+    expect(bd.cloudHigh).toBeNull();
+    expect(bd.totalCloud).not.toBeNull();
+    expect(bd.moonIllum).toBeCloseTo(0.7);
+    expect(bd.humidityPenaltyActive).toBe(false);
+  });
+
+  it('handles non-finite forecast fields without crashing', () => {
+    const nanHour = makeHour({
+      cloud: NaN, cloudLow: NaN, cloudMid: NaN, cloudHigh: NaN,
+      visibilityKm: NaN, humidity: NaN, pm25: NaN,
+    });
+    const bd = computeScoreBreakdown(spot, 'sunset', nanHour);
+    expect(Number.isFinite(bd.total)).toBe(true);
+    expect(bd.cloudLow!.coverage).toBeNull();
+    expect(bd.cloudLow!.verdict).toBe('neutral');
+    expect(bd.cloudLow!.label).toBe('no data');
   });
 });

@@ -183,54 +183,78 @@ function OutlookCards({ outlook, city }: { outlook: CityOutlook; city: City }) {
 const SF_GLOSSARY: { label: string; body: string }[] = [
   {
     label: 'Conditions',
-    body: "Karl's overall read for this event — blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality.",
+    body: "Karl's overall read for this event. Blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality.",
+  },
+  {
+    label: 'The spot',
+    body: "Half the score comes from the spot itself: terrain, horizon openness, light pollution, and elevation. This sub-score never changes day to day.",
+  },
+  {
+    label: 'The sky',
+    body: "The other half comes from the live forecast at event time: cloud layers, visibility, air quality. This sub-score updates as the forecast refreshes.",
+  },
+  {
+    label: 'Confidence',
+    body: "Scores firm up as the event gets closer. Early read means the forecast can still move; locked in means it won't.",
   },
   {
     label: 'Temp',
-    body: "Forecast air temperature at the event time, in °F. Falls back to a seasonal SF average when live data isn't loaded.",
+    body: "Forecast air temperature at the event time, in \u00b0F. Falls back to a seasonal SF average when live data isn't loaded.",
   },
   {
     label: 'Clouds',
-    body: "Total sky coverage right now: Clear (<20%), Partly (<60%), Mid (<85%), Overcast. For sunsets, a little mid/high cloud is good — too much low cloud or fog isn't.",
+    body: "How favorable the cloud setup is for this event. For sunsets, mid- and high-altitude clouds catch warm light and create dramatic color \u2014 low clouds block the horizon. For stargazing, less cloud coverage is always better.",
   },
   {
     label: 'Humidity',
-    body: "Relative humidity at the event time. High humidity often means haze, fog, or marine layer creeping in — bad news for sharp horizons.",
+    body: "Relative humidity at the event time. High humidity often means haze, fog, or marine layer creeping in. Bad news for sharp horizons.",
   },
   {
     label: 'Light Pollution',
     body: "How dark the sky is overhead at this spot. Low = best for stars, High = SF city glow drowns them out. Intrinsic to the location, not the forecast.",
   },
   {
-    label: '% Full Visibility',
-    body: "How far you can see through the air, scaled 0–100% (≥30 km = 100%). Low values usually mean haze, smoke, or marine layer.",
+    label: 'Visibility',
+    body: "How far you can see through the air. 15+ km is clear air, under 8 km is hazy. Low values usually mean haze, smoke, or marine layer.",
   },
 ];
 
 const ATX_GLOSSARY: { label: string; body: string }[] = [
   {
     label: 'Conditions',
-    body: "Overall read for this event — blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality.",
+    body: "Overall read for this event. Blends the spot's baseline (terrain, horizon, light pollution) with live cloud structure, visibility, and air quality.",
+  },
+  {
+    label: 'The spot',
+    body: "Half the score comes from the spot itself: terrain, horizon openness, light pollution, and elevation. This sub-score never changes day to day.",
+  },
+  {
+    label: 'The sky',
+    body: "The other half comes from the live forecast at event time: cloud layers, visibility, air quality. This sub-score updates as the forecast refreshes.",
+  },
+  {
+    label: 'Confidence',
+    body: "Scores firm up as the event gets closer. Early read means the forecast can still move; locked in means it won't.",
   },
   {
     label: 'Temp',
-    body: "Forecast air temperature at the event time, in °F. Falls back to a seasonal average when live data isn't loaded.",
+    body: "Forecast air temperature at the event time, in \u00b0F. Falls back to a seasonal average when live data isn't loaded.",
   },
   {
     label: 'Clouds',
-    body: "Total sky coverage right now: Clear (<20%), Partly (<60%), Mid (<85%), Overcast. For sunsets, a little mid/high cloud is good — too much low cloud isn't.",
+    body: "How favorable the cloud setup is for this event. For sunsets, mid- and high-altitude clouds catch warm light and create dramatic color \u2014 low clouds block the horizon. For stargazing, less cloud coverage is always better.",
   },
   {
     label: 'Humidity',
-    body: "Relative humidity at the event time. High humidity often means haze and washed-out colors — especially in Austin summers.",
+    body: "Relative humidity at the event time. High humidity often means haze and washed-out colors, especially in Austin summers.",
   },
   {
     label: 'Light Pollution',
     body: "How dark the sky is overhead at this spot. Low = best for stars, High = city glow drowns them out. Intrinsic to the location, not the forecast.",
   },
   {
-    label: '% Full Visibility',
-    body: "How far you can see through the air, scaled 0–100% (≥30 km = 100%). Low values usually mean haze or humidity.",
+    label: 'Visibility',
+    body: "How far you can see through the air. 15+ km is clear air, under 8 km is hazy. Low values usually mean haze or humidity.",
   },
 ];
 
