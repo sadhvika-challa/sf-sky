@@ -262,7 +262,7 @@ interface WeatherLabelsLayerProps {
  * Position is recomputed from `latLngToContainerPoint` on every map move/
  * zoom so the labels track the basemap.
  */
-function WeatherLabelsLayer({ metric, samples, cityStats, windDirs }: WeatherLabelsLayerProps) {
+export function WeatherLabelsLayer({ metric, samples, cityStats, windDirs }: WeatherLabelsLayerProps) {
   const map = useMap();
   // Lazy-init the portal div during render so we never need to setState
   // from inside an effect (avoids React 19's `set-state-in-effect` rule)

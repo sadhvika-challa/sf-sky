@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { EventMarker } from '../App';
+export interface EventMarker {
+  type: 'sunrise' | 'sunset' | 'stargazing';
+  hourKey: string;
+  label: string;
+  time: Date;
+}
 
 interface WeatherControlsProps {
   hourKeys: string[];
