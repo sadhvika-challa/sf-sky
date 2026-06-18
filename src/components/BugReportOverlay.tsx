@@ -14,7 +14,7 @@ const RECIPIENT = 'sadhvikac1@gmail.com';
  * as the "suggest a spot" flow.
  */
 function buildMailto(description: string): string {
-  const subject = 'Ask Karl — Bug report';
+  const subject = 'Soleil — Bug report';
   const lines = [
     'What happened:',
     description || '(none provided)',

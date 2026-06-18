@@ -242,7 +242,7 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
   if (!open) return null;
 
   const visible = entered && !exiting;
-  const headline = platform === 'ios' ? 'Add Karl to your dock' : 'Install Ask Karl';
+  const headline = platform === 'ios' ? 'Add Soleil to your dock' : 'Install Soleil';
   const subtitle =
     platform === 'ios'
       ? 'So I can ruin your sunset plans faster. No app store required.'

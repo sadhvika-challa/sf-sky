@@ -13,7 +13,7 @@ interface SuggestSpotOverlayProps {
 const RECIPIENT = 'sadhvikac1@gmail.com';
 
 function buildMailto(name: string, why: string): string {
-  const subject = `Ask Karl — Spot suggestion: ${name}`;
+  const subject = `Soleil — Spot suggestion: ${name}`;
   const body = [
     `Spot name: ${name}`,
     '',

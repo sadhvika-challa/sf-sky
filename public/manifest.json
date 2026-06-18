@@ -1,7 +1,7 @@
 {
-  "name": "Ask Karl",
-  "short_name": "Ask Karl",
-  "description": "Will Karl ruin your sunset? Sunrise, sunset & stargazing scores for 25 SF spots.",
+  "name": "Soleil",
+  "short_name": "Soleil",
+  "description": "Sunrise, sunset & stargazing scores for your favorite spots.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FDF8F0",

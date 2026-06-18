@@ -508,10 +508,10 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const handleShare = async () => {
     const eventLabel = typeTitle[type].toLowerCase();
     const url = `${window.location.origin}/?spot=${spot.id}&view=${type}`;
-    const title = `Ask Karl \u00b7 ${spot.name}`;
+    const title = `Soleil \u00b7 ${spot.name}`;
     const text = score >= 60
-      ? `Karl's off at ${spot.name}. ${eventLabel} score: ${score}/100.`
-      : `Karl wins at ${spot.name}. ${eventLabel} score: ${score}/100.`;
+      ? `Clear skies at ${spot.name}. ${eventLabel} score: ${score}/100.`
+      : `Clouded out at ${spot.name}. ${eventLabel} score: ${score}/100.`;
 
     const node = cardRef.current;
     let file: File | null = null;
@@ -524,7 +524,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
         });
         if (blob) {
           const safeName = spot.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-          file = new File([blob], `ask-karl-${safeName}-${type}.png`, { type: 'image/png' });
+          file = new File([blob], `soleil-${safeName}-${type}.png`, { type: 'image/png' });
         }
       } catch {
         // Image capture failed; fall through to text-only share.
@@ -658,9 +658,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   style={isLive ? { boxShadow: '0 0 6px rgba(52,211,153,0.85)' } : undefined}
                 />
                 {loading && !forecast
-                  ? 'Asking Karl'
+                  ? 'Loading'
                   : error && !forecast
-                    ? 'Karl broke it'
+                    ? 'Error'
                     : isLive
                       ? 'Live'
                       : 'Static'}
