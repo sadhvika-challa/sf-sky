@@ -18,7 +18,7 @@ export const CITIES: CityConfig[] = [
     name: 'San Francisco',
     short: 'SF',
     emoji: '🌁',
-    tagline: 'Karl-free skies tonight',
+    tagline: 'Fog clears, golden light stays',
     hasWeatherMode: true,
     center: [37.7649, -122.4494],
     defaultZoom: 12.5,

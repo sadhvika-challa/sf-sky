@@ -5,13 +5,13 @@ import { useEffect, useState } from 'react';
  * Arrow doodle layout per hint. We deliberately keep the set small
  * (one per hint in the flow) so we don't end up with a half-finished
  * art kit:
- *   - 'up'        tap-spot       (text low, points up at a pin)
- *   - 'down'      scrub-timeline (text above scrubber, points down)
- *   - 'to-cloud'  weather-mode   (long arrow up onto the cloud icon)
- *   - 'swipe'     scroll-cards   (single right-pointing swipe arrow)
- *   - 'none'      complete       (final wrap-up, no pointing needed)
+ *   - 'up'        tap-spot         (text low, points up at a pin)
+ *   - 'down'      scrub-timeline   (text above scrubber, points down)
+ *   - 'to-sun'    weather-overlay  (long arrow up onto the sun toggle)
+ *   - 'swipe'     scroll-cards     (single right-pointing swipe arrow)
+ *   - 'none'      complete         (final wrap-up, no pointing needed)
  */
-export type HintArrowDirection = 'up' | 'down' | 'to-cloud' | 'swipe' | 'none';
+export type HintArrowDirection = 'up' | 'down' | 'to-sun' | 'swipe' | 'none';
 
 interface OnboardingHintProps {
   message: string;
@@ -47,9 +47,9 @@ const FADE_MS = 220;
  * land on the arrow's visual area fall through to whatever UI is
  * underneath — the toggle, a pin, the scrubber, etc. Only the text
  * (and its cream aura) is hit-targetable for tap-to-dismiss. Without
- * this split the cloud icon under the to-cloud arrow would eat the
+ * this split the sun toggle under the to-sun arrow would eat the
  * first click as a hint-dismiss and require a second tap to actually
- * switch modes.
+ * toggle the overlay.
  */
 export default function OnboardingHint({
   message,
@@ -88,10 +88,10 @@ export default function OnboardingHint({
   const visible = mounted && !exiting;
 
   // Layout depends on where the arrow lives relative to the text.
-  // 'to-cloud' uses items-start so the arrow's left edge can be
-  // pixel-anchored to the cloud icon independent of how the text wraps
+  // 'to-sun' uses items-start so the arrow's left edge can be
+  // pixel-anchored to the sun toggle independent of how the text wraps
   // below it. Everything else centers around the text.
-  const layout = arrow === 'to-cloud' ? 'flex-col items-start' : 'flex-col items-center';
+  const layout = arrow === 'to-sun' ? 'flex-col items-start' : 'flex-col items-center';
 
   // Soft cream halo around the text so it stays readable over busy map
   // tiles (parks, dense streets, dark water) without us drawing a pill.
@@ -108,7 +108,7 @@ export default function OnboardingHint({
       }}
     >
       {arrow === 'up' && <ArrowUp />}
-      {arrow === 'to-cloud' && <ArrowToCloud />}
+      {arrow === 'to-sun' && <ArrowToSun />}
 
       <button
         type="button"
@@ -145,7 +145,7 @@ export default function OnboardingHint({
         />
         <span
           className={`block font-handwritten font-semibold text-[#1a1a18] text-[21px] leading-[1.15] max-w-[16rem] ${
-            arrow === 'to-cloud' ? 'text-left' : 'text-center'
+            arrow === 'to-sun' ? 'text-left' : 'text-center'
           }`}
           style={{ textShadow }}
         >
@@ -221,15 +221,15 @@ function ArrowDown() {
 
 /**
  * Tall, slightly-curving arrow that reaches from text below the toggle
- * row up onto the cloud icon in the top-left mode toggle. The negative
- * top margin lets the arrow visually overlap the toggle area while the
- * text below it sits cleanly in the open map below.
+ * row up onto the sun toggle button in the top-left toolbar. The
+ * negative top margin lets the arrow visually overlap the toggle area
+ * while the text below it sits cleanly in the open map below.
  *
  * Geometry: tip at SVG (17, 6), so when the parent container is left-
- * positioned to align with the cloud icon (≈ left:3rem) the tip lands
- * right on the cloud regardless of how the text wraps.
+ * positioned to align with the sun toggle (≈ left:3rem) the tip lands
+ * right on it regardless of how the text wraps.
  */
-function ArrowToCloud() {
+function ArrowToSun() {
   return (
     <svg
       width="34"

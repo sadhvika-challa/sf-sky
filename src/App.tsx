@@ -185,9 +185,9 @@ function App() {
   // hints tied to specific interactions. Each step is gated by a
   // localStorage flag (see `utils/onboarding.ts`); the component-level
   // state below tracks the in-session "is this currently visible"
-  // question. Order roughly mirrors the natural usage path:
-  //   welcome → tap-spot → scroll-cards → weather-mode →
-  //   metrics + scrub-timeline → complete
+  // question. Order mirrors the natural usage path:
+  //   welcome → tap-spot → scroll-cards → scrub-timeline →
+  //   weather-overlay → metrics → complete
   const [showWelcome, setShowWelcome] = useState(
     () => !isOnboardingDone(ONBOARDING_KEYS.welcome),
   );
@@ -197,7 +197,7 @@ function App() {
   // pin as the user pans/zooms while the hint is up.
   const [tapSpotAnchor, setTapSpotAnchor] = useState<MapPoint | null>(null);
   const [showScrollCardsHint, setShowScrollCardsHint] = useState(false);
-  const [showWeatherModeHint, setShowWeatherModeHint] = useState(false);
+  const [showWeatherOverlayHint, setShowWeatherOverlayHint] = useState(false);
   const [showMetricsHint, setShowMetricsHint] = useState(false);
   const [showScrubHint, setShowScrubHint] = useState(false);
   const [showCompleteHint, setShowCompleteHint] = useState(false);
@@ -336,9 +336,9 @@ function App() {
       const next = !prev;
       if (next) {
         setSearchOpen(false);
-        if (!isOnboardingDone(ONBOARDING_KEYS.weatherMode)) {
-          markOnboardingDone(ONBOARDING_KEYS.weatherMode);
-          setShowWeatherModeHint(false);
+        if (!isOnboardingDone(ONBOARDING_KEYS.weatherOverlay)) {
+          markOnboardingDone(ONBOARDING_KEYS.weatherOverlay);
+          setShowWeatherOverlayHint(false);
         }
         if (!isOnboardingDone(ONBOARDING_KEYS.metrics)) {
           setShowMetricsHint(true);
@@ -493,9 +493,9 @@ function App() {
     setShowScrollCardsHint(false);
   }, []);
 
-  const handleDismissWeatherModeHint = useCallback(() => {
-    markOnboardingDone(ONBOARDING_KEYS.weatherMode);
-    setShowWeatherModeHint(false);
+  const handleDismissWeatherOverlayHint = useCallback(() => {
+    markOnboardingDone(ONBOARDING_KEYS.weatherOverlay);
+    setShowWeatherOverlayHint(false);
   }, []);
 
   const handleDismissMetricsHint = useCallback(() => {
@@ -504,12 +504,16 @@ function App() {
   }, []);
 
   // Wrap the metric setter so picking any metric (temp / clouds /
-  // precip / wind / fog) auto-dismisses the metrics hint.
+  // precip / wind / fog) auto-dismisses the metrics hint and advances
+  // to the final completion step.
   const handleWeatherMetricChange = useCallback((metric: WeatherMetric) => {
     setWeatherMetric(metric);
     if (!isOnboardingDone(ONBOARDING_KEYS.metrics)) {
       markOnboardingDone(ONBOARDING_KEYS.metrics);
       setShowMetricsHint(false);
+      if (!isOnboardingDone(ONBOARDING_KEYS.complete)) {
+        setShowCompleteHint(true);
+      }
     }
   }, []);
 
@@ -523,19 +527,23 @@ function App() {
     setShowCompleteHint(false);
   }, []);
 
+  const weatherOverlayAvailable = activeCityConfig.hasWeatherMode;
+
   // Timeline hour change handler — also advances the onboarding chain.
+  // After scrubbing, show the weather-overlay hint (SF only) or jump
+  // straight to the completion hint for cities without weather mode.
   const handleTimelineHourChange = useCallback((key: string) => {
     setTimelineHourKey(key);
     if (!isOnboardingDone(ONBOARDING_KEYS.scrubTimeline)) {
       markOnboardingDone(ONBOARDING_KEYS.scrubTimeline);
       setShowScrubHint(false);
-      if (!isOnboardingDone(ONBOARDING_KEYS.complete)) {
+      if (weatherOverlayAvailable && !isOnboardingDone(ONBOARDING_KEYS.weatherOverlay)) {
+        setShowWeatherOverlayHint(true);
+      } else if (!isOnboardingDone(ONBOARDING_KEYS.complete)) {
         setShowCompleteHint(true);
       }
     }
-  }, []);
-
-  const weatherOverlayAvailable = activeCityConfig.hasWeatherMode;
+  }, [weatherOverlayAvailable]);
 
   return (
     <div className="h-dvh min-h-dvh w-screen relative bg-cream font-mono overflow-hidden">
@@ -712,7 +720,7 @@ function App() {
 
       {!weatherOverlay && showTapSpotHint && !selectedSpot && tapSpotAnchor && (
         <OnboardingHint
-          message="Tap a spot to see tonight's score"
+          message="Tap a spot to see its score"
           arrow="up"
           style={{
             left: tapSpotAnchor.x,
@@ -732,19 +740,19 @@ function App() {
         />
       )}
 
-      {!weatherOverlay && showWeatherModeHint && !selectedSpot && (
+      {!weatherOverlay && showWeatherOverlayHint && !selectedSpot && (
         <OnboardingHint
-          message="Tap to see live weather across the city"
-          arrow="to-cloud"
+          message="Tap to see live weather on the map"
+          arrow="to-sun"
           positionClassName="top-[calc(env(safe-area-inset-top)+4.25rem)] left-[3.0625rem]"
-          onDismiss={handleDismissWeatherModeHint}
+          onDismiss={handleDismissWeatherOverlayHint}
         />
       )}
 
       {weatherOverlay && showMetricsHint && (
         <OnboardingHint
-          message="Switch metrics to see temp, wind, fog, and more"
-          arrow="to-cloud"
+          message="Switch metrics to explore temp, wind, fog & more"
+          arrow="to-sun"
           positionClassName="top-[calc(env(safe-area-inset-top)+6rem)] left-[3.25rem]"
           onDismiss={handleDismissMetricsHint}
         />

@@ -56,12 +56,12 @@ export default function WelcomeCard({ onDismiss }: WelcomeCardProps) {
           id="welcome-card-headline"
           className="font-serif text-[19px] font-semibold leading-tight text-gray-900 tracking-tight whitespace-nowrap"
         >
-          Welcome. Let's find you a view.
+          Welcome to Soleil.
         </h2>
         <p className="mt-3 font-sans text-[14px] leading-[1.55] text-gray-700">
-          116 spots across SF, scored for sunset, sunrise, and stargazing
-          based on live conditions. Tap a spot to see if it's worth the
-          trip.
+          169 spots across SF, Santa Cruz, and Austin — scored for
+          sunrise, sunset, and stargazing based on live conditions.
+          Tap a pin to see if it's worth the trip.
         </p>
         <button
           type="button"

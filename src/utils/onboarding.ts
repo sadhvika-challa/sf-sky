@@ -1,17 +1,17 @@
 /**
  * First-visit onboarding flag storage. Each key gates a single one-time
- * prompt (welcome card or contextual hint). The `v1` prefix lets us bump
+ * prompt (welcome card or contextual hint). The `v2` prefix lets us bump
  * the version after major UX changes to re-trigger onboarding for
  * existing users without clobbering unrelated localStorage keys.
  */
 export const ONBOARDING_KEYS = {
-  welcome: 'onboarding:v1:welcome',
-  tapSpot: 'onboarding:v1:tap-spot',
-  scrollCards: 'onboarding:v1:scroll-cards',
-  weatherMode: 'onboarding:v1:weather-mode',
-  metrics: 'onboarding:v1:metrics',
-  scrubTimeline: 'onboarding:v1:scrub-timeline',
-  complete: 'onboarding:v1:complete',
+  welcome: 'onboarding:v2:welcome',
+  tapSpot: 'onboarding:v2:tap-spot',
+  scrollCards: 'onboarding:v2:scroll-cards',
+  weatherOverlay: 'onboarding:v2:weather-overlay',
+  metrics: 'onboarding:v2:metrics',
+  scrubTimeline: 'onboarding:v2:scrub-timeline',
+  complete: 'onboarding:v2:complete',
 } as const;
 
 export type OnboardingKey = (typeof ONBOARDING_KEYS)[keyof typeof ONBOARDING_KEYS];
