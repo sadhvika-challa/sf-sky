@@ -65,10 +65,9 @@ export function useNeighborhoodForecasts(enabled: boolean): NeighborhoodForecast
 }
 
 // How many hours before "now" the scrubber is allowed to reach. The app is
-// a forecast tool, so we keep just a small backward buffer (e.g. for
-// catching a sunset that already kicked off) and let the rest of the
-// window face forward.
-const BACKWARD_HOUR_BUFFER = 2;
+// a forward-looking forecast tool, so the scrubber must never reach into the
+// past — the leftmost rail slot is the current hour ("now").
+const BACKWARD_HOUR_BUFFER = 0;
 
 /**
  * Pull the union of hour keys across all loaded forecasts and return them
@@ -89,8 +88,10 @@ function deriveHourKeys(forecasts: NeighborhoodForecasts): string[] {
   }
   const sorted = Array.from(set).sort();
   const nowIdx = sorted.indexOf(currentHourKey());
-  if (nowIdx <= BACKWARD_HOUR_BUFFER) return sorted;
-  return sorted.slice(nowIdx - BACKWARD_HOUR_BUFFER);
+  const startIdx = nowIdx <= BACKWARD_HOUR_BUFFER ? 0 : nowIdx - BACKWARD_HOUR_BUFFER;
+  const FORWARD_HOURS = 24;
+  const endIdx = Math.min(sorted.length, startIdx + BACKWARD_HOUR_BUFFER + FORWARD_HOURS + 1);
+  return sorted.slice(startIdx, endIdx);
 }
 
 function currentHourKey(): string {

@@ -17,6 +17,7 @@ export interface CityOutlook {
   sunrise: OutlookEntry;
   sunset: OutlookEntry;
   stargazing: OutlookEntry;
+  now: OutlookEntry;
   /** True when at least one spot has a live (forecast-derived) score. */
   isLive: boolean;
 }
@@ -42,7 +43,7 @@ function topDecile(sortedDesc: number[]): number {
   return sortedDesc[idx];
 }
 
-function entryFor(scores: LiveScoresMap, type: ScoreType): OutlookEntry {
+function entryFor(scores: LiveScoresMap, type: ScoreType | 'now'): OutlookEntry {
   const values: number[] = [];
   for (const entry of scores.values()) {
     if (!entry.isLive) continue;
@@ -66,6 +67,7 @@ export function computeCityOutlook(scores: LiveScoresMap): CityOutlook {
     sunrise: entryFor(scores, 'sunrise'),
     sunset: entryFor(scores, 'sunset'),
     stargazing: entryFor(scores, 'stargazing'),
+    now: entryFor(scores, 'now'),
     isLive,
   };
 }
@@ -163,6 +165,29 @@ function genericOutlookMessage(type: ScoreType, status: OutlookStatus): string {
           throw new Error(`Unhandled score type: ${String(_exhaustive)}`);
         }
       }
+    default: {
+      const _exhaustive: never = status;
+      throw new Error(`Unhandled outlook status: ${String(_exhaustive)}`);
+    }
+  }
+}
+
+export function nowOutlookMessage(status: OutlookStatus, city: City = 'sf'): string {
+  if (city !== 'sf') {
+    switch (status) {
+      case 'good': return 'Clear and pleasant right now.';
+      case 'mixed': return 'Partly cloudy. Some areas clearer.';
+      case 'poor': return 'Overcast or foggy. Not great out there.';
+      default: {
+        const _exhaustive: never = status;
+        throw new Error(`Unhandled outlook status: ${String(_exhaustive)}`);
+      }
+    }
+  }
+  switch (status) {
+    case 'good': return "Karl's nowhere to be found.";
+    case 'mixed': return "Karl's lurking on the west side.";
+    case 'poor': return "Karl's parked on every block.";
     default: {
       const _exhaustive: never = status;
       throw new Error(`Unhandled outlook status: ${String(_exhaustive)}`);

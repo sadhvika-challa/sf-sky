@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 export type TempUnit = 'F' | 'C';
 
@@ -11,41 +11,51 @@ function readStoredUnit(): TempUnit {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     return raw === 'C' || raw === 'F' ? raw : DEFAULT_UNIT;
   } catch {
-    // localStorage can throw in private mode / disabled storage — fall back
-    // to the default rather than blowing up the render.
     return DEFAULT_UNIT;
   }
 }
 
+// Module-level subscriber set so all hook instances in the same tab stay in sync.
+const listeners = new Set<() => void>();
+let snapshot: TempUnit = readStoredUnit();
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  return () => { listeners.delete(cb); };
+}
+
+function getSnapshot() {
+  return snapshot;
+}
+
+function setSnapshot(next: TempUnit) {
+  if (next === snapshot) return;
+  snapshot = next;
+  try { window.localStorage.setItem(STORAGE_KEY, next); } catch { /* noop */ }
+  listeners.forEach((cb) => cb());
+}
+
 /**
- * Persisted Fahrenheit/Celsius preference. Reads on mount, writes on
- * every change, and listens to `storage` events so multiple open tabs
- * stay in sync when the user flips the unit.
+ * Persisted Fahrenheit/Celsius preference. All hook instances on the page
+ * share one source of truth so toggling in ScoreCard immediately updates
+ * ScorePanel, SearchOverlay, etc.
  */
 export function useTempUnit(): [TempUnit, (next: TempUnit) => void] {
-  const [unit, setUnit] = useState<TempUnit>(() => readStoredUnit());
+  const unit = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_UNIT);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, unit);
-    } catch {
-      // Same rationale as readStoredUnit — never let a storage error break
-      // the UI; the in-memory state still works for this session.
-    }
-  }, [unit]);
-
+  // Cross-tab sync via storage events.
   useEffect(() => {
     function handleStorage(e: StorageEvent) {
       if (e.key !== STORAGE_KEY) return;
       if (e.newValue === 'C' || e.newValue === 'F') {
-        setUnit(e.newValue);
+        setSnapshot(e.newValue);
       }
     }
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  const update = useCallback((next: TempUnit) => setUnit(next), []);
+  const update = useCallback((next: TempUnit) => setSnapshot(next), []);
   return [unit, update];
 }
 

@@ -6,15 +6,16 @@ import { type CityConfig } from '../data/cities';
 import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { getKarlComment } from '../utils/karl-copy';
-import { getScoreTier, type ScoreTier, type ScoreType } from '../utils/scoring';
-import { getUpcomingEventTimes } from '../utils/events';
-import type { AppMode, Filters } from '../App';
+import { getScoreTier, computeNowBaseScore, type ScoreTier, type ScoreType, type ViewMode } from '../utils/scoring';
+import type { Filters } from '../App';
 import SpotMarker from './SpotMarker';
 import ClusterMarker from './ClusterMarker';
 import { isClusterFeature, useSupercluster } from '../hooks/useSupercluster';
 import WeatherLayer from './WeatherLayer';
+import WindParticleLayer from './WindParticleLayer';
 import type { WeatherMetric } from '../utils/interpolate';
 import type { SpotForecast } from '../utils/weather';
+import { buildSamples, buildWindDirs } from '../utils/weatherSamples';
 
 const isCoarsePointer =
   typeof window !== 'undefined' &&
@@ -71,6 +72,13 @@ export interface MapPoint {
   y: number;
 }
 
+export interface MapBounds {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+}
+
 interface MapViewProps {
   spots: ReadonlyArray<Spot>;
   selectedSpot: Spot | null;
@@ -80,13 +88,39 @@ interface MapViewProps {
   userLocation: UserLocation | null;
   filters: Filters;
   liveScores: LiveScoresMap;
-  appMode: AppMode;
+  viewMode: ViewMode;
+  weatherOverlay: boolean;
   cityConfig: CityConfig;
   weatherMetric: WeatherMetric;
   weatherHourKey: string;
   weatherForecasts: Map<number, SpotForecast>;
   tapSpotHintActive?: boolean;
   onTapSpotAnchorChange?: (point: MapPoint | null) => void;
+  onBoundsChange?: (bounds: MapBounds) => void;
+}
+
+function BoundsReporter({ onChange }: { onChange?: (b: MapBounds) => void }) {
+  const map = useMap();
+  const cbRef = useRef(onChange);
+  cbRef.current = onChange;
+
+  useEffect(() => {
+    if (!cbRef.current) return;
+    const report = () => {
+      const b = map.getBounds();
+      cbRef.current?.({
+        north: b.getNorth(),
+        south: b.getSouth(),
+        east: b.getEast(),
+        west: b.getWest(),
+      });
+    };
+    report();
+    map.on('moveend', report);
+    return () => { map.off('moveend', report); };
+  }, [map]);
+
+  return null;
 }
 
 /**
@@ -96,12 +130,12 @@ interface MapViewProps {
  * bounds. Otherwise the user could be stranded zoomed-out over the bay.
  */
 function ModeBoundsController({
-  appMode,
+  isWeather,
   exploreBounds,
   center,
   defaultZoom,
 }: {
-  appMode: AppMode;
+  isWeather: boolean;
   exploreBounds: LatLngBoundsExpression;
   center: [number, number];
   defaultZoom: number;
@@ -110,7 +144,7 @@ function ModeBoundsController({
   const prevCenterRef = useRef(center);
 
   useEffect(() => {
-    if (appMode === 'weather') {
+    if (isWeather) {
       map.setMinZoom(WEATHER_MIN_ZOOM);
       map.setMaxBounds(WEATHER_BOUNDS as L.LatLngBoundsLiteral);
       if (map.getZoom() < WEATHER_MIN_ZOOM) {
@@ -136,7 +170,7 @@ function ModeBoundsController({
       }
       prevCenterRef.current = center;
     }
-  }, [appMode, map, exploreBounds, center, defaultZoom]);
+  }, [isWeather, map, exploreBounds, center, defaultZoom]);
   return null;
 }
 
@@ -319,18 +353,15 @@ function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): 
 }
 
 /**
- * Pin label score — the score for whichever event is chronologically next at
- * this spot. Falls back to the spot's static score when live data hasn't
- * arrived yet so pins always render with a number.
+ * Pin label score — the score for the current view mode (sunrise / sunset /
+ * stargazing / now). Falls back to the spot's static score when live data
+ * hasn't arrived yet so pins always render with a number.
  */
-function getNextEventScore(spot: Spot, liveScores: LiveScoresMap): number {
-  const events = getUpcomingEventTimes(spot);
-  const order: ScoreType[] = (['sunrise', 'sunset', 'stargazing'] as ScoreType[])
-    .filter((t) => !Number.isNaN(events[t].getTime()))
-    .sort((a, b) => events[a].getTime() - events[b].getTime());
-  const next = order[0] ?? 'sunset';
+function getViewModeScore(spot: Spot, liveScores: LiveScoresMap, viewMode: ViewMode): number {
   const live = liveScores.get(spot.id);
-  return live ? live[next] : spot[next];
+  if (live) return live[viewMode];
+  if (viewMode === 'now') return computeNowBaseScore(spot);
+  return spot[viewMode];
 }
 
 /**
@@ -344,6 +375,7 @@ interface SpotClusterLayerProps {
   onSelectSpot: (spot: Spot) => void;
   filters: Filters;
   liveScores: LiveScoresMap;
+  viewMode: ViewMode;
 }
 
 interface ClusterPayload {
@@ -359,6 +391,7 @@ function SpotClusterLayer({
   onSelectSpot,
   filters,
   liveScores,
+  viewMode,
 }: SpotClusterLayerProps) {
   const map = useMap();
 
@@ -371,11 +404,11 @@ function SpotClusterLayer({
         lng: spot.lng,
         payload: {
           spot,
-          score: getNextEventScore(spot, liveScores),
+          score: getViewModeScore(spot, liveScores, viewMode),
           quip: getMarkerQuip(spot, liveScores),
         } satisfies ClusterPayload,
       }));
-  }, [spotList, filters, liveScores]);
+  }, [spotList, filters, liveScores, viewMode]);
 
   const { clusters, supercluster } = useSupercluster<ClusterPayload>({
     points,
@@ -456,23 +489,37 @@ export default function MapView({
   userLocation,
   filters,
   liveScores,
-  appMode,
+  viewMode,
+  weatherOverlay,
   cityConfig,
   weatherMetric,
   weatherHourKey,
   weatherForecasts,
   tapSpotHintActive,
   onTapSpotAnchorChange,
+  onBoundsChange,
 }: MapViewProps) {
-  const tileUrl =
-    appMode === 'weather'
-      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+  const isWeather = weatherOverlay;
+  const tileUrl = isWeather
+    ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 
   const exploreBounds = useMemo(() => boundsFromSpots(spotList), [spotList]);
-  const center = cityConfig.center;
 
-  const isWeather = appMode === 'weather';
+  const windSamples = useMemo(
+    () => (isWeather && weatherMetric === 'wind' && weatherHourKey)
+      ? buildSamples('wind', weatherHourKey, weatherForecasts)
+      : new Map(),
+    [isWeather, weatherMetric, weatherHourKey, weatherForecasts],
+  );
+  const windDirMap = useMemo(
+    () => (isWeather && weatherMetric === 'wind' && weatherHourKey)
+      ? buildWindDirs(weatherHourKey, weatherForecasts)
+      : new Map(),
+    [isWeather, weatherMetric, weatherHourKey, weatherForecasts],
+  );
+
+  const center = cityConfig.center;
   return (
     <MapContainer
       center={center}
@@ -511,34 +558,38 @@ export default function MapView({
         </Marker>
       )}
 
-      <ModeBoundsController appMode={appMode} exploreBounds={exploreBounds} center={center} defaultZoom={cityConfig.defaultZoom} />
+      <ModeBoundsController isWeather={isWeather} exploreBounds={exploreBounds} center={center} defaultZoom={cityConfig.defaultZoom} />
+      <BoundsReporter onChange={onBoundsChange} />
 
-      {appMode === 'explore' ? (
-        <>
-          <SpotClusterLayer
-            spots={spotList}
-            selectedSpot={selectedSpot}
-            highlightedSpotId={highlightedSpot?.id ?? null}
-            onSelectSpot={onSelectSpot}
-            filters={filters}
-            liveScores={liveScores}
-          />
-          <MapController selectedSpot={selectedSpot} />
-          <HighlightController highlightedSpot={highlightedSpot} />
-          <MapClickHandler onDeselect={onDeselectSpot} />
-          <TapSpotAnchorTracker
-            active={!!tapSpotHintActive}
-            onAnchor={onTapSpotAnchorChange}
-            spots={spotList}
-          />
-        </>
-      ) : (
+      {isWeather && (
         <WeatherLayer
           metric={weatherMetric}
           hourKey={weatherHourKey}
           forecasts={weatherForecasts}
         />
       )}
+
+      {isWeather && weatherMetric === 'wind' && windSamples.size > 0 && (
+        <WindParticleLayer samples={windSamples} windDirs={windDirMap} />
+      )}
+
+      <SpotClusterLayer
+        spots={spotList}
+        selectedSpot={selectedSpot}
+        highlightedSpotId={highlightedSpot?.id ?? null}
+        onSelectSpot={onSelectSpot}
+        filters={filters}
+        liveScores={liveScores}
+        viewMode={viewMode}
+      />
+      <MapController selectedSpot={selectedSpot} />
+      <HighlightController highlightedSpot={highlightedSpot} />
+      <MapClickHandler onDeselect={onDeselectSpot} />
+      <TapSpotAnchorTracker
+        active={!!tapSpotHintActive}
+        onAnchor={onTapSpotAnchorChange}
+        spots={spotList}
+      />
     </MapContainer>
   );
 }

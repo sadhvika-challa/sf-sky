@@ -46,11 +46,11 @@ export const METRIC_IDW_POWER: Record<WeatherMetric, number> = {
  *     through the gradient
  */
 export const METRIC_OVERLAY_OPACITY: Record<WeatherMetric, number> = {
-  temp: 0.78,
-  clouds: 0.85,
-  precip: 0.5,
-  wind: 0.6,
-  fog: 0.95,
+  temp: 0.45,
+  clouds: 0.40,
+  precip: 0.50,
+  wind: 0.35,
+  fog: 0.55,
 };
 
 export interface SamplePoint {
@@ -88,14 +88,14 @@ export function idw(
   return weightSum === 0 ? NaN : weightedSum / weightSum;
 }
 
-interface ColorStop {
+export interface ColorStop {
   /** Position 0-1 along the ramp. */
   at: number;
   /** [r, g, b] 0-255. */
   rgb: [number, number, number];
 }
 
-interface MetricRamp {
+export interface MetricRamp {
   min: number;
   max: number;
   stops: ColorStop[];
@@ -106,12 +106,16 @@ interface MetricRamp {
 // blend at the midpoint barely tints the basemap — this is what makes the
 // outliers (the actual story) read first.
 const TEMP_RAMP: MetricRamp = {
-  min: 50,
+  min: 40,
   max: 95,
   stops: [
-    { at: 0.0, rgb: [100, 160, 210] }, // cool blue (coldest)
-    { at: 0.5, rgb: [245, 240, 230] }, // warm cream (avg, near-no-tint)
-    { at: 1.0, rgb: [220, 170, 80] },  // warm amber (hottest)
+    { at: 0.0,  rgb: [80, 120, 200] },
+    { at: 0.2,  rgb: [90, 190, 180] },
+    { at: 0.35, rgb: [120, 200, 120] },
+    { at: 0.5,  rgb: [240, 220, 100] },
+    { at: 0.7,  rgb: [240, 160, 60] },
+    { at: 0.85, rgb: [220, 80, 60] },
+    { at: 1.0,  rgb: [180, 50, 100] },
   ],
 };
 
@@ -122,9 +126,10 @@ const CLOUDS_RAMP: MetricRamp = {
   min: 0,
   max: 100,
   stops: [
-    { at: 0.0, rgb: [255, 255, 255] }, // clear (transparent under multiply)
-    { at: 0.5, rgb: [200, 210, 225] }, // light overcast
-    { at: 1.0, rgb: [140, 150, 170] }, // heavy stratus deck
+    { at: 0.0, rgb: [255, 255, 255] },
+    { at: 0.3, rgb: [245, 245, 245] },
+    { at: 0.6, rgb: [220, 220, 225] },
+    { at: 1.0, rgb: [180, 180, 190] },
   ],
 };
 
@@ -132,10 +137,11 @@ const PRECIP_RAMP: MetricRamp = {
   min: 0,
   max: 100,
   stops: [
-    { at: 0.0, rgb: [240, 245, 252] }, // dry — barely visible under multiply
-    { at: 0.4, rgb: [100, 150, 210] }, // light rain (matches brief)
-    { at: 0.75, rgb: [60, 100, 180] }, // heavy rain (matches brief)
-    { at: 1.0, rgb: [40, 70, 140] },   // deluge
+    { at: 0.0,  rgb: [245, 250, 245] },
+    { at: 0.25, rgb: [130, 200, 130] },
+    { at: 0.5,  rgb: [240, 210, 70] },
+    { at: 0.75, rgb: [230, 130, 50] },
+    { at: 1.0,  rgb: [200, 50, 50] },
   ],
 };
 
@@ -146,10 +152,11 @@ const WIND_RAMP: MetricRamp = {
   min: 0,
   max: 30,
   stops: [
-    { at: 0.0, rgb: [255, 248, 230] }, // near-transparent cream
-    { at: 0.4, rgb: [240, 195, 130] }, // light amber
-    { at: 0.75, rgb: [222, 140, 75] }, // warm orange
-    { at: 1.0, rgb: [200, 95, 50] },   // deep orange
+    { at: 0.0,  rgb: [250, 250, 255] },
+    { at: 0.3,  rgb: [180, 220, 240] },
+    { at: 0.6,  rgb: [100, 170, 220] },
+    { at: 0.85, rgb: [70, 110, 190] },
+    { at: 1.0,  rgb: [90, 60, 160] },
   ],
 };
 
@@ -166,7 +173,7 @@ const FOG_RAMP: MetricRamp = {
   ],
 };
 
-const RAMPS: Record<WeatherMetric, MetricRamp> = {
+export const RAMPS: Record<WeatherMetric, MetricRamp> = {
   temp: TEMP_RAMP,
   clouds: CLOUDS_RAMP,
   precip: PRECIP_RAMP,
@@ -268,7 +275,18 @@ export function computeDynamicRange(
   // Expand symmetrically around the data midpoint.
   const mid = (min + max) / 2;
   const half = required / 2;
-  return { min: mid - half, max: mid + half };
+  let lo = mid - half;
+  let hi = mid + half;
+
+  // Metrics with a natural floor of 0 (everything except temp) should never
+  // produce a negative range — doing so pushes actual-zero values into the
+  // middle of the ramp, making dry/calm conditions look alarming.
+  if (metric !== 'temp' && lo < 0) {
+    hi -= lo;
+    lo = 0;
+  }
+
+  return { min: lo, max: hi };
 }
 
 /** Format a metric value for the neighborhood label. */

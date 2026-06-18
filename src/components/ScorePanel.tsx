@@ -3,11 +3,12 @@ import SunCalc from 'suncalc';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
-import { getScoreTier, tierColors, type ScoreTier } from '../utils/scoring';
+import { getScoreTier, tierColors, type ScoreTier, type ViewMode, computeNowBaseScore } from '../utils/scoring';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
+import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
 
-type CardType = 'sunrise' | 'sunset' | 'stargazing';
+type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
 interface CardInfo {
   type: CardType;
@@ -15,43 +16,62 @@ interface CardInfo {
   eventTime: Date;
 }
 
-function getNextEvents(spot: Spot): CardInfo[] {
+const CHRONOLOGICAL_CYCLE: CardType[] = ['sunrise', 'now', 'sunset', 'stargazing'];
+
+function getCardOrder(activeMode: ViewMode): CardType[] {
+  const idx = CHRONOLOGICAL_CYCLE.indexOf(activeMode as CardType);
+  if (idx <= 0) return CHRONOLOGICAL_CYCLE;
+  return [...CHRONOLOGICAL_CYCLE.slice(idx), ...CHRONOLOGICAL_CYCLE.slice(0, idx)];
+}
+
+function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = 'now'): CardInfo[] {
   const now = new Date();
-  const today = new Date();
+  const baseDate = scrubHourKey ? new Date(`${scrubHourKey}:00:00`) : now;
+  const today = new Date(baseDate);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
   const todayTimes = SunCalc.getTimes(today, spot.lat, spot.lng);
   const tomorrowTimes = SunCalc.getTimes(tomorrow, spot.lat, spot.lng);
 
-  const cards: CardInfo[] = [];
+  const cardsMap = new Map<CardType, CardInfo>();
 
+  // Now
+  cardsMap.set('now', { type: 'now', eventDate: today, eventTime: baseDate });
+
+  // Sunrise
   if (todayTimes.sunrise > now) {
-    cards.push({ type: 'sunrise', eventDate: today, eventTime: todayTimes.sunrise });
+    cardsMap.set('sunrise', { type: 'sunrise', eventDate: today, eventTime: todayTimes.sunrise });
   } else {
-    cards.push({ type: 'sunrise', eventDate: tomorrow, eventTime: tomorrowTimes.sunrise });
+    cardsMap.set('sunrise', { type: 'sunrise', eventDate: tomorrow, eventTime: tomorrowTimes.sunrise });
   }
 
+  // Sunset
   if (todayTimes.sunset > now) {
-    cards.push({ type: 'sunset', eventDate: today, eventTime: todayTimes.sunset });
+    cardsMap.set('sunset', { type: 'sunset', eventDate: today, eventTime: todayTimes.sunset });
   } else {
-    cards.push({ type: 'sunset', eventDate: tomorrow, eventTime: tomorrowTimes.sunset });
+    cardsMap.set('sunset', { type: 'sunset', eventDate: tomorrow, eventTime: tomorrowTimes.sunset });
   }
 
+  // Stargazing
   const todayDusk = todayTimes.nauticalDusk;
   const todayStarEnd = new Date(todayDusk.getTime() + 3 * 60 * 60 * 1000);
   if (todayStarEnd > now) {
-    cards.push({ type: 'stargazing', eventDate: today, eventTime: todayDusk > now ? todayDusk : now });
+    cardsMap.set('stargazing', {
+      type: 'stargazing',
+      eventDate: today,
+      eventTime: todayDusk > now ? todayDusk : now,
+    });
   } else {
     const tomorrowDusk = tomorrowTimes.nauticalDusk;
-    cards.push({ type: 'stargazing', eventDate: tomorrow, eventTime: tomorrowDusk });
+    cardsMap.set('stargazing', { type: 'stargazing', eventDate: tomorrow, eventTime: tomorrowDusk });
   }
 
-  cards.sort((a, b) => a.eventTime.getTime() - b.eventTime.getTime());
-  return cards;
+  return getCardOrder(viewMode).map((t) => cardsMap.get(t)!);
 }
 
 const typeLabel: Record<CardType, string> = {
+  now: 'Now',
   sunrise: 'Sunrise',
   sunset: 'Sunset',
   stargazing: 'Stargazing',
@@ -124,17 +144,23 @@ interface TogglePalette {
 // only lives on the *selected* slot, so the toggle reads as a quiet
 // background tint rather than a loud chrome element.
 const TOGGLE_PALETTE: Record<CardType, TogglePalette> = {
-  sunrise: {
-    bg: '#FEF3C7',
-    indicator: '#F59E0B',
+  now: {
+    bg: '#DBEAFE',
+    indicator: '#3B82F6',
     activeFg: '#FFFFFF',
-    inactiveFg: '#92400E',
+    inactiveFg: '#1E40AF',
+  },
+  sunrise: {
+    bg: '#FCE4F2',
+    indicator: '#D946A8',
+    activeFg: '#FFFFFF',
+    inactiveFg: '#9B1D7D',
   },
   sunset: {
-    bg: '#FFEDD5',
-    indicator: '#EA580C',
+    bg: '#FDEAEB',
+    indicator: '#CC2936',
     activeFg: '#FFFFFF',
-    inactiveFg: '#9A3412',
+    inactiveFg: '#8B1A23',
   },
   stargazing: {
     bg: '#DBEAFE',
@@ -277,6 +303,8 @@ interface ScorePanelProps {
   liveScores: LiveScoresMap;
   onCardSwipe?: () => void;
   city: City;
+  viewMode?: ViewMode;
+  timelineHourKey?: string;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -290,7 +318,23 @@ interface ScorePanelProps {
 const SPEED_MPH: Record<TravelMode, number> = { walk: 2.5, car: 15 };
 const DETOUR_FACTOR: Record<TravelMode, number> = { walk: 1.4, car: 1.5 };
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city }: ScorePanelProps) {
+interface TravelTimeParts {
+  value: string;
+  unit: string;
+  /** When set, renders as "Xh Ym" with units styled small. */
+  compound?: { h: number; m: number };
+}
+
+function formatTravelTime(minutes: number): TravelTimeParts {
+  if (minutes < 60) return { value: String(minutes), unit: 'min' };
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (m === 0) return { value: String(h), unit: 'hr' };
+  return { value: '', unit: '', compound: { h, m } };
+}
+
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey }: ScorePanelProps) {
+  const [tempUnit] = useTempUnit();
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
     : null;
@@ -311,26 +355,37 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const cards = getNextEvents(spot);
+  const cards = getNextEvents(spot, timelineHourKey, viewMode ?? 'now');
   // The soonest upcoming event is the one we feature in the collapsed strip.
   // Read the score from the same live map that drives the map pin so the
   // strip number and the pin number always agree.
   const primary = cards[0];
   const live = liveScores.get(spot.id);
-  const primaryScore = live ? live[primary.type] : spot[primary.type];
+  const primaryScore = (() => {
+    if (primary.type === 'now') {
+      return live?.now ?? computeNowBaseScore(spot);
+    }
+    return live ? live[primary.type] : spot[primary.type];
+  })();
   const karlPill = getKarlPill(primaryScore, city);
   const scoreColor = getScoreColor(primaryScore);
 
-  const getScoreFor = (type: CardType): number =>
-    live ? live[type] : spot[type];
+  const getScoreFor = (type: CardType): number => {
+    if (type === 'now') {
+      return live?.now ?? computeNowBaseScore(spot);
+    }
+    return live ? live[type] : spot[type];
+  };
 
   // Open fully expanded so a pin tap goes straight to the scorecard rather
   // than parking on a peek strip the user has to tap a second time.
   const [expanded, setExpanded] = useState(true);
   // Which card is currently centered in the swipe scroller — drives the
   // active page-indicator dot at the bottom of the sheet.
+  const viewModeCard: CardType | undefined =
+    viewMode ? viewMode as CardType : undefined;
   const initialActiveCardType: CardType =
-    initialCardType ?? cards[0]?.type ?? 'sunrise';
+    initialCardType ?? viewModeCard ?? cards[0]?.type ?? 'now';
   const [activeCardType, setActiveCardType] = useState<CardType>(
     initialActiveCardType,
   );
@@ -523,13 +578,14 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   };
 
   useEffect(() => {
-    if (!initialCardType || !expanded) return;
+    const scrollTarget = initialCardType ?? viewModeCard;
+    if (!scrollTarget || !expanded) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    const target = scroller.querySelector<HTMLElement>(`[data-card-type="${initialCardType}"]`);
+    const target = scroller.querySelector<HTMLElement>(`[data-card-type="${scrollTarget}"]`);
     if (!target) return;
     scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
-  }, [initialCardType, spot.id, expanded]);
+  }, [initialCardType, viewModeCard, spot.id, expanded]);
 
   // Track which card is centered as the user swipes. We watch each card with
   // an IntersectionObserver scoped to the horizontal scroller, picking the
@@ -560,7 +616,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
           }
         }
         const next = bestEl?.dataset.cardType;
-        if (next === 'sunrise' || next === 'sunset' || next === 'stargazing') {
+        if (next === 'now' || next === 'sunrise' || next === 'sunset' || next === 'stargazing') {
           setActiveCardType(next);
         }
       },
@@ -694,25 +750,63 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 />
 
                 <div className="flex items-baseline gap-1.5 tabular-nums leading-none">
-                  <span
-                    className="font-serif text-sm text-gray-800 inline-block text-right"
-                    style={{ minWidth: '2.5ch' }}
-                    aria-label={travelMode === 'walk' ? 'Walk time' : 'Drive time'}
-                  >
-                    {travelMinutes !== null ? travelMinutes : '—'}
-                  </span>
-                  <span className="font-mono text-[9px] text-gray-500 uppercase tracking-[1.5px]">
-                    min
-                  </span>
+                  {(() => {
+                    const tt = travelMinutes !== null ? formatTravelTime(travelMinutes) : null;
+                    if (!tt) {
+                      return (
+                        <span
+                          className="font-serif text-sm text-gray-800 inline-block text-right"
+                          style={{ minWidth: '2.5ch' }}
+                          aria-label={travelMode === 'walk' ? 'Walk time' : 'Drive time'}
+                        >
+                          —
+                        </span>
+                      );
+                    }
+                    if (tt.compound) {
+                      return (
+                        <>
+                          <span className="font-serif text-sm text-gray-800 inline-block text-right" aria-label={travelMode === 'walk' ? 'Walk time' : 'Drive time'}>
+                            {tt.compound.h}
+                          </span>
+                          <span className="font-mono text-[9px] text-gray-500 uppercase tracking-[1.5px]">
+                            h
+                          </span>
+                          <span className="font-serif text-sm text-gray-800 inline-block text-right">
+                            {tt.compound.m}
+                          </span>
+                          <span className="font-mono text-[9px] text-gray-500 uppercase tracking-[1.5px]">
+                            m
+                          </span>
+                        </>
+                      );
+                    }
+                    return (
+                      <>
+                        <span
+                          className="font-serif text-sm text-gray-800 inline-block text-right"
+                          style={{ minWidth: '2.5ch' }}
+                          aria-label={travelMode === 'walk' ? 'Walk time' : 'Drive time'}
+                        >
+                          {tt.value}
+                        </span>
+                        {tt.unit && (
+                          <span className="font-mono text-[9px] text-gray-500 uppercase tracking-[1.5px]">
+                            {tt.unit}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
                   <span className="text-gray-300 mx-0.5" aria-hidden="true">·</span>
                   <span
                     className="font-serif text-sm text-gray-800 inline-block text-right"
                     style={{ minWidth: '2.5ch' }}
                   >
-                    {distanceMi !== null ? distanceMi.toFixed(1) : '—'}
+                    {distanceMi !== null ? (tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)) : '—'}
                   </span>
                   <span className="font-mono text-[9px] text-gray-500 uppercase tracking-[1.5px]">
-                    mi
+                    {tempUnit === 'C' ? 'km' : 'mi'}
                   </span>
                 </div>
 
@@ -720,13 +814,13 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                   <button
                     type="button"
                     onClick={handleDirections}
-                    className="w-7 h-7 rounded-full hover:bg-cream-dark/40 active:scale-95 flex items-center justify-center transition-colors text-gray-500 hover:text-gray-700"
-                    aria-label={`Get directions to ${spot.name} in Google Maps`}
-                    title="Open in Google Maps"
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-gray-400 active:bg-cream-dark/40 active:text-gray-600"
+                    aria-label="Get directions"
+                    title="Get directions"
                   >
                     <svg
-                      width="14"
-                      height="14"
+                      width="20"
+                      height="20"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -735,35 +829,33 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                       strokeLinejoin="round"
                       aria-hidden="true"
                     >
-                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                      <circle cx="12" cy="10" r="3" />
+                      <path d="M3 11l19-9-9 19-2-8-8-2z" />
                     </svg>
                   </button>
 
                   <button
                     type="button"
                     onClick={handleStreetView}
-                    className="w-7 h-7 rounded-full hover:bg-cream-dark/40 active:scale-95 flex items-center justify-center transition-colors text-gray-500 hover:text-gray-700"
-                    aria-label={`Preview street view of ${spot.name}`}
-                    title="Preview the view"
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-gray-400 active:bg-cream-dark/40 active:text-gray-600"
+                    aria-label="Open Street View"
+                    title="Open Street View"
                   >
                     <svg
-                      width="14"
-                      height="14"
+                      width="20"
+                      height="20"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="1.75"
+                      strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       aria-hidden="true"
                     >
-                      <path d="M5 7V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3" />
-                      <path d="M15 7V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3" />
-                      <path d="M4 21a2 2 0 0 1-2-2v-3.85c0-1.39 2-2.96 2-4.83V8a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v11a2 2 0 0 1-2 2z" />
-                      <path d="M20 21a2 2 0 0 0 2-2v-3.85c0-1.39-2-2.96-2-4.83V8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v11a2 2 0 0 0 2 2z" />
-                      <path d="M10 10h4" />
-                      <path d="M2 16h20" />
+                      <circle cx="12" cy="5" r="3" />
+                      <path d="M12 8v4" />
+                      <path d="M6.5 20l3-6" />
+                      <path d="M17.5 20l-3-6" />
+                      <path d="M8 14h8" />
                     </svg>
                   </button>
                 </div>
@@ -787,6 +879,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     type={card.type}
                     eventDate={card.eventDate}
                     city={city}
+                    scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
+                    scrubViewMode={card.type === 'now' ? viewMode : undefined}
                   />
                 </div>
               ))}
@@ -841,7 +935,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
               </div>
               <p className="font-mono text-[10px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
                 {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime)}
-                {distanceMi !== null && ` \u00b7 ${distanceMi.toFixed(1)} mi`}
+                {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`}
               </p>
             </div>
             <span

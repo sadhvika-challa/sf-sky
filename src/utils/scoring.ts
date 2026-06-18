@@ -7,6 +7,9 @@ import { fogDensity, type HourlyForecast } from './weather';
 
 export type ScoreType = 'sunrise' | 'sunset' | 'stargazing';
 
+/** Display mode for the map. Extends ScoreType with the real-time "now" mode. */
+export type ViewMode = ScoreType | 'now';
+
 const SUN_BASE_WEIGHT = 0.35;
 const SUN_WEATHER_WEIGHT = 0.65;
 const STAR_BASE_WEIGHT = 0.45;
@@ -320,6 +323,95 @@ export function visibilityPercent(visibilityKm: number): number {
   return Math.round(clamp((visibilityKm / 30) * 100, 0, 100));
 }
 
+// ── "Now" mode scoring ──────────────────────────────────────────────────
+
+const NOW_BASE_WEIGHT = 0.25;
+const NOW_WEATHER_WEIGHT = 0.75;
+
+/**
+ * Derive a "now" base score from spot attributes. Higher elevation spots
+ * escape SF's marine layer more often; open-horizon hilltops and parks
+ * are more pleasant to hang out at. This replaces the hand-tuned base
+ * score that sunrise/sunset/stargazing use.
+ */
+export function computeNowBaseScore(spot: Spot): number {
+  let base = 40;
+
+  if (spot.elevation >= 200) base += 30;
+  else if (spot.elevation >= 100) base += 22;
+  else if (spot.elevation >= 50) base += 12;
+  else if (spot.elevation >= 20) base += 5;
+
+  if (spot.category === 'park') base += 10;
+  else if (spot.category === 'hilltop') base += 8;
+  else base += 5;
+
+  if (spot.horizonQuality === 'Open') base += 10;
+  else if (spot.horizonQuality === 'Partial') base += 5;
+
+  if (spot.lightPollution === 'Low') base += 5;
+
+  return clamp(base, 0, 100);
+}
+
+/**
+ * Score current conditions for "is this a nice place to be right now?"
+ * Clear sky, good visibility, comfortable temperature, low wind.
+ */
+function scoreNowWeather(h: HourlyForecast): number {
+  const total = clamp(safe(h.cloud, 50), 0, 100);
+  let cloudScore = 100 - total;
+  if (total < 10) cloudScore = Math.max(cloudScore, 95);
+
+  const cloudLow = clamp(safe(h.cloudLow, 30), 0, 100);
+  const fogPenalty = cloudLow > 40 ? (cloudLow - 40) * 0.5 : 0;
+
+  const vis = safe(h.visibilityKm, 15);
+  let visScore: number;
+  if (vis >= 15) visScore = 100;
+  else if (vis <= 5) visScore = 30;
+  else visScore = 30 + ((vis - 5) / 10) * 70;
+
+  const wind = safe(h.windMph, 8);
+  let windScore: number;
+  if (wind <= 8) windScore = 100;
+  else if (wind <= 15) windScore = 100 - (wind - 8) * 5;
+  else if (wind <= 25) windScore = 65 - (wind - 15) * 4;
+  else windScore = Math.max(0, 25 - (wind - 25) * 3);
+
+  const temp = safe(h.tempF, 62);
+  let tempScore: number;
+  if (temp >= 55 && temp <= 75) tempScore = 100;
+  else if (temp < 55) tempScore = Math.max(20, 100 - (55 - temp) * 4);
+  else tempScore = Math.max(20, 100 - (temp - 75) * 3);
+
+  const pm25 = safe(h.pm25, 0);
+  const aqiPenalty = pm25 > 35 ? Math.min(40, (pm25 - 35) * 1.5) : 0;
+
+  const weighted =
+    cloudScore * 0.35 +
+    visScore * 0.20 +
+    windScore * 0.20 +
+    tempScore * 0.15 +
+    (safe(h.precipProb, 0) > 50 ? -10 : 0) * 0.10
+    - fogPenalty
+    - aqiPenalty;
+
+  return clamp(weighted, 0, 100);
+}
+
+/**
+ * Compute the "now" score for a spot. Separate from computeLiveScore because
+ * the base score is derived (not a field on Spot) and the weather function
+ * is different.
+ */
+export function computeNowScore(spot: Spot, hourly: HourlyForecast): number {
+  const base = computeNowBaseScore(spot);
+  const weather = scoreNowWeather(hourly);
+  const blended = base * NOW_BASE_WEIGHT + weather * NOW_WEATHER_WEIGHT;
+  return Math.round(clamp(blended, 0, 100));
+}
+
 // Score quality tiers — drive pin color/size, outlook dot, score-card chrome.
 // Palette is intentionally muted to match the cream/watercolor aesthetic of
 // the app; do not swap in stoplight green/amber/red.
@@ -339,4 +431,40 @@ export function getScoreTier(score: number): ScoreTier {
 
 export function getTierColor(score: number): string {
   return tierColors[getScoreTier(score)];
+}
+
+const TIER_RGB: Record<ScoreTier, [number, number, number]> = {
+  great: [91, 154, 123],
+  decent: [196, 149, 106],
+  poor: [176, 122, 122],
+};
+
+/** Canonical tier color at a given opacity -- e.g. `tierColorRgba('great', 0.3)`. */
+export function tierColorRgba(tier: ScoreTier, alpha: number): string {
+  const [r, g, b] = TIER_RGB[tier];
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/**
+ * Route to the correct scoring function based on ViewMode.
+ * Used by `useTimelineScores` to score any spot at any scrubbed hour.
+ */
+export function computeScoreAtTime(
+  spot: Spot,
+  viewMode: ViewMode,
+  hourly: HourlyForecast,
+  moonIllum: number,
+): number {
+  switch (viewMode) {
+    case 'sunrise':
+    case 'sunset':
+    case 'stargazing':
+      return computeLiveScore(spot, viewMode, hourly, moonIllum);
+    case 'now':
+      return computeNowScore(spot, hourly);
+    default: {
+      const _exhaustive: never = viewMode;
+      throw new Error(`Unhandled view mode: ${String(_exhaustive)}`);
+    }
+  }
 }

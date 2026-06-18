@@ -17,13 +17,12 @@ import {
 } from '../utils/interpolate';
 import {
   classifyLabel,
-  computeCityStats,
   pickLabelsForZoom,
   windDirToAbbr,
   type CityStats,
   type LabelCandidate,
 } from '../utils/labelStats';
-import { buildSamples, buildWindDirs } from '../utils/weatherSamples';
+import { buildSamples } from '../utils/weatherSamples';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 
 // SF heatmap canvas bounds. Sized to comfortably contain the SF land
@@ -84,6 +83,7 @@ function ensureTransitionStyles() {
     transition: opacity ${TRANSITION_MS_DEFAULT}ms ease-out;
     will-change: opacity;
     mix-blend-mode: multiply;
+    opacity: 0.45;
   }
   .weather-overlay.is-fog {
     transition: opacity ${TRANSITION_MS_FOG}ms cubic-bezier(0.4, 0.0, 0.4, 1);
@@ -109,26 +109,8 @@ export default function WeatherLayer({ metric, hourKey, forecasts }: WeatherLaye
     () => buildSamples(metric, hourKey, forecasts),
     [metric, hourKey, forecasts],
   );
-  // Wind direction lives outside `SamplePoint` (which is metric-agnostic) so
-  // we build a side map only when the wind layer is active. Empty for every
-  // other metric — SmartLabel ignores it.
-  const windDirs = useMemo(
-    () => (metric === 'wind' ? buildWindDirs(hourKey, forecasts) : new Map<number, number>()),
-    [metric, hourKey, forecasts],
-  );
-  const cityStats = useMemo(() => computeCityStats(samples), [samples]);
 
-  return (
-    <>
-      <HeatmapOverlay metric={metric} samples={samples} />
-      <WeatherLabelsLayer
-        metric={metric}
-        samples={samples}
-        cityStats={cityStats}
-        windDirs={windDirs}
-      />
-    </>
-  );
+  return <HeatmapOverlay metric={metric} samples={samples} />;
 }
 
 /**

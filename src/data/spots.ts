@@ -1255,7 +1255,13 @@ export function getConditionLabel(score: number): string {
   return 'Obscured';
 }
 
-export function getPoetic(type: 'sunrise' | 'sunset' | 'stargazing', score: number): string {
+export function getPoetic(type: 'now' | 'sunrise' | 'sunset' | 'stargazing', score: number): string {
+  if (type === 'now') {
+    if (score >= 80) return 'Clear skies & golden light';
+    if (score >= 60) return 'Bright with a few clouds drifting';
+    if (score >= 40) return 'Hazy with patches of blue';
+    return 'Gray & socked in';
+  }
   if (type === 'sunrise') {
     if (score >= 80) return 'Shades of coral, gold, & rose';
     if (score >= 60) return 'Soft pinks & warming amber';

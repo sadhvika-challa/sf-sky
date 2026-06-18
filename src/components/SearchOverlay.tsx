@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { type Spot, type City } from '../data/spots';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
+import { useTempUnit } from '../hooks/useTempUnit';
 import { getUpcomingEventTimes } from '../utils/events';
 import { getKarlComment } from '../utils/karl-copy';
-import { getScoreTier, tierColors, type ScoreType } from '../utils/scoring';
+import { getScoreTier, tierColors, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -15,24 +16,26 @@ interface SearchOverlayProps {
   onSelectSpot: (spot: Spot) => void;
   onSuggestSpot: (seed: string) => void;
   city: City;
+  viewMode: ViewMode;
 }
 
 interface RankedSpot {
   spot: Spot;
-  nextType: ScoreType;
-  nextTime: Date;
+  nextType: ViewMode;
+  nextTime: Date | null;
   score: number;
   distanceMi: number | null;
 }
 
-const TYPE_LABEL: Record<ScoreType, string> = {
+const TYPE_LABEL: Record<ViewMode, string> = {
+  now: 'Now',
   sunrise: 'Sunrise',
   sunset: 'Sunset',
   stargazing: 'Stargazing',
 };
 
-function formatEventTime(date: Date): string {
-  if (Number.isNaN(date.getTime())) return '—';
+function formatEventTime(date: Date | null): string {
+  if (!date || Number.isNaN(date.getTime())) return '';
   return date
     .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
     .toLowerCase();
@@ -42,18 +45,25 @@ function buildRanking(
   spotList: ReadonlyArray<Spot>,
   liveScores: LiveScoresMap,
   userLocation: UserLocation | null,
+  viewMode: ViewMode,
 ): RankedSpot[] {
   return spotList.map((spot) => {
+    const live = liveScores.get(spot.id);
+    const distanceMi = userLocation
+      ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
+      : null;
+
+    if (viewMode === 'now') {
+      const score = live?.now ?? computeNowBaseScore(spot);
+      return { spot, nextType: 'now' as ViewMode, nextTime: null, score, distanceMi };
+    }
+
     const events = getUpcomingEventTimes(spot);
     const order: ScoreType[] = (['sunrise', 'sunset', 'stargazing'] as ScoreType[])
       .filter((t) => !Number.isNaN(events[t].getTime()))
       .sort((a, b) => events[a].getTime() - events[b].getTime());
     const nextType: ScoreType = order[0] ?? 'sunset';
-    const live = liveScores.get(spot.id);
     const score = live ? live[nextType] : spot[nextType];
-    const distanceMi = userLocation
-      ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
-      : null;
     return { spot, nextType, nextTime: events[nextType], score, distanceMi };
   });
 }
@@ -67,7 +77,9 @@ export default function SearchOverlay({
   onSelectSpot,
   onSuggestSpot,
   city,
+  viewMode,
 }: SearchOverlayProps) {
+  const [tempUnit] = useTempUnit();
   const [query, setQuery] = useState('');
   // Render-vs-mount split so we can play exit animation before unmounting.
   const [mounted, setMounted] = useState(open);
@@ -106,8 +118,8 @@ export default function SearchOverlay({
   }, [open, onClose]);
 
   const ranked = useMemo(
-    () => buildRanking(spotList, liveScores, userLocation),
-    [spotList, liveScores, userLocation],
+    () => buildRanking(spotList, liveScores, userLocation, viewMode),
+    [spotList, liveScores, userLocation, viewMode],
   );
 
   const trimmed = query.trim().toLowerCase();
@@ -209,8 +221,11 @@ export default function SearchOverlay({
             {results.map((r) => {
               const tier = getScoreTier(r.score);
               const distance =
-                r.distanceMi !== null ? ` · ${r.distanceMi.toFixed(1)} mi` : '';
-              const karl = getKarlComment(r.score, r.nextType, r.spot.id, undefined, city);
+                r.distanceMi !== null
+                  ? ` · ${tempUnit === 'C' ? (r.distanceMi * 1.60934).toFixed(1) : r.distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`
+                  : '';
+              const karlType: ScoreType = r.nextType === 'now' ? 'sunset' : r.nextType;
+              const karl = getKarlComment(r.score, karlType, r.spot.id, undefined, city);
               return (
                 <li
                   key={r.spot.id}
@@ -228,12 +243,15 @@ export default function SearchOverlay({
                       <p className="font-serif text-base font-semibold text-gray-800 truncate">
                         {r.spot.name}
                       </p>
+                      {karl && (
+                        <p className="font-serif text-[13px] italic text-gray-600 mt-0.5 leading-snug truncate">
+                          {karl}
+                        </p>
+                      )}
                       <p className="font-mono text-[11px] text-gray-500 mt-0.5 truncate">
-                        {TYPE_LABEL[r.nextType]} · {formatEventTime(r.nextTime)}
+                        {TYPE_LABEL[r.nextType]}
+                        {r.nextTime ? ` · ${formatEventTime(r.nextTime)}` : ''}
                         {distance}
-                      </p>
-                      <p className="font-serif text-[13px] italic text-gray-500 mt-1 leading-snug">
-                        {karl}
                       </p>
                     </div>
                     <span

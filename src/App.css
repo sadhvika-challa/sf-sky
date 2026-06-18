@@ -19,6 +19,10 @@
   --color-pin-great: #5B9A7B;
   --color-pin-decent: #C4956A;
   --color-pin-poor: #B07A7A;
+  /* Brand palette — pulled from the app icon (sunset + fog illustration).
+     Magenta-pink = sun rays, Crimson-red = sun body + fog waves. */
+  --color-brand-magenta: #D946A8;
+  --color-brand-crimson: #CC2936;
 }
 
 :root {
@@ -205,5 +209,35 @@ body {
   .spot-pulse-ring {
     animation: none;
     opacity: 0.35;
+  }
+}
+
+/* Sun toggle bounce — quick scale pulse when tapping the sun button off. */
+@keyframes sunBounce {
+  0%   { transform: scale(1) rotate(0deg); }
+  50%  { transform: scale(1.15) rotate(15deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.sun-toggle-bounce {
+  animation: sunBounce 250ms ease-out both;
+  transform-origin: center;
+}
+
+/* Sun spin — full rotation when weather mode is activated. */
+@keyframes sunSpin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.sun-spin {
+  animation: sunSpin 600ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sun-toggle-bounce,
+  .sun-spin {
+    animation: none;
   }
 }

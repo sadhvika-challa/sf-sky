@@ -163,6 +163,84 @@ const ATX_STAR_LINES: Record<Bucket, readonly string[]> = {
   ],
 };
 
+const NOW_LINES: Record<Bucket, readonly string[]> = {
+  incredible: [
+    'Not a wisp. Go sit in it.',
+    'Karl called in sick. Enjoy.',
+    'Blue sky, no strings attached.',
+    'Karl who? Get outside.',
+  ],
+  great: [
+    'Karl is off the clock. Nice out.',
+    'Clear enough to forget Karl exists.',
+    'Good vibes. Karl is someone else\'s problem.',
+    'Sun is doing its thing. Karl is not.',
+  ],
+  decent: [
+    'Some clouds but Karl is keeping his distance.',
+    'Not perfect, but you won\'t complain.',
+    'Karl is lurking on the edges. Still fine.',
+    'Enough blue sky to be worth it.',
+  ],
+  meh: [
+    'Karl is circling. Could go either way.',
+    'Gray patches. Bring optimism.',
+    'Karl is being passive-aggressive about it.',
+    'Half Karl, half sky. Pick your battles.',
+  ],
+  bad: [
+    'Karl is settling in. Find a cafe.',
+    'Mostly Karl out there. Indoor vibes.',
+    'Karl is committed. Respect it.',
+    'Gray on gray. Karl is winning.',
+  ],
+  terrible: [
+    'Karl won. Stay in.',
+    'Pure Karl. Zero sky.',
+    'Karl ate the sun.',
+    'Karl is the sky now.',
+  ],
+};
+
+const ATX_NOW_LINES: Record<Bucket, readonly string[]> = {
+  incredible: [
+    'Wide open and gorgeous. Get out there.',
+    'Not a cloud in sight.',
+    'Perfect day. No excuses.',
+    'Crystal clear. Enjoy it.',
+  ],
+  great: [
+    'Looking great out there.',
+    'Clear and comfortable.',
+    'Solid day to be outside.',
+    'Sky is cooperating. Enjoy.',
+  ],
+  decent: [
+    'Some clouds but still pleasant.',
+    'Not bad at all. Worth going out.',
+    'Enough sun to enjoy it.',
+    'Decent conditions. Get some air.',
+  ],
+  meh: [
+    'Could go either way today.',
+    'Mixed signals from the sky.',
+    'Not great, not terrible.',
+    'Patchy. Bring a good attitude.',
+  ],
+  bad: [
+    'Mostly overcast. Maybe stay close.',
+    'Not the best day for it.',
+    'Gray and uninspiring.',
+    'The sky is not cooperating.',
+  ],
+  terrible: [
+    'Skip it. Try again tomorrow.',
+    'Not happening today.',
+    'The sky said no.',
+    'Stay in. Nothing to see.',
+  ],
+};
+
 function bucketFor(score: number): Bucket {
   if (score >= 90) return 'incredible';
   if (score >= 75) return 'great';
@@ -197,14 +275,16 @@ function todayKey(date: Date = new Date()): string {
  */
 export function getKarlComment(
   score: number,
-  eventType: ScoreType,
+  eventType: ScoreType | 'now',
   spotId: string,
   date: Date = new Date(),
   city: City = 'sf',
 ): string {
   const bucket = bucketFor(score);
   let lines: readonly string[];
-  if (city === 'austin' || city === 'santa-cruz') {
+  if (eventType === 'now') {
+    lines = (city === 'austin' || city === 'santa-cruz') ? ATX_NOW_LINES[bucket] : NOW_LINES[bucket];
+  } else if (city === 'austin' || city === 'santa-cruz') {
     lines = eventType === 'stargazing' ? ATX_STAR_LINES[bucket] : ATX_SUN_LINES[bucket];
   } else {
     lines = eventType === 'stargazing' ? STAR_LINES[bucket] : SUN_LINES[bucket];

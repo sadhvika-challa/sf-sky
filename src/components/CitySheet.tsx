@@ -84,24 +84,21 @@ function CityRowItem({
       onPointerLeave={handlePointerLeave}
       onPointerCancel={handlePointerLeave}
       aria-label={isHome ? `${city.name}, home city` : `Select ${city.name}`}
-      className={`w-full flex items-start gap-3 px-4 py-3.5 text-left rounded-xl transition-colors duration-150 touch-none ${
-        isActive
-          ? 'bg-cream-dark/50'
-          : 'bg-transparent hover:bg-cream-dark/30 active:bg-cream-dark/40'
-      }`}
+      className="w-full flex items-center gap-3 px-3 py-3 text-left rounded-xl transition-colors duration-150 touch-none bg-transparent active:bg-cream-dark/40"
       style={{ touchAction: 'none' }}
     >
-      <span className="text-2xl leading-none mt-0.5 flex-shrink-0" aria-hidden="true">
+      <span className="w-8 h-8 rounded-full bg-cream-dark flex items-center justify-center text-base leading-none flex-shrink-0" aria-hidden="true">
         {city.emoji}
       </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="font-serif text-base font-semibold text-gray-800">
+          <span className="font-serif text-[17px] text-gray-800 font-medium">
             {city.name}
           </span>
+          {isActive && <span className="w-1.5 h-1.5 rounded-full bg-pin-great flex-shrink-0" />}
           {isHome && <HomeIcon />}
         </div>
-        <p className="font-mono text-[11px] italic text-gray-500 mt-0.5 truncate">
+        <p className="font-mono text-[11px] tracking-[0.5px] text-gray-400 mt-0.5 truncate">
           {city.tagline}
         </p>
       </div>
@@ -229,8 +226,8 @@ export default function CitySheet({
         </div>
 
         {/* Footer hint */}
-        <div className="px-4 py-2.5 border-t border-cream-dark">
-          <p className="font-mono text-[9px] tracking-[1px] text-gray-400 text-center">
+        <div className="px-4">
+          <p className="font-mono text-[10px] text-gray-300 text-center mt-4 mb-2">
             Long-press a city to set it as your home
           </p>
         </div>

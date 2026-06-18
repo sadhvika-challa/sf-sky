@@ -10,8 +10,8 @@ interface CityRowProps {
 function GlobeIcon() {
   return (
     <svg
-      width="13"
-      height="13"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -19,6 +19,7 @@ function GlobeIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
+      className="text-gray-300"
     >
       <circle cx="12" cy="12" r="10" />
       <path d="M2 12h20" />
@@ -54,7 +55,7 @@ export default function CityRow({ activeCityId, homeCityId, onOpenCitySheet }: C
       <button
         type="button"
         onClick={onOpenCitySheet}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 border-[1.5px] border-cream-dark rounded-lg font-mono text-[10px] tracking-[1px] uppercase text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors flex-shrink-0"
+        className="flex items-center gap-1 font-mono text-[10px] tracking-[2px] uppercase text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
         aria-label="Switch city"
       >
         <GlobeIcon />
