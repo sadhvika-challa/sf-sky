@@ -36,10 +36,10 @@ import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 // edge — clipping there would re-introduce a hard line right where we're
 // trying to soften the coastline.
 const HEATMAP_BOUNDS: { south: number; west: number; north: number; east: number } = {
-  south: 37.698,
-  west: -122.524,
-  north: 37.825,
-  east: -122.346,
+  south: 37.690,
+  west: -122.535,
+  north: 37.833,
+  east: -122.336,
 };
 
 const HEATMAP_LEAFLET_BOUNDS: LatLngBoundsExpression = [
@@ -47,19 +47,22 @@ const HEATMAP_LEAFLET_BOUNDS: LatLngBoundsExpression = [
   [HEATMAP_BOUNDS.north, HEATMAP_BOUNDS.east],
 ];
 
-// Canvas raster resolution. 240x240 gives the SF coastline mask enough
-// pixels to render smoothly without obvious staircasing at typical zooms.
-const RASTER_W = 240;
-const RASTER_H = 240;
+// Scale the raster to native device pixels so the gradient doesn't look
+// blocky on Retina / high-DPI phone screens. Capped at 2× to keep the
+// per-frame IDW cost reasonable on mid-range phones (~230k pixels at 2×).
+const DPR = typeof window !== 'undefined'
+  ? Math.min(window.devicePixelRatio || 1, 2)
+  : 1;
+const RASTER_BASE = 240;
+const RASTER_W = Math.round(RASTER_BASE * DPR);
+const RASTER_H = Math.round(RASTER_BASE * DPR);
 
 // Coastline softness — pixels of gaussian-style blur applied when rendering
-// the SF mask. A wider blur:
-//   - feathers the city edge so the south county line and other straight
-//     segments don't read as a hard cut
-//   - lets the colored field bleed slightly past the polygon, naturally
-//     covering piers / Hunters Point peninsula / Embarcadero waterfront
-//     without us having to trace every cove in the outline
-const MASK_BLUR_PX = 9;
+// the SF mask, scaled by DPR so the fade zone stays the same physical width
+// on every screen density. At 2× this yields ~28px of blur on a 480px
+// canvas ≈ a ~24 CSS-pixel soft edge, which reads as a gentle atmospheric
+// fade rather than a hard polygon clip.
+const MASK_BLUR_PX = Math.round(14 * DPR);
 
 // Inserted once per process — defines the crossfade transition AND the
 // blend mode for the double-buffered overlays. `multiply` makes the
@@ -712,6 +715,21 @@ function rasterize(metric: WeatherMetric, samples: ReadonlyArray<SamplePoint>): 
     }
   }
   ctx.putImageData(img, 0, 0);
+
+  // Final smoothing pass: redraw through a sub-pixel blur to eliminate
+  // any remaining color stepping between IDW cells. The blur is ~1 CSS
+  // pixel regardless of DPR so it softens transitions without smearing
+  // the overall gradient.
+  const smooth = document.createElement('canvas');
+  smooth.width = RASTER_W;
+  smooth.height = RASTER_H;
+  const sCtx = smooth.getContext('2d');
+  if (sCtx) {
+    sCtx.filter = `blur(${DPR}px)`;
+    sCtx.drawImage(canvas, 0, 0);
+    return smooth.toDataURL('image/png');
+  }
+
   return canvas.toDataURL('image/png');
 }
 

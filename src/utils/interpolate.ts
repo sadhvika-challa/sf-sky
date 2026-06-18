@@ -27,11 +27,11 @@ export const OUTLIER_THRESHOLD: Record<WeatherMetric, number> = {
  * sheet of marine layer, not a constellation of fog bubbles.
  */
 export const METRIC_IDW_POWER: Record<WeatherMetric, number> = {
-  temp: 1.4,
-  clouds: 1.4,
-  precip: 1.4,
-  wind: 1.4,
-  fog: 1.0,
+  temp: 1.1,
+  clouds: 1.1,
+  precip: 1.2,
+  wind: 1.1,
+  fog: 0.8,
 };
 
 /**
