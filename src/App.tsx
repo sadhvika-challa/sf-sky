@@ -14,7 +14,7 @@ import SearchBar from './components/SearchBar';
 import SearchOverlay from './components/SearchOverlay';
 import SuggestSpotOverlay from './components/SuggestSpotOverlay';
 import BugReportOverlay from './components/BugReportOverlay';
-import UnifiedTimeline from './components/UnifiedTimeline';
+import WeatherControls from './components/WeatherControls';
 import WeatherMetricToggle from './components/WeatherMetricToggle';
 import WelcomeCard from './components/WelcomeCard';
 import OnboardingHint from './components/OnboardingHint';
@@ -22,7 +22,7 @@ import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
 import MapErrorBoundary from './components/MapErrorBoundary';
 import type { ScoreTier, ViewMode } from './utils/scoring';
-import { resolveViewMode, computeEventTimes, type EventTimes } from './utils/events';
+import { resolveViewMode } from './utils/events';
 import type { WeatherMetric } from './utils/interpolate';
 import {
   ONBOARDING_KEYS,
@@ -162,25 +162,21 @@ function App() {
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [timelineHourKey, setTimelineHourKey] = useState<string>('');
 
+  // Refreshed every 60s (see effect below) so viewMode stays current as
+  // real time advances while the user sits on the live "now" view.
+  const [now, setNow] = useState(() => new Date());
+
   // Derive viewMode from the scrubbed hour. When at '' (now), use city centroid
   // to resolve the current time-of-day mode.
   const viewMode: ViewMode = useMemo(() => {
     const lat = activeCityConfig.center[0];
     const lng = activeCityConfig.center[1];
     if (timelineHourKey === '') {
-      return resolveViewMode(new Date(), lat, lng);
+      return resolveViewMode(now, lat, lng);
     }
     const scrubbed = new Date(`${timelineHourKey}:00:00`);
     return resolveViewMode(scrubbed, lat, lng);
-  }, [timelineHourKey, activeCityConfig]);
-
-  // Pre-compute event times for the timeline rail.
-  const [now, setNow] = useState(() => new Date());
-  const eventTimes: EventTimes = useMemo(() => {
-    const lat = activeCityConfig.center[0];
-    const lng = activeCityConfig.center[1];
-    return computeEventTimes(now, lat, lng);
-  }, [now, activeCityConfig]);
+  }, [timelineHourKey, activeCityConfig, now]);
   // Onboarding: welcome card on first load, then a chain of one-time
   // hints tied to specific interactions. Each step is gated by a
   // localStorage flag (see `utils/onboarding.ts`); the component-level
@@ -211,6 +207,17 @@ function App() {
     useNeighborhoodForecasts(true);
 
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
+
+  // Resolve the "now" hour key against the available forecast keys so the
+  // scrubber can mark the live hour. The app's scrubbing convention uses
+  // '' for live-now, so tapping the Now card maps back to '' (see below).
+  const { resolvedNowKey, nowIndex } = useMemo(() => {
+    const candidate = nowHourKey();
+    const key = weatherHourKeys.includes(candidate)
+      ? candidate
+      : (weatherHourKeys[0] ?? '');
+    return { resolvedNowKey: key, nowIndex: weatherHourKeys.indexOf(key) };
+  }, [weatherHourKeys]);
 
   // Stable 24h range for legend labels — computed once from all hours, never
   // changes as the user scrubs the timeline.
@@ -653,12 +660,13 @@ function App() {
         <div
           className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 bg-white/95 backdrop-blur-sm rounded-t-xl shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
         >
-          <UnifiedTimeline
+          <WeatherControls
             hourKeys={weatherHourKeys}
-            hourKey={timelineHourKey}
-            onHourChange={handleTimelineHourChange}
-            viewMode={viewMode}
-            eventTimes={eventTimes}
+            hourKey={timelineHourKey || resolvedNowKey}
+            onHourChange={(key) =>
+              handleTimelineHourChange(key === resolvedNowKey ? '' : key)
+            }
+            nowIndex={nowIndex}
           />
         </div>
       )}
