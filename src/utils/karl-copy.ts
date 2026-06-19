@@ -296,7 +296,7 @@ export function getKarlComment(
 // ── Karl 2x2 breakdown (sun events only) ────────────────────────────────
 // Maps the (spot tier, sky tier) pair to a Karl-voiced one-liner that
 // explains *why* the score is what it is, not just *what* it is. Tiers
-// use the same getScoreTier thresholds (>= 70 / 45-69 / < 45).
+// use the same getScoreTier thresholds (>= 75 / 50-74 / < 50).
 
 export type BreakdownTier = 'good' | 'mixed' | 'poor';
 

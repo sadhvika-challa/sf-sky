@@ -5,7 +5,7 @@ import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
 import { getUpcomingEventTimes } from '../utils/events';
 import { getKarlComment } from '../utils/karl-copy';
-import { getScoreTier, tierColors, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
+import { getSpectrumColor, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -219,7 +219,6 @@ export default function SearchOverlay({
         ) : (
           <ul className="px-2">
             {results.map((r) => {
-              const tier = getScoreTier(r.score);
               const distance =
                 r.distanceMi !== null
                   ? ` · ${tempUnit === 'C' ? (r.distanceMi * 1.60934).toFixed(1) : r.distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`
@@ -256,7 +255,7 @@ export default function SearchOverlay({
                     </div>
                     <span
                       className="font-serif text-2xl font-light leading-none tabular-nums flex-shrink-0 mt-0.5"
-                      style={{ color: tierColors[tier] }}
+                      style={{ color: getSpectrumColor(r.score) }}
                     >
                       {r.score}
                     </span>

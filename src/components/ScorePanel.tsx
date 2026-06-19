@@ -3,7 +3,7 @@ import SunCalc from 'suncalc';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
-import { getScoreTier, tierColors, type ScoreTier, type ViewMode, computeNowBaseScore } from '../utils/scoring';
+import { getScoreTier, getSpectrumColor, tierColors, type ScoreTier, type ViewMode, computeNowBaseScore } from '../utils/scoring';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
@@ -118,7 +118,7 @@ function getKarlPill(score: number, city: City): { label: string; tier: ScoreTie
 }
 
 function getScoreColor(score: number): string {
-  return tierColors[getScoreTier(score)];
+  return getSpectrumColor(score);
 }
 
 function googleMapsTravelMode(mode: TravelMode): 'walking' | 'driving' {

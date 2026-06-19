@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import { Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { type Spot } from '../data/spots';
-import { getScoreTier, tierColors, type ScoreTier } from '../utils/scoring';
+import { getScoreTier, getSpectrumColor, type ScoreTier } from '../utils/scoring';
 
 const isCoarsePointer =
   typeof window !== 'undefined' &&
@@ -49,7 +49,9 @@ const HIT = 44;
 
 function createMarkerIcon(score: number, isActive: boolean, isHighlighted: boolean): L.DivIcon {
   const tier = getScoreTier(score);
-  const color = tierColors[tier];
+  // Fill comes from the continuous spectrum (so 69 and 70 look near-identical);
+  // tier still drives the dot's size and whether the number is shown.
+  const color = getSpectrumColor(score);
   const { size, fontSize, showScore } = pinSpec(tier);
   const borderWidth = isActive ? 3 : 2;
   const ring = isActive ? 'box-shadow: 0 0 0 3px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.25);' : 'box-shadow: 0 1px 4px rgba(0,0,0,0.22);';
