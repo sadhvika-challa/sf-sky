@@ -1246,6 +1246,209 @@ export const spots: Spot[] = [
       type: 'hike',
     },
   },
+  // — North Beach / Telegraph Hill niche spots —
+  // Tight cluster on and around Telegraph Hill. High light pollution downtown
+  // keeps stargazing scores low even where the horizon opens up. Ina Coolbrith
+  // Park and Pioneer Park are intentionally NOT re-added here — they already
+  // exist above (ids sf-ina-coolbrith and sf-coit-tower / "Coit Tower /
+  // Pioneer Park"). "Pretty View" is pending real coordinates and is omitted
+  // until confirmed.
+  {
+    id: "sf-jack-early-park", name: "Jack Early Park",
+    lat: 37.8040, lng: -122.4055,
+    city: 'sf',
+    category: 'hilltop', elevation: 60,
+    lightPollution: 'High', horizonQuality: 'Open',
+    sunrise: 65, sunset: 55, stargazing: 8,
+    accessAlert: {
+      message: "Tiny park on north slope of Telegraph Hill. ~60 steps up via hidden stairway off Francisco St. Gated, closes at night.",
+      type: 'hours',
+    },
+  },
+  {
+    id: "sf-filbert-steps", name: "Filbert Steps / Grace Marchant Garden",
+    lat: 37.8023, lng: -122.4045,
+    city: 'sf',
+    category: 'park', elevation: 50,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 55, sunset: 50, stargazing: 5,
+  },
+  {
+    id: "sf-greenwich-steps", name: "Greenwich Steps",
+    lat: 37.8030, lng: -122.4060,
+    city: 'sf',
+    category: 'park', elevation: 55,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 52, sunset: 48, stargazing: 5,
+  },
+  {
+    id: "sf-vallejo-steps", name: "Vallejo Street Steps",
+    lat: 37.7975, lng: -122.4115,
+    city: 'sf',
+    category: 'park', elevation: 55,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 48, sunset: 52, stargazing: 8,
+  },
+  // — South Bay (prefix sb-) —
+  // Grouped under city 'sf' so they surface on the SF map; the dynamic pan
+  // bounds in MapView (boundsFromSpots) auto-extend south to Mt. Umunhum
+  // (37.16) and east to Mt. Hamilton / Lick Observatory (-121.64). Weather
+  // mode uses its own fixed SF bounds and is unaffected.
+  // — Hilltop / ridge viewpoints —
+  {
+    id: "sb-mount-umunhum", name: "Mount Umunhum Summit",
+    lat: 37.1605, lng: -121.8986,
+    city: 'sf',
+    category: 'hilltop', elevation: 1063,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 70, sunset: 88, stargazing: 92,
+    accessAlert: {
+      message: "3.7-mile one-way climb from Bald Mountain lot. Summit closes 30 min after sunset. No water, no dogs.",
+      type: 'hike',
+    },
+  },
+  {
+    id: "sb-mt-hamilton", name: "Mt. Hamilton / Lick Observatory",
+    lat: 37.3414, lng: -121.6429,
+    city: 'sf',
+    category: 'hilltop', elevation: 1283,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 85, sunset: 80, stargazing: 98,
+    accessAlert: {
+      message: "1 hr winding drive from San Jose via Mt Hamilton Rd. Observatory visitor hours limited, check schedule. Road can close in winter.",
+      type: 'hours',
+    },
+  },
+  {
+    id: "sb-communications-hill", name: "Communications Hill / Vieira Park",
+    lat: 37.2980, lng: -121.8550,
+    city: 'sf',
+    category: 'hilltop', elevation: 120,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 60, sunset: 72, stargazing: 20,
+    accessAlert: {
+      message: "Grand Staircase (250 steps) from base. Residential area, keep noise down.",
+      type: 'info',
+    },
+  },
+  {
+    id: "sb-monument-peak", name: "Monument Peak (Ed Levin)",
+    lat: 37.4666, lng: -121.8569,
+    city: 'sf',
+    category: 'hilltop', elevation: 730,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 78, sunset: 82, stargazing: 70,
+    accessAlert: {
+      message: "$6 vehicle entry. Steep 4+ mile hike from Sandy Wool Lake. Park open 8 AM to sunset.",
+      type: 'hike',
+    },
+  },
+  {
+    id: "sb-sierra-vista", name: "Sierra Vista Open Space",
+    lat: 37.2230, lng: -121.7980,
+    city: 'sf',
+    category: 'hilltop', elevation: 400,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 65, sunset: 75, stargazing: 65,
+  },
+  {
+    id: "sb-black-mountain", name: "Black Mountain (Monte Bello)",
+    lat: 37.3210, lng: -122.0980,
+    city: 'sf',
+    category: 'hilltop', elevation: 825,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 72, sunset: 80, stargazing: 72,
+    accessAlert: {
+      message: "Strenuous 8+ mile round trip from Rancho San Antonio. Fully exposed, bring water.",
+      type: 'hike',
+    },
+  },
+  // — Parks / preserves with views —
+  {
+    id: "sb-rancho-san-antonio", name: "Rancho San Antonio",
+    lat: 37.3370, lng: -122.0890,
+    city: 'sf',
+    category: 'park', elevation: 120,
+    lightPollution: 'Low', horizonQuality: 'Partial',
+    sunrise: 55, sunset: 68, stargazing: 45,
+    accessAlert: {
+      message: "Open 30 min before sunrise to 30 min after sunset. Parking fills early on weekends.",
+      type: 'hours',
+    },
+  },
+  {
+    id: "sb-stanford-dish", name: "Stanford Dish",
+    lat: 37.4060, lng: -122.1755,
+    city: 'sf',
+    category: 'park', elevation: 180,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 58, sunset: 72, stargazing: 25,
+    accessAlert: {
+      message: "Open sunrise to sunset only (hours vary seasonally). No dogs, no bikes. Stanford security on-site.",
+      type: 'hours',
+    },
+  },
+  {
+    id: "sb-fremont-older", name: "Fremont Older Open Space",
+    lat: 37.2890, lng: -122.0780,
+    city: 'sf',
+    category: 'park', elevation: 260,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 55, sunset: 70, stargazing: 50,
+    accessAlert: {
+      message: "Open sunrise to 30 min after sunset.",
+      type: 'hours',
+    },
+  },
+  {
+    id: "sb-ed-levin", name: "Ed Levin County Park",
+    lat: 37.4580, lng: -121.8530,
+    city: 'sf',
+    category: 'park', elevation: 150,
+    lightPollution: 'Low', horizonQuality: 'Partial',
+    sunrise: 50, sunset: 62, stargazing: 42,
+    accessAlert: {
+      message: "$6 vehicle entry. Open 8 AM to sunset.",
+      type: 'paid',
+    },
+  },
+  // — Waterfront / flat horizon —
+  {
+    id: "sb-alviso-marina", name: "Alviso Marina County Park",
+    lat: 37.4270, lng: -121.9760,
+    city: 'sf',
+    category: 'waterfront', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 70, sunset: 78, stargazing: 28,
+  },
+  {
+    id: "sb-shoreline-park", name: "Shoreline at Mountain View",
+    lat: 37.4310, lng: -122.0880,
+    city: 'sf',
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'Mid', horizonQuality: 'Partial',
+    sunrise: 55, sunset: 62, stargazing: 15,
+  },
+  {
+    id: "sb-baylands-sunnyvale", name: "Sunnyvale Baylands Park",
+    lat: 37.4170, lng: -122.0320,
+    city: 'sf',
+    category: 'waterfront', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 60, sunset: 65, stargazing: 18,
+  },
+  {
+    id: "sb-coyote-point", name: "Coyote Point Recreation Area",
+    lat: 37.5894, lng: -122.3261,
+    city: 'sf',
+    category: 'waterfront', elevation: 15,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 62, sunset: 68, stargazing: 15,
+    accessAlert: {
+      message: "$6 vehicle entry fee.",
+      type: 'paid',
+    },
+  },
 ];
 
 export function getConditionLabel(score: number): string {
