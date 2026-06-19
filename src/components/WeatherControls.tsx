@@ -1,4 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import {
+  getScoreTypesForHours,
+  type TimeOfDayType,
+} from '../utils/hourScoreType';
+import {
+  SunriseIcon,
+  SunsetIcon,
+  StargazingIcon,
+  NowIcon,
+} from './icons/ScrubberIcons';
+
 export interface EventMarker {
   type: 'sunrise' | 'sunset' | 'stargazing';
   hourKey: string;
@@ -13,22 +24,88 @@ interface WeatherControlsProps {
   /** Index of the "now" hour within `hourKeys`, or -1 if not present. */
   nowIndex: number;
   eventMarkers?: EventMarker[];
+  /** Best score among currently visible spots for each hour key. */
+  bestScorePerHour?: Map<string, number>;
 }
 
 const SCRUBBER_HOUR_LIMIT = 48;
 
-const EVENT_COLORS: Record<EventMarker['type'], string> = {
-  sunrise: '#D946A8',
-  sunset: '#CC2936',
-  stargazing: '#a78bfa',
+interface TimePalette {
+  panelTint: string;
+  iconColor: string;
+  selectedBg: string;
+  selectedBorder: string;
+  accentDot: string;
+}
+
+const TIME_PALETTES: Record<TimeOfDayType, TimePalette> = {
+  sunrise: {
+    // Soft pink-peach dawn
+    panelTint: 'rgba(244, 180, 152, 0.08)',
+    iconColor: 'text-[#D4956A]',
+    selectedBg: 'rgba(244, 180, 152, 0.12)',
+    selectedBorder: '#D4956A',
+    accentDot: '#D4956A',
+  },
+  sunset: {
+    // Warm amber-violet dusk
+    panelTint: 'rgba(200, 140, 180, 0.08)',
+    iconColor: 'text-[#B07AAF]',
+    selectedBg: 'rgba(200, 140, 180, 0.12)',
+    selectedBorder: '#B07AAF',
+    accentDot: '#B07AAF',
+  },
+  stargazing: {
+    // Cool indigo night
+    panelTint: 'rgba(123, 143, 180, 0.08)',
+    iconColor: 'text-[#7B8FA1]',
+    selectedBg: 'rgba(123, 143, 161, 0.12)',
+    selectedBorder: '#7B8FA1',
+    accentDot: '#7B8FA1',
+  },
+  now: {
+    // Warm cream day (essentially invisible tint, the default)
+    panelTint: 'rgba(139, 168, 136, 0.06)',
+    iconColor: 'text-[#8BA888]',
+    selectedBg: 'rgba(139, 168, 136, 0.12)',
+    selectedBorder: '#8BA888',
+    accentDot: '#8BA888',
+  },
+} as const;
+
+const TYPE_LABELS: Record<TimeOfDayType, string> = {
+  sunrise: 'Sunrise',
+  sunset: 'Sunset',
+  stargazing: 'Stargazing',
+  now: 'Now',
 };
 
-function formatEventTime(time: Date): string {
-  const h = time.getHours();
-  const m = String(time.getMinutes()).padStart(2, '0');
-  const suffix = h >= 12 ? 'p' : 'a';
-  const h12 = h % 12 || 12;
-  return `${h12}:${m}${suffix}`;
+function ScoreTypeIcon({
+  type,
+  size,
+  className,
+}: {
+  type: TimeOfDayType;
+  size: number;
+  className?: string;
+}) {
+  switch (type) {
+    case 'sunrise':
+      return <SunriseIcon size={size} className={className} />;
+    case 'sunset':
+      return <SunsetIcon size={size} className={className} />;
+    case 'stargazing':
+      return <StargazingIcon size={size} className={className} />;
+    default:
+      return <NowIcon size={size} className={className} />;
+  }
+}
+
+/** Sage / tan / dusty-rose tier color, matching the rest of the app. */
+function scoreColor(score: number): string {
+  if (score >= 70) return '#5B9A7B';
+  if (score >= 45) return '#C4956A';
+  return '#B07A7A';
 }
 
 export default function WeatherControls({
@@ -36,268 +113,178 @@ export default function WeatherControls({
   hourKey,
   onHourChange,
   nowIndex,
-  eventMarkers,
+  bestScorePerHour,
 }: WeatherControlsProps) {
   const visibleKeys = useMemo(
     () => hourKeys.slice(0, SCRUBBER_HOUR_LIMIT),
     [hourKeys],
   );
-  const currentIndex = Math.max(0, visibleKeys.indexOf(hourKey));
-  const max = Math.max(0, visibleKeys.length - 1);
 
-  const dayBoundaries = useMemo(() => deriveDayBoundaries(visibleKeys), [visibleKeys]);
-  const startLabel = visibleKeys.length > 0 ? formatHourLabel(visibleKeys[0]) : '–';
-  const currentLabel = hourKey ? formatHourLabel(hourKey) : '–';
+  const scoreTypes = useMemo(
+    () => getScoreTypesForHours(visibleKeys),
+    [visibleKeys],
+  );
 
-  const visibleMarkers = useMemo(() => {
-    if (!eventMarkers || max === 0) return [];
-    return eventMarkers
-      .map((m) => {
-        const idx = visibleKeys.indexOf(m.hourKey);
-        if (idx < 0) return null;
-        return { ...m, idx };
-      })
-      .filter((m): m is EventMarker & { idx: number } => m !== null);
-  }, [eventMarkers, visibleKeys, max]);
+  const dayBoundaries = useMemo(
+    () => deriveDayBoundaries(visibleKeys),
+    [visibleKeys],
+  );
 
-  const [dragging, setDragging] = useState(false);
-  const [pulseKey, setPulseKey] = useState(0);
-  const lastIdxRef = useRef<number>(currentIndex);
-  const railRef = useRef<HTMLDivElement>(null);
+  const selectedType = scoreTypes.get(hourKey) ?? 'now';
+  const currentPalette = TIME_PALETTES[selectedType];
+  const typeLabel = TYPE_LABELS[selectedType];
+  const contextLabel = hourKey ? formatContextLabel(hourKey) : '–';
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Refs to each card so we can center the selected one on programmatic
+  // selection. Keyed by hour key.
+  const cardRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  // Track whether the last selection came from a user tap on a card — taps
+  // already put the card under the finger, so we skip the auto-scroll then.
+  const userTapRef = useRef(false);
 
   useEffect(() => {
-    lastIdxRef.current = currentIndex;
-  }, [currentIndex]);
-
-  const thumbPct = max > 0 ? (currentIndex / max) * 100 : 0;
-  const isAtNow = nowIndex >= 0 && currentIndex === nowIndex;
-
-  const resolvePositionToIndex = useCallback(
-    (clientX: number) => {
-      if (!railRef.current || visibleKeys.length === 0) return;
-      const rect = railRef.current.getBoundingClientRect();
-      const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-      const pct = x / rect.width;
-      const idx = Math.round(pct * max);
-      const clamped = Math.max(0, Math.min(idx, max));
-      const next = visibleKeys[clamped];
-      if (!next) return;
-      if (clamped !== lastIdxRef.current) {
-        navigator.vibrate?.(8);
-      }
-      onHourChange(next);
-    },
-    [visibleKeys, max, onHourChange],
-  );
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      setDragging(true);
-      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-      resolvePositionToIndex(e.clientX);
-    },
-    [resolvePositionToIndex],
-  );
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragging) return;
-      resolvePositionToIndex(e.clientX);
-    },
-    [dragging, resolvePositionToIndex],
-  );
-
-  const handlePointerUp = useCallback(() => {
-    setDragging(false);
-    setPulseKey((k) => k + 1);
-  }, []);
-
-  const handleNowClick = useCallback(() => {
-    if (nowIndex >= 0 && visibleKeys[nowIndex]) {
-      onHourChange(visibleKeys[nowIndex]);
+    if (userTapRef.current) {
+      userTapRef.current = false;
+      return;
     }
-  }, [nowIndex, visibleKeys, onHourChange]);
+    const node = cardRefs.current.get(hourKey);
+    if (node) {
+      node.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest',
+      });
+    }
+  }, [hourKey]);
 
   return (
-    <div
-      className="flex flex-col py-3"
-      role="group"
-      aria-label="Weather map controls"
-    >
-      {/* Time labels */}
-      <div className="flex items-center justify-between mb-2 px-2">
-        <span className="font-mono text-[11px] text-gray-500 tabular-nums">
-          {startLabel}
+    <div className="flex flex-col gap-2" role="group" aria-label="Forecast hours">
+      {/* Header row: score type label (left) + time context (right) */}
+      <div className="flex justify-between items-baseline px-1">
+        <span className="font-instrument-serif text-xl text-[#1a1a18]">
+          {typeLabel}
         </span>
-        <span
-          className={`font-mono text-[13px] tabular-nums transition-colors ${
-            dragging ? 'text-gray-700 font-bold' : 'text-gray-700 font-medium'
-          }`}
-        >
-          {currentLabel}
+        <span className="font-mono text-xs text-gray-400 tracking-wide">
+          {contextLabel}
         </span>
       </div>
 
-      {/* Rail container with 8px inset */}
-      <div className="px-2">
+      {/* Tint layer + scrollable strip */}
+      <div className="relative">
+        {/* Background tint — transitions with score type */}
         <div
-          ref={railRef}
-          className="relative h-8 touch-none select-none cursor-pointer"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          role="slider"
-          aria-valuemin={0}
-          aria-valuemax={max}
-          aria-valuenow={currentIndex}
-          aria-label="Forecast hour"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowRight' && currentIndex < max) {
-              onHourChange(visibleKeys[currentIndex + 1]);
-            } else if (e.key === 'ArrowLeft' && currentIndex > 0) {
-              onHourChange(visibleKeys[currentIndex - 1]);
-            }
-          }}
+          className="absolute inset-0 rounded-2xl transition-colors duration-300"
+          style={{ backgroundColor: currentPalette.panelTint }}
+          aria-hidden="true"
+        />
+
+        {/* Horizontal scroll container */}
+        <div
+          ref={scrollRef}
+          className="relative flex overflow-x-auto gap-0.5 px-2 py-2 scrollbar-hide"
+          style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}
         >
-          {/* Background track — 3px */}
-          <div
-            className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[3px] rounded-full bg-cream-dark"
-            aria-hidden="true"
-          />
-
-          {/* Filled (progress) portion */}
-          {max > 0 && (
-            <div
-              className="absolute top-1/2 -translate-y-1/2 h-[3px] rounded-full"
-              style={{
-                left: 0,
-                width: `${thumbPct}%`,
-                backgroundColor: 'rgba(91, 154, 123, 0.4)',
-              }}
-              aria-hidden="true"
-            />
-          )}
-
-          {/* Hour ticks — 3px tall */}
-          {max > 0 &&
-            visibleKeys.map((_, idx) => {
-              if (idx === 0 || idx === max) return null;
-              if (dayBoundaries.includes(idx)) return null;
-              return (
-                <div
-                  key={`hr-${idx}`}
-                  className="absolute top-1/2 -translate-y-1/2 w-px h-[3px] bg-gray-300/30"
-                  style={{ left: `${(idx / max) * 100}%` }}
-                  aria-hidden="true"
-                />
-              );
-            })}
-
-          {/* Day boundary ticks — 6px tall */}
-          {dayBoundaries.map((idx) =>
-            idx === 0 || max === 0 ? null : (
-              <div
-                key={`day-${idx}`}
-                className="absolute top-1/2 -translate-y-1/2 w-px h-[6px] bg-gray-400/50"
-                style={{ left: `${(idx / max) * 100}%` }}
-                aria-hidden="true"
-              />
-            ),
-          )}
-
-          {/* Event markers */}
-          {visibleMarkers.map((marker) => (
-            <button
-              key={`${marker.type}-${marker.hourKey}`}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onHourChange(marker.hourKey);
-              }}
-              className="absolute flex flex-col items-center pointer-events-auto z-10"
-              style={{
-                left: `${(marker.idx / max) * 100}%`,
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-              }}
-              aria-label={`Jump to ${marker.label} at ${formatEventTime(marker.time)}`}
-            >
-              <div
-                className="w-0.5 h-3 rounded-full"
-                style={{ backgroundColor: EVENT_COLORS[marker.type] }}
-              />
-              <div
-                className="mt-0.5 text-[8px] font-mono uppercase tracking-wider leading-none"
-                style={{ color: EVENT_COLORS[marker.type] }}
-              >
-                {marker.type === 'stargazing' ? 'Stars' : marker.label}
-              </div>
-              <div className="text-[7px] font-mono text-gray-500 leading-none">
-                {formatEventTime(marker.time)}
-              </div>
-            </button>
-          ))}
-
-          {/* "Now" green dot on the track */}
-          {nowIndex >= 0 && nowIndex <= max && max > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleNowClick();
-              }}
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 flex items-center justify-center w-[44px] h-[44px]"
-              style={{ left: `${(nowIndex / max) * 100}%` }}
-              aria-label="Jump to now"
-            >
-              <div
-                className={`w-1.5 h-1.5 rounded-full bg-pin-great ${
-                  isAtNow ? 'animate-[nowPulse_2s_ease-in-out_infinite]' : ''
-                }`}
-              />
-            </button>
-          )}
-
-          {/* Custom thumb — 44px touch target, 20px visual */}
-          {visibleKeys.length > 0 && (
-            <div
-              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 pointer-events-none z-20 flex items-center justify-center w-[44px] h-[44px]"
-              style={{ left: `${thumbPct}%` }}
-            >
-              <div
-                className={`relative w-5 h-5 rounded-full bg-white border border-gray-300 transition-transform duration-100 ${
-                  dragging ? 'scale-110' : 'scale-100'
-                }`}
-                style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}
-              >
-                <span
-                  key={pulseKey}
-                  aria-hidden="true"
-                  className="block absolute inset-0 rounded-full bg-white/50 weather-thumb-bounce"
+          {visibleKeys.map((key, i) => {
+            const type = scoreTypes.get(key) ?? 'now';
+            const showDayDivider = i > 0 && dayBoundaries.includes(i);
+            return (
+              <div key={key} className="flex items-stretch">
+                {showDayDivider && (
+                  <div
+                    className="self-center w-px h-2 mx-0.5 bg-gray-300/30"
+                    aria-hidden="true"
+                  />
+                )}
+                <HourCard
+                  hourKey={key}
+                  isSelected={key === hourKey}
+                  isNow={i === nowIndex}
+                  scoreType={type}
+                  bestScore={bestScorePerHour?.get(key)}
+                  palette={TIME_PALETTES[type]}
+                  cardRef={(node) => {
+                    if (node) cardRefs.current.set(key, node);
+                    else cardRefs.current.delete(key);
+                  }}
+                  onClick={() => {
+                    userTapRef.current = true;
+                    onHourChange(key);
+                  }}
                 />
               </div>
-            </div>
-          )}
+            );
+          })}
         </div>
       </div>
-
-      {/* "Now" label below the track, aligned to the Now dot */}
-      {nowIndex >= 0 && nowIndex <= max && max > 0 && (
-        <div className="relative h-4 mt-0.5 px-2">
-          <button
-            type="button"
-            onClick={handleNowClick}
-            disabled={isAtNow}
-            className="absolute -translate-x-1/2 font-mono text-[9px] text-pin-great font-medium disabled:opacity-60"
-            style={{ left: `calc(0.5rem + ${(nowIndex / max) * 100}%)` }}
-          >
-            Now
-          </button>
-        </div>
-      )}
     </div>
+  );
+}
+
+interface HourCardProps {
+  hourKey: string;
+  isSelected: boolean;
+  isNow: boolean;
+  scoreType: TimeOfDayType;
+  bestScore?: number;
+  palette: TimePalette;
+  cardRef: (node: HTMLButtonElement | null) => void;
+  onClick: () => void;
+}
+
+function HourCard({
+  hourKey,
+  isSelected,
+  isNow,
+  scoreType,
+  bestScore,
+  palette,
+  cardRef,
+  onClick,
+}: HourCardProps) {
+  const timeLabel = isNow ? 'Now' : formatShortHour(hourKey);
+
+  return (
+    <button
+      ref={cardRef}
+      type="button"
+      onClick={onClick}
+      aria-pressed={isSelected}
+      aria-label={`${isNow ? 'Now' : formatContextLabel(hourKey)}${
+        bestScore !== undefined ? `, best score ${Math.round(bestScore)}` : ''
+      }`}
+      className="flex flex-col items-center gap-1 min-w-[48px] px-2 py-2.5 rounded-2xl border-[1.5px] transition-all duration-200 ease-out cursor-pointer"
+      style={{
+        borderColor: isSelected ? palette.selectedBorder : 'transparent',
+        backgroundColor: isSelected ? palette.selectedBg : 'transparent',
+      }}
+    >
+      {/* Time label */}
+      <span
+        className={`font-mono text-[11px] tabular-nums leading-none ${
+          isSelected ? 'text-[#1a1a18]' : 'text-gray-400'
+        }`}
+      >
+        {timeLabel}
+      </span>
+
+      {/* Icon */}
+      <ScoreTypeIcon
+        type={scoreType}
+        size={16}
+        className={isSelected ? palette.iconColor : 'text-gray-300'}
+      />
+
+      {/* Score (only when provided) */}
+      {bestScore !== undefined && (
+        <span
+          className="font-mono text-[13px] font-semibold leading-none"
+          style={{ color: scoreColor(bestScore), fontVariantNumeric: 'tabular-nums' }}
+        >
+          {Math.round(bestScore)}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -310,12 +297,48 @@ function deriveDayBoundaries(hourKeys: string[]): number[] {
   return out;
 }
 
-function formatHourLabel(hourKey: string): string {
+/** Compact hour like "8p", "12a", "2p" for a card's time label. */
+function formatShortHour(hourKey: string): string {
   const parsed = new Date(`${hourKey}:00:00`);
   if (Number.isNaN(parsed.getTime())) return hourKey;
-  const weekday = parsed.toLocaleDateString(undefined, { weekday: 'short' });
-  const time = parsed
-    .toLocaleTimeString(undefined, { hour: 'numeric', minute: undefined })
-    .replace(/\s?(AM|PM)/, (_, p) => p.toLowerCase());
-  return `${weekday} ${time}`;
+  const h = parsed.getHours();
+  const suffix = h >= 12 ? 'p' : 'a';
+  const h12 = h % 12 || 12;
+  return `${h12}${suffix}`;
+}
+
+/**
+ * Date context for the header, e.g. "Tonight · 8:35pm", "Today · 2:15pm",
+ * "Tomorrow · 6:12am".
+ */
+function formatContextLabel(hourKey: string): string {
+  const parsed = new Date(`${hourKey}:00:00`);
+  if (Number.isNaN(parsed.getTime())) return hourKey;
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTarget = new Date(
+    parsed.getFullYear(),
+    parsed.getMonth(),
+    parsed.getDate(),
+  );
+  const dayDiff = Math.round(
+    (startOfTarget.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000),
+  );
+
+  const hour = parsed.getHours();
+  let dayWord: string;
+  if (dayDiff === 0) {
+    // Evening hours read more naturally as "Tonight".
+    dayWord = hour >= 18 ? 'Tonight' : 'Today';
+  } else if (dayDiff === 1) {
+    dayWord = 'Tomorrow';
+  } else {
+    dayWord = parsed.toLocaleDateString(undefined, { weekday: 'long' });
+  }
+
+  const m = String(parsed.getMinutes()).padStart(2, '0');
+  const suffix = hour >= 12 ? 'pm' : 'am';
+  const h12 = hour % 12 || 12;
+  return `${dayWord} · ${h12}:${m}${suffix}`;
 }

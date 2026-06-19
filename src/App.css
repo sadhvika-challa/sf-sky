@@ -4,6 +4,8 @@
   --font-sans: 'DM Sans', sans-serif;
   --font-serif: 'Source Serif 4', serif;
   --font-mono: 'DM Mono', monospace;
+  /* Editorial serif used for the scrubber's score-type header. */
+  --font-instrument-serif: 'Instrument Serif', 'Source Serif 4', serif;
   /* Casual handwritten face used by the onboarding flow (welcome card +
      contextual hints). Kept narrow in scope so it doesn't bleed into the
      rest of the UI. */
@@ -135,6 +137,16 @@ body {
 }
 
 .score-cards-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Generic scrollbar-hide utility — used by the hourly scrubber strip. */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
