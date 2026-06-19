@@ -3,6 +3,7 @@ import {
   computeLiveScore,
   computeScoreBreakdown,
   getScoreTier,
+  getSpectrumColor,
   cloudCoverLabel,
   visibilityPercent,
   type ScoreType,
@@ -254,22 +255,60 @@ describe('weight balance', () => {
 // ---------------------------------------------------------------------------
 
 describe('getScoreTier', () => {
-  it('returns "great" for scores >= 70', () => {
-    expect(getScoreTier(70)).toBe('great');
+  it('returns "great" for scores >= 75', () => {
+    expect(getScoreTier(75)).toBe('great');
     expect(getScoreTier(100)).toBe('great');
     expect(getScoreTier(85)).toBe('great');
   });
 
-  it('returns "decent" for scores 45-69', () => {
-    expect(getScoreTier(45)).toBe('decent');
-    expect(getScoreTier(69)).toBe('decent');
-    expect(getScoreTier(55)).toBe('decent');
+  it('returns "decent" for scores 50-74', () => {
+    expect(getScoreTier(50)).toBe('decent');
+    expect(getScoreTier(74)).toBe('decent');
+    expect(getScoreTier(63)).toBe('decent');
   });
 
-  it('returns "poor" for scores < 45', () => {
+  it('returns "poor" for scores < 50', () => {
     expect(getScoreTier(0)).toBe('poor');
-    expect(getScoreTier(44)).toBe('poor');
-    expect(getScoreTier(20)).toBe('poor');
+    expect(getScoreTier(49)).toBe('poor');
+    expect(getScoreTier(25)).toBe('poor');
+  });
+});
+
+describe('getSpectrumColor', () => {
+  const toRgb = (s: string): [number, number, number] => {
+    const m = s.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+    if (!m) throw new Error(`not an rgb string: ${s}`);
+    return [Number(m[1]), Number(m[2]), Number(m[3])];
+  };
+
+  it('returns a CSS rgb() string', () => {
+    expect(getSpectrumColor(50)).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
+  });
+
+  it('is continuous — adjacent scores look near-identical (69 vs 70)', () => {
+    const a = toRgb(getSpectrumColor(69));
+    const b = toRgb(getSpectrumColor(70));
+    const dist = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+    // No hard tier jump: total per-channel delta stays tiny across one point.
+    expect(dist).toBeLessThan(12);
+  });
+
+  it('trends red at the bottom and green at the top', () => {
+    const low = toRgb(getSpectrumColor(10));
+    const high = toRgb(getSpectrumColor(95));
+    expect(low[0]).toBeGreaterThan(low[1]); // red channel dominates
+    expect(high[1]).toBeGreaterThan(high[0]); // green channel dominates
+  });
+
+  it('clamps out-of-range scores to the ramp ends', () => {
+    expect(getSpectrumColor(-20)).toBe(getSpectrumColor(0));
+    expect(getSpectrumColor(150)).toBe(getSpectrumColor(100));
+  });
+
+  it('yields well over 45 distinct colors across 0–100', () => {
+    const seen = new Set<string>();
+    for (let s = 0; s <= 100; s++) seen.add(getSpectrumColor(s));
+    expect(seen.size).toBeGreaterThanOrEqual(45);
   });
 });
 

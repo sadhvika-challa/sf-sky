@@ -412,20 +412,28 @@ export function computeNowScore(spot: Spot, hourly: HourlyForecast): number {
   return Math.round(clamp(blended, 0, 100));
 }
 
-// Score quality tiers — drive pin color/size, outlook dot, score-card chrome.
-// Palette is intentionally muted to match the cream/watercolor aesthetic of
-// the app; do not swap in stoplight green/amber/red.
+// Score quality tiers — drive pin size, outlook dot, score-card chrome, and
+// the Karl verdict pills. The palette is more saturated than the original
+// muted watercolor tones: we lean a touch more vibrant (and a touch greener)
+// so a good night reads as genuinely inviting — the app wants people to feel
+// good about heading out, especially through SF's gloomy summer marine layer.
+//
+// Tier *centers* line up with the band anchors of the continuous spectrum
+// below (great ≈ score 88, decent ≈ 63, poor ≈ 25) so the discrete pill
+// colors and the interpolated pin colors never look out of step.
 export type ScoreTier = 'great' | 'decent' | 'poor';
 
 export const tierColors: Record<ScoreTier, string> = {
-  great: '#5B9A7B',
-  decent: '#C4956A',
-  poor: '#B07A7A',
+  great: '#58B070',
+  decent: '#E2A94E',
+  poor: '#D64B46',
 };
 
+// Band thresholds: green 75–100, tan 50–75, red 0–50. Bumped up from the old
+// 70/45 cutoffs so the three color zones land on round, intuitive boundaries.
 export function getScoreTier(score: number): ScoreTier {
-  if (score >= 70) return 'great';
-  if (score >= 45) return 'decent';
+  if (score >= 75) return 'great';
+  if (score >= 50) return 'decent';
   return 'poor';
 }
 
@@ -434,10 +442,69 @@ export function getTierColor(score: number): string {
 }
 
 const TIER_RGB: Record<ScoreTier, [number, number, number]> = {
-  great: [91, 154, 123],
-  decent: [196, 149, 106],
-  poor: [176, 122, 122],
+  great: [88, 176, 112],
+  decent: [226, 169, 78],
+  poor: [214, 75, 70],
 };
+
+// ── Continuous score spectrum ────────────────────────────────────────────
+//
+// A smooth red → gold → green ramp over the 0–100 score. Because it's
+// interpolated, every integer score gets its own shade (up to ~100 distinct
+// colors — well past the "at least 45" we want), so a 69 and a 70 read as
+// effectively the same color instead of snapping between tan and green. The
+// hard tier buckets above still drive *layout* (pin size, labels); this drives
+// the actual *fill color* wherever a pin or score number is painted.
+//
+// Anchor placement matches the requested bands, with the green half weighted
+// a little early (yellow-green already creeping in by ~70) so more of the map
+// trends green and hopeful rather than brown.
+interface SpectrumStop {
+  at: number; // 0–1 along the ramp (score / 100)
+  rgb: [number, number, number];
+}
+
+const SCORE_SPECTRUM_STOPS: SpectrumStop[] = [
+  { at: 0.0, rgb: [178, 58, 56] }, // 0   — deep red
+  { at: 0.25, rgb: [214, 75, 70] }, // 25  — vibrant red (poor anchor)
+  { at: 0.5, rgb: [223, 132, 74] }, // 50  — red→gold boundary (warm orange)
+  { at: 0.625, rgb: [226, 169, 78] }, // ~63 — vibrant gold (decent anchor)
+  { at: 0.7, rgb: [196, 178, 88] }, // 70  — gold tipping toward green
+  { at: 0.75, rgb: [160, 184, 96] }, // 75  — yellow-green (tan→green boundary)
+  { at: 0.875, rgb: [88, 176, 112] }, // ~88 — vibrant green (great anchor)
+  { at: 1.0, rgb: [56, 150, 92] }, // 100 — deep green
+];
+
+function lerpChannel(a: number, b: number, t: number): number {
+  return Math.round(a + (b - a) * t);
+}
+
+/**
+ * Continuous spectrum color for a 0–100 score. Returns a CSS `rgb(...)`
+ * string interpolated across the red→gold→green ramp. Out-of-range scores
+ * clamp to the nearest end.
+ */
+export function getSpectrumColor(score: number): string {
+  const t = Number.isFinite(score) ? clamp(score, 0, 100) / 100 : 0;
+  const stops = SCORE_SPECTRUM_STOPS;
+
+  let lo = stops[0];
+  let hi = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (t >= stops[i].at && t <= stops[i + 1].at) {
+      lo = stops[i];
+      hi = stops[i + 1];
+      break;
+    }
+  }
+
+  const span = hi.at - lo.at;
+  const localT = span === 0 ? 0 : (t - lo.at) / span;
+  const r = lerpChannel(lo.rgb[0], hi.rgb[0], localT);
+  const g = lerpChannel(lo.rgb[1], hi.rgb[1], localT);
+  const b = lerpChannel(lo.rgb[2], hi.rgb[2], localT);
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 /** Canonical tier color at a given opacity -- e.g. `tierColorRgba('great', 0.3)`. */
 export function tierColorRgba(tier: ScoreTier, alpha: number): string {

@@ -15,12 +15,13 @@
   --color-green-muted: #6B9E6B;
   --color-cream: #FDF8F0;
   --color-cream-dark: #F5EDE0;
-  /* Score-tier palette — muted, not stoplight. Used by pins, the outlook
-     dot, and the score chrome on cards. Keep in sync with `tierColors` in
-     `src/utils/scoring.ts`. */
-  --color-pin-great: #5B9A7B;
-  --color-pin-decent: #C4956A;
-  --color-pin-poor: #B07A7A;
+  /* Score-tier palette — vibrant, green-leaning (but still watercolor, not
+     neon). Used by the outlook dot and score chrome on cards; pins/score
+     numbers now paint from the continuous spectrum. Keep in sync with
+     `tierColors` in `src/utils/scoring.ts`. */
+  --color-pin-great: #58B070;
+  --color-pin-decent: #E2A94E;
+  --color-pin-poor: #D64B46;
   /* Brand palette — pulled from the app icon (sunset + fog illustration).
      Magenta-pink = sun rays, Crimson-red = sun body + fog waves. */
   --color-brand-magenta: #D946A8;
@@ -28,9 +29,9 @@
 }
 
 :root {
-  --pin-great: #5B9A7B;
-  --pin-decent: #C4956A;
-  --pin-poor: #B07A7A;
+  --pin-great: #58B070;
+  --pin-decent: #E2A94E;
+  --pin-poor: #D64B46;
 }
 
 /* Pin the document chain to full viewport height so iOS Safari can't expose
