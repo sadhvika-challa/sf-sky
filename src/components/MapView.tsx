@@ -336,7 +336,7 @@ function getMarkerQuip(spot: Spot, liveScores: LiveScoresMap): string | undefine
 // asking for an empty result set. Otherwise the spot's live tier for that
 // event must be in the selected bucket.
 function tierAllows(score: number, allowed: ScoreTier[]): boolean {
-  if (allowed.length === 0 || allowed.length === 3) return true;
+  if (allowed.length === 0 || allowed.length === 5) return true;
   return allowed.includes(getScoreTier(score));
 }
 

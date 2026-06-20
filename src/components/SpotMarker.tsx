@@ -30,13 +30,15 @@ interface PinSpec {
 
 function pinSpec(tier: ScoreTier): PinSpec {
   switch (tier) {
-    case 'great':
+    case 'vivid':
       return { size: 34, fontSize: 12, showScore: true };
-    case 'decent':
+    case 'good':
+      return { size: 31, fontSize: 12, showScore: true };
+    case 'fair':
       return { size: 28, fontSize: 11, showScore: true };
+    case 'low':
+      return { size: 24, fontSize: 10, showScore: true };
     case 'poor':
-      // 22px / 9px is tight for a 2-digit number — drop the text and just
-      // show the muted dot so low-scoring spots fade into the background.
       return { size: 22, fontSize: 9, showScore: false };
     default: {
       const _exhaustive: never = tier;

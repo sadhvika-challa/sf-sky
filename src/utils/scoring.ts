@@ -421,19 +421,21 @@ export function computeNowScore(spot: Spot, hourly: HourlyForecast): number {
 // Tier *centers* line up with the band anchors of the continuous spectrum
 // below (great ≈ score 88, decent ≈ 63, poor ≈ 25) so the discrete pill
 // colors and the interpolated pin colors never look out of step.
-export type ScoreTier = 'great' | 'decent' | 'poor';
+export type ScoreTier = 'vivid' | 'good' | 'fair' | 'low' | 'poor';
 
 export const tierColors: Record<ScoreTier, string> = {
-  great: '#58B070',
-  decent: '#E2A94E',
-  poor: '#D64B46',
+  vivid: '#5B9A7B',
+  good: '#8AAD5A',
+  fair: '#C9A94E',
+  low: '#C4835A',
+  poor: '#B56B6B',
 };
 
-// Band thresholds: green 75–100, tan 50–75, red 0–50. Bumped up from the old
-// 70/45 cutoffs so the three color zones land on round, intuitive boundaries.
 export function getScoreTier(score: number): ScoreTier {
-  if (score >= 75) return 'great';
-  if (score >= 50) return 'decent';
+  if (score >= 80) return 'vivid';
+  if (score >= 60) return 'good';
+  if (score >= 40) return 'fair';
+  if (score >= 20) return 'low';
   return 'poor';
 }
 
@@ -442,37 +444,33 @@ export function getTierColor(score: number): string {
 }
 
 const TIER_RGB: Record<ScoreTier, [number, number, number]> = {
-  great: [88, 176, 112],
-  decent: [226, 169, 78],
-  poor: [214, 75, 70],
+  vivid: [91, 154, 123],
+  good: [138, 173, 90],
+  fair: [201, 169, 78],
+  low: [196, 131, 90],
+  poor: [181, 107, 107],
 };
 
 // ── Continuous score spectrum ────────────────────────────────────────────
 //
-// A smooth red → gold → green ramp over the 0–100 score. Because it's
-// interpolated, every integer score gets its own shade (up to ~100 distinct
-// colors — well past the "at least 45" we want), so a 69 and a 70 read as
-// effectively the same color instead of snapping between tan and green. The
-// hard tier buckets above still drive *layout* (pin size, labels); this drives
-// the actual *fill color* wherever a pin or score number is painted.
-//
-// Anchor placement matches the requested bands, with the green half weighted
-// a little early (yellow-green already creeping in by ~70) so more of the map
-// trends green and hopeful rather than brown.
+// A smooth 5-stop ramp across the 0–100 score range, anchored at the tier
+// midpoints (poor → low → fair → good → vivid). Adjacent scores get
+// near-identical colors so there's no jarring snap at tier boundaries.
+// The hard tier buckets above still drive *layout* (pin size, labels); this
+// drives the actual *fill color* wherever a pin or score number is painted.
 interface SpectrumStop {
   at: number; // 0–1 along the ramp (score / 100)
   rgb: [number, number, number];
 }
 
 const SCORE_SPECTRUM_STOPS: SpectrumStop[] = [
-  { at: 0.0, rgb: [178, 58, 56] }, // 0   — deep red
-  { at: 0.25, rgb: [214, 75, 70] }, // 25  — vibrant red (poor anchor)
-  { at: 0.5, rgb: [223, 132, 74] }, // 50  — red→gold boundary (warm orange)
-  { at: 0.625, rgb: [226, 169, 78] }, // ~63 — vibrant gold (decent anchor)
-  { at: 0.7, rgb: [196, 178, 88] }, // 70  — gold tipping toward green
-  { at: 0.75, rgb: [160, 184, 96] }, // 75  — yellow-green (tan→green boundary)
-  { at: 0.875, rgb: [88, 176, 112] }, // ~88 — vibrant green (great anchor)
-  { at: 1.0, rgb: [56, 150, 92] }, // 100 — deep green
+  { at: 0.0,  rgb: [181, 107, 107] }, //  0  — poor
+  { at: 0.1,  rgb: [181, 107, 107] }, // 10  — poor anchor
+  { at: 0.3,  rgb: [196, 131, 90] },  // 30  — low anchor
+  { at: 0.5,  rgb: [201, 169, 78] },  // 50  — fair anchor
+  { at: 0.7,  rgb: [138, 173, 90] },  // 70  — good anchor
+  { at: 0.9,  rgb: [91, 154, 123] },  // 90  — vivid anchor
+  { at: 1.0,  rgb: [91, 154, 123] },  // 100 — vivid
 ];
 
 function lerpChannel(a: number, b: number, t: number): number {
@@ -506,7 +504,7 @@ export function getSpectrumColor(score: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/** Canonical tier color at a given opacity -- e.g. `tierColorRgba('great', 0.3)`. */
+/** Canonical tier color at a given opacity -- e.g. `tierColorRgba('vivid', 0.3)`. */
 export function tierColorRgba(tier: ScoreTier, alpha: number): string {
   const [r, g, b] = TIER_RGB[tier];
   return `rgba(${r},${g},${b},${alpha})`;

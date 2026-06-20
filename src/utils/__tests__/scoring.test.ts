@@ -255,22 +255,34 @@ describe('weight balance', () => {
 // ---------------------------------------------------------------------------
 
 describe('getScoreTier', () => {
-  it('returns "great" for scores >= 75', () => {
-    expect(getScoreTier(75)).toBe('great');
-    expect(getScoreTier(100)).toBe('great');
-    expect(getScoreTier(85)).toBe('great');
+  it('returns "vivid" for scores >= 80', () => {
+    expect(getScoreTier(80)).toBe('vivid');
+    expect(getScoreTier(100)).toBe('vivid');
+    expect(getScoreTier(90)).toBe('vivid');
   });
 
-  it('returns "decent" for scores 50-74', () => {
-    expect(getScoreTier(50)).toBe('decent');
-    expect(getScoreTier(74)).toBe('decent');
-    expect(getScoreTier(63)).toBe('decent');
+  it('returns "good" for scores 60-79', () => {
+    expect(getScoreTier(60)).toBe('good');
+    expect(getScoreTier(79)).toBe('good');
+    expect(getScoreTier(70)).toBe('good');
   });
 
-  it('returns "poor" for scores < 50', () => {
+  it('returns "fair" for scores 40-59', () => {
+    expect(getScoreTier(40)).toBe('fair');
+    expect(getScoreTier(59)).toBe('fair');
+    expect(getScoreTier(50)).toBe('fair');
+  });
+
+  it('returns "low" for scores 20-39', () => {
+    expect(getScoreTier(20)).toBe('low');
+    expect(getScoreTier(39)).toBe('low');
+    expect(getScoreTier(30)).toBe('low');
+  });
+
+  it('returns "poor" for scores < 20', () => {
     expect(getScoreTier(0)).toBe('poor');
-    expect(getScoreTier(49)).toBe('poor');
-    expect(getScoreTier(25)).toBe('poor');
+    expect(getScoreTier(19)).toBe('poor');
+    expect(getScoreTier(10)).toBe('poor');
   });
 });
 

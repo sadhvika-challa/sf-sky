@@ -91,10 +91,12 @@ function getKarlPill(score: number, city: City): { label: string; tier: ScoreTie
   const tier = getScoreTier(score);
   if (city !== 'sf') {
     switch (tier) {
-      case 'great':
+      case 'vivid':
+      case 'good':
         return { label: 'Clear skies', tier };
-      case 'decent':
+      case 'fair':
         return { label: 'Partly cloudy', tier };
+      case 'low':
       case 'poor':
         return { label: 'Overcast', tier };
       default: {
@@ -104,10 +106,12 @@ function getKarlPill(score: number, city: City): { label: string; tier: ScoreTie
     }
   }
   switch (tier) {
-    case 'great':
+    case 'vivid':
+    case 'good':
       return { label: 'Karl-free', tier };
-    case 'decent':
+    case 'fair':
       return { label: "Karl's lurking", tier };
+    case 'low':
     case 'poor':
       return { label: 'Karl wins', tier };
     default: {

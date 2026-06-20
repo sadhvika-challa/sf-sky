@@ -30,19 +30,20 @@ function bubbleSize(count: number): number {
   return 40;
 }
 
-// Mirror the spot-pin palette so a cluster reads as "bunch of {tier} pins".
 function bubbleColor(score: number): string {
-  if (score >= 70) return '#5B9A7B';
-  if (score >= 45) return '#C4956A';
-  return '#B07A7A';
+  if (score >= 80) return '#5B9A7B';
+  if (score >= 60) return '#8AAD5A';
+  if (score >= 40) return '#C9A94E';
+  if (score >= 20) return '#C4835A';
+  return '#B56B6B';
 }
 
-// rgba string for the bubble color so we can use it in box-shadow halos
-// without parsing CSS at runtime.
 function bubbleColorRgba(score: number, alpha: number): string {
-  if (score >= 70) return `rgba(91,154,123,${alpha})`;
-  if (score >= 45) return `rgba(196,149,106,${alpha})`;
-  return `rgba(176,122,122,${alpha})`;
+  if (score >= 80) return `rgba(91,154,123,${alpha})`;
+  if (score >= 60) return `rgba(138,173,90,${alpha})`;
+  if (score >= 40) return `rgba(201,169,78,${alpha})`;
+  if (score >= 20) return `rgba(196,131,90,${alpha})`;
+  return `rgba(181,107,107,${alpha})`;
 }
 
 // Count font scales with bubble size so 3-digit clusters still fit cleanly.
