@@ -2,6 +2,7 @@ import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet'
 import { useEffect, useMemo, useRef } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
 import { type Spot } from '../data/spots';
+import { type CuratedEvent, getTodaysEvents, getActiveEvents } from '../data/events';
 import { type CityConfig } from '../data/cities';
 import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
@@ -9,6 +10,7 @@ import { getKarlComment } from '../utils/karl-copy';
 import { getScoreTier, computeNowBaseScore, type ScoreTier, type ScoreType, type ViewMode } from '../utils/scoring';
 import type { Filters } from '../App';
 import SpotMarker from './SpotMarker';
+import EventMarker from './EventMarker';
 import ClusterMarker from './ClusterMarker';
 import { isClusterFeature, useSupercluster } from '../hooks/useSupercluster';
 import WeatherLayer from './WeatherLayer';
@@ -84,6 +86,7 @@ interface MapViewProps {
   selectedSpot: Spot | null;
   highlightedSpot: Spot | null;
   onSelectSpot: (spot: Spot) => void;
+  onSelectEvent: (event: CuratedEvent) => void;
   onDeselectSpot: () => void;
   userLocation: UserLocation | null;
   filters: Filters;
@@ -480,11 +483,45 @@ function SpotClusterLayer({
   );
 }
 
+/**
+ * Renders the curated-event diamond pins. Unlike spots, events never
+ * participate in supercluster — there are only a handful and each one is an
+ * editorial pick, so they always render individually at every zoom level.
+ */
+function EventMarkerLayer({
+  onSelectEvent,
+}: {
+  onSelectEvent: (event: CuratedEvent) => void;
+}) {
+  const todaysEvents = useMemo(() => getTodaysEvents(), []);
+  const activeEvents = useMemo(() => getActiveEvents(), []);
+  const activeIds = useMemo(
+    () => new Set(activeEvents.map((e) => e.id)),
+    [activeEvents],
+  );
+
+  if (todaysEvents.length === 0) return null;
+
+  return (
+    <>
+      {todaysEvents.map((evt) => (
+        <EventMarker
+          key={evt.id}
+          event={evt}
+          isActive={activeIds.has(evt.id)}
+          onClick={onSelectEvent}
+        />
+      ))}
+    </>
+  );
+}
+
 export default function MapView({
   spots: spotList,
   selectedSpot,
   highlightedSpot,
   onSelectSpot,
+  onSelectEvent,
   onDeselectSpot,
   userLocation,
   filters,
@@ -582,6 +619,9 @@ export default function MapView({
         liveScores={liveScores}
         viewMode={viewMode}
       />
+      {/* Curated events surface only in Explore mode — never over the weather
+          heatmap, where the violet diamonds would clash with the gradient. */}
+      {!isWeather && <EventMarkerLayer onSelectEvent={onSelectEvent} />}
       <MapController selectedSpot={selectedSpot} />
       <HighlightController highlightedSpot={highlightedSpot} />
       <MapClickHandler onDeselect={onDeselectSpot} />

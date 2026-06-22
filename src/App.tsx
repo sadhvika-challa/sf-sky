@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type Spot, type City } from './data/spots';
+import { type CuratedEvent } from './data/events';
 import { allSpots } from './data/all-spots';
 import { getCityById, getValidCityId } from './data/cities';
 import { useGeolocation } from './hooks/useGeolocation';
@@ -9,6 +10,8 @@ import MapView, { type MapBounds, type MapPoint } from './components/MapView';
 import { buildSamples } from './utils/weatherSamples';
 import { computeDynamicRange } from './utils/interpolate';
 import ScorePanel from './components/ScorePanel';
+import EventDetailSheet from './components/EventDetailSheet';
+import HappeningBanner from './components/HappeningBanner';
 import FilterMenu from './components/FilterMenu';
 import SearchBar from './components/SearchBar';
 import SearchOverlay from './components/SearchOverlay';
@@ -137,6 +140,11 @@ const DISMISS_HIGHLIGHT_MS = 1600;
 
 function App() {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
+  // Curated events surface their own editorial sheet, mutually exclusive with
+  // the spot ScorePanel (Part 4): opening one closes the other.
+  const [selectedEvent, setSelectedEvent] = useState<CuratedEvent | null>(null);
+  // Session-only dismissal of the "Happening Tonight" banner — no localStorage.
+  const [happeningDismissed, setHappeningDismissed] = useState(false);
   const [initialCardType, setInitialCardType] = useState<CardType | undefined>(undefined);
   // After the score card is dismissed, briefly remember the spot the user
   // was just looking at so the map can pan to it and pulse the pin. This is
@@ -407,8 +415,9 @@ function App() {
       setShowScrollCardsHint(false);
     } else if (spot !== null) {
       // Selecting a new spot supersedes any lingering highlight from a
-      // previous dismiss.
+      // previous dismiss, and closes any open event sheet (mutual exclusion).
       setHighlightedSpot(null);
+      setSelectedEvent(null);
       // Onboarding: tapping any pin satisfies the "tap a spot" hint
       // and triggers the next step in the chain — the in-panel
       // "scroll between cards" hint.
@@ -422,6 +431,13 @@ function App() {
     }
     setSelectedSpot(spot);
     setInitialCardType(undefined);
+  }, []);
+
+  // Selecting an event opens its editorial sheet and closes any open spot
+  // ScorePanel — the two bottom sheets are mutually exclusive (Part 4).
+  const handleSelectEvent = useCallback((event: CuratedEvent | null) => {
+    setSelectedEvent(event);
+    if (event) setSelectedSpot(null);
   }, []);
 
   // Auto-clear the dismiss highlight so the pulse doesn't loop forever and
@@ -565,6 +581,7 @@ function App() {
           selectedSpot={selectedSpot}
           highlightedSpot={highlightedSpot}
           onSelectSpot={handleSelectSpot}
+          onSelectEvent={handleSelectEvent}
           onDeselectSpot={() => handleSelectSpot(null)}
           userLocation={userLocation}
           filters={filters}
@@ -723,6 +740,29 @@ function App() {
           city={activeCityId}
           viewMode={viewMode}
           timelineHourKey={timelineHourKey}
+        />
+      )}
+
+      {/* Curated events — Explore mode only (never over the weather overlay).
+          The banner steps aside whenever a spot panel or event sheet is open. */}
+      {!weatherOverlay && !selectedSpot && !selectedEvent && !happeningDismissed && (
+        <HappeningBanner
+          onSelectEvent={handleSelectEvent}
+          onDismiss={() => setHappeningDismissed(true)}
+        />
+      )}
+
+      {!weatherOverlay && selectedEvent && (
+        <EventDetailSheet
+          key={selectedEvent.id}
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onSelectSpot={(spot) => {
+            setSelectedEvent(null);
+            handleSelectSpot(spot);
+          }}
+          liveScores={liveScores}
+          viewMode={viewMode}
         />
       )}
 

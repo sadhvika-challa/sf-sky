@@ -3,6 +3,7 @@
 // all session, but spots vary.
 
 import type { City } from '../data/spots';
+import type { CuratedEvent, EventCategory } from '../data/events';
 import type { ScoreType } from './scoring';
 
 type Bucket = 'incredible' | 'great' | 'decent' | 'meh' | 'bad' | 'terrible';
@@ -330,4 +331,60 @@ function toBreakdownTier(score: number): BreakdownTier {
  */
 export function getKarlBreakdownLine(baseScore: number, weatherScore: number): string {
   return KARL_BREAKDOWN_GRID[toBreakdownTier(baseScore)][toBreakdownTier(weatherScore)];
+}
+
+// ── Curated event copy ──────────────────────────────────────────────────
+// Karl commentary keyed by event category. Used as a fallback tagline when an
+// event's `tagline` field is empty, and as the basis for share copy. Same
+// event id always lands on the same line (deterministic via the FNV-1a hash).
+
+const EVENT_CATEGORY_LINES: Record<EventCategory, readonly string[]> = {
+  'light-installation': [
+    'Humans fighting Karl with lasers. Respect.',
+    'The lights are on. Karl is confused.',
+    'Art vs. fog. Art is winning tonight.',
+    'Karl met his match.',
+  ],
+  astronomy: [
+    'Telescopes out. Karl is not invited.',
+    'Someone brought the good glass. Stars are showing.',
+    'Free views of Saturn. Karl can wait.',
+    'Look through a lens. Skip Karl entirely.',
+  ],
+  screening: [
+    'Movie night under the sky. Karl may join.',
+    'Outdoor screen is up. Bring a blanket.',
+    'Film starts at dusk. Karl is the opening act.',
+    'Screen glowing. Stars optional.',
+  ],
+  'natural-phenomenon': [
+    'The sky is doing something weird. Go look.',
+    'Nature showing off. Karl is watching too.',
+    'This one only happens once. Move.',
+    'Sky event. No ticket needed.',
+  ],
+  'art-walk': [
+    'Art outside after dark. Karl approves.',
+    'Walking tour of things that glow. Nice.',
+    'Galleries without walls. Karl is the ceiling.',
+    'Night art. Karl is the backdrop.',
+  ],
+  'drone-show': [
+    'Robots in the sky. Karl is confused.',
+    'Drones drawing pictures in Karl. Poetic.',
+    'Lights overhead. Not stars. Still cool.',
+    'A thousand LEDs vs. Karl. LEDs win.',
+  ],
+};
+
+/**
+ * Karl line for a curated event. Prefers the event's hand-written `tagline`;
+ * otherwise picks a deterministic category line so the same event always
+ * reads the same.
+ */
+export function getEventKarlLine(event: CuratedEvent): string {
+  if (event.tagline) return event.tagline;
+  const lines = EVENT_CATEGORY_LINES[event.category];
+  const idx = hash(`${event.id}|event`) % lines.length;
+  return lines[idx];
 }
