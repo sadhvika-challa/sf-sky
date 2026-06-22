@@ -1449,6 +1449,85 @@ export const spots: Spot[] = [
       type: 'paid',
     },
   },
+  // — Sausalito (Marin) —
+  // Grouped under city 'sf' like the other Marin Headlands entries (Battery
+  // Spencer, Hawk Hill, Kirby Cove, Point Bonita) — the SF map's static
+  // bounds reach north of the Golden Gate to cover them. The town waterfront
+  // faces east across the bay, so those spots earn high sunrise scores; the
+  // real sunset payoff is from the ridge and headlands trails just west of
+  // town, where the western horizon opens up over the Pacific hills.
+  {
+    id: "sf-wolfback-ridge", name: "Wolfback Ridge",
+    lat: 37.8513, lng: -122.4970,
+    city: 'sf',
+    category: 'hilltop', elevation: 230,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 60, sunset: 90, stargazing: 68,
+    accessAlert: {
+      message: "Ridge trail above Sausalito off Alta/Spencer Ave. Open western horizon over the headlands. ~1 mi climb on fire road, fully exposed — bring a layer for the wind.",
+      type: 'hike',
+    },
+  },
+  {
+    id: "sf-morning-sun-trail", name: "Morning Sun Trail Overlook",
+    lat: 37.8455, lng: -122.4920,
+    city: 'sf',
+    category: 'hilltop', elevation: 200,
+    lightPollution: 'Low', horizonQuality: 'Open',
+    sunrise: 62, sunset: 88, stargazing: 65,
+    accessAlert: {
+      message: "Steep climb from the Spencer Ave trailhead off Hwy 101 up to the SCA Trail. ~0.5 mi but stair-like — sunset views over the Marin Headlands at the top.",
+      type: 'hike',
+    },
+  },
+  {
+    id: "sf-hurricane-gulch", name: "Hurricane Gulch Overlook",
+    lat: 37.8478, lng: -122.4832,
+    city: 'sf',
+    category: 'hilltop', elevation: 110,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 65, sunset: 82, stargazing: 35,
+  },
+  {
+    id: "sf-cavallo-point", name: "Cavallo Point / Fort Baker",
+    lat: 37.8338, lng: -122.4806,
+    city: 'sf',
+    category: 'waterfront', elevation: 8,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 80, sunset: 72, stargazing: 30,
+  },
+  {
+    id: "sf-sausalito-boardwalk", name: "Sausalito Boardwalk (Bridgeway)",
+    lat: 37.8569, lng: -122.4789,
+    city: 'sf',
+    category: 'waterfront', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Partial',
+    sunrise: 82, sunset: 60, stargazing: 22,
+  },
+  {
+    id: "sf-gabrielson-park", name: "Gabrielson Park",
+    lat: 37.8567, lng: -122.4793,
+    city: 'sf',
+    category: 'waterfront', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Partial',
+    sunrise: 80, sunset: 58, stargazing: 20,
+  },
+  {
+    id: "sf-dunphy-park", name: "Dunphy Park",
+    lat: 37.8639, lng: -122.4838,
+    city: 'sf',
+    category: 'waterfront', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Partial',
+    sunrise: 78, sunset: 56, stargazing: 22,
+  },
+  {
+    id: "sf-schoonmaker-beach", name: "Schoonmaker Point Beach",
+    lat: 37.8662, lng: -122.4895,
+    city: 'sf',
+    category: 'waterfront', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 80, sunset: 62, stargazing: 25,
+  },
 ];
 
 export function getConditionLabel(score: number): string {
