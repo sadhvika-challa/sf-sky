@@ -7,6 +7,7 @@ import { useSpotForecast } from '../hooks/useSpotForecast';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
 import { getForecastAt, fogDensity, type HourlyForecast } from '../utils/weather';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
+import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
@@ -260,6 +261,64 @@ const typeTitle: Record<CardType, string> = {
   stargazing: "STARGAZING",
 };
 
+// ── Score sparkline ─────────────────────────────────────────────────────
+//
+// Compact per-hour score strip. Fixed outer height so the card doesn't jump
+// when the forecast resolves — while loading, the container renders empty
+// (skeleton); once we have points, bars fill in in-place.
+
+// Container height is fixed so the skeleton and the rendered strip occupy
+// the same vertical space. BAR_AREA_PX is the max height a single bar can
+// reach; the remaining pixels above it host the peak-hour dot.
+const SPARK_CONTAINER_PX = 26;
+const SPARK_BAR_AREA_PX = 20;
+const SPARK_BAR_MIN_PX = 3;
+
+function formatSparkTime(date: Date): string {
+  return date
+    .toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
+    .toLowerCase()
+    .replace(/\s/g, '');
+}
+
+interface SparkStripProps {
+  points: SparkPoint[];
+}
+
+function SparkStrip({ points }: SparkStripProps) {
+  return (
+    <div
+      className="mt-3 flex items-end gap-[3px]"
+      style={{ height: SPARK_CONTAINER_PX }}
+      role="img"
+      aria-label={`Score trend across ${points.length} hours around the event`}
+    >
+      {points.map((p, i) => {
+        const barPx = Math.max(
+          SPARK_BAR_MIN_PX,
+          Math.round((p.score / 100) * SPARK_BAR_AREA_PX),
+        );
+        return (
+          <div key={i} className="flex-1 flex flex-col items-center justify-end">
+            {p.isPeak && (
+              <span
+                aria-hidden
+                className="w-1 h-1 rounded-full mb-[2px]"
+                style={{ background: p.color }}
+              />
+            )}
+            <div
+              className="w-full rounded-sm"
+              style={{ height: barPx, background: p.color }}
+              title={`${p.score} · ${formatSparkTime(p.date)}`}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Access Alert Badge ──────────────────────────────────────────────────
 
 const ALERT_TOOLTIP_WIDTH = 230;
@@ -486,6 +545,16 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     if (type === 'stargazing') return scoreStargazingWeather(hourly, moonIllum.fraction);
     return scoreSunWeather(hourly);
   })();
+
+  const sparkPoints: SparkPoint[] = forecast && type !== 'now'
+    ? computeSparkPoints(spot, type, forecast, eventInstant, moonIllum.fraction)
+    : [];
+  // Reserve space for the sparkline while the forecast is still resolving so
+  // the metrics strip below doesn't jump when data lands. If we already know
+  // there's nothing to plot (error, or forecast has no matching hours), hide
+  // the row entirely instead of leaving an empty gap.
+  const showSparkSkeleton = type !== 'now' && !forecast && !error;
+  const showSparkStrip = type !== 'now' && sparkPoints.length > 0;
 
   const poetic = getPoetic(type, score);
   const isSunEvent = type === 'sunrise' || type === 'sunset';
@@ -714,6 +783,15 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                 <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1.5">
                   {isLive ? 'Forecast firming up' : 'Static estimate'}
                 </p>
+                {showSparkStrip ? (
+                  <SparkStrip points={sparkPoints} />
+                ) : showSparkSkeleton ? (
+                  <div
+                    className="mt-3"
+                    style={{ height: SPARK_CONTAINER_PX }}
+                    aria-hidden
+                  />
+                ) : null}
               </div>
 
               {/* Condensed metrics strip */}
