@@ -3,8 +3,8 @@ import SunCalc from 'suncalc';
 export type TimeOfDayType = 'sunrise' | 'sunset' | 'stargazing' | 'now';
 
 // SF centroid, matching OutlookBar.tsx
-const SF_LAT = 37.7649;
-const SF_LNG = -122.4494;
+export const SF_LAT = 37.7649;
+export const SF_LNG = -122.4494;
 
 /**
  * Given an ISO hour key like "2025-06-18T20", return which score type

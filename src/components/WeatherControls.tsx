@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
+import SunCalc from 'suncalc';
 import {
   getScoreTypesForHours,
+  SF_LAT,
+  SF_LNG,
   type TimeOfDayType,
 } from '../utils/hourScoreType';
 import {
@@ -130,6 +133,17 @@ export default function WeatherControls({
     [visibleKeys],
   );
 
+  const sunEventMarkers = useMemo(
+    () => computeSunEventMarkers(visibleKeys, dayBoundaries),
+    [visibleKeys, dayBoundaries],
+  );
+
+  const sunEventByKey = useMemo(() => {
+    const map = new Map<string, SunEventMarker>();
+    for (const marker of sunEventMarkers) map.set(marker.hourKey, marker);
+    return map;
+  }, [sunEventMarkers]);
+
   const selectedType = scoreTypes.get(hourKey) ?? 'now';
   const currentPalette = TIME_PALETTES[selectedType];
   const typeLabel = TYPE_LABELS[selectedType];
@@ -188,6 +202,7 @@ export default function WeatherControls({
           {visibleKeys.map((key, i) => {
             const type = scoreTypes.get(key) ?? 'now';
             const showDayDivider = i > 0 && dayBoundaries.includes(i);
+            const sunMarker = sunEventByKey.get(key);
             return (
               <div key={key} className="flex items-stretch">
                 {showDayDivider && (
@@ -196,22 +211,32 @@ export default function WeatherControls({
                     aria-hidden="true"
                   />
                 )}
-                <HourCard
-                  hourKey={key}
-                  isSelected={key === hourKey}
-                  isNow={i === nowIndex}
-                  scoreType={type}
-                  bestScore={bestScorePerHour?.get(key)}
-                  palette={TIME_PALETTES[type]}
-                  cardRef={(node) => {
-                    if (node) cardRefs.current.set(key, node);
-                    else cardRefs.current.delete(key);
-                  }}
-                  onClick={() => {
-                    userTapRef.current = true;
-                    onHourChange(key);
-                  }}
-                />
+                <div className="flex flex-col items-center">
+                  <SunEventBadge
+                    marker={sunMarker}
+                    onJump={() => {
+                      if (!sunMarker) return;
+                      userTapRef.current = true;
+                      onHourChange(sunMarker.hourKey);
+                    }}
+                  />
+                  <HourCard
+                    hourKey={key}
+                    isSelected={key === hourKey}
+                    isNow={i === nowIndex}
+                    scoreType={type}
+                    bestScore={bestScorePerHour?.get(key)}
+                    palette={TIME_PALETTES[type]}
+                    cardRef={(node) => {
+                      if (node) cardRefs.current.set(key, node);
+                      else cardRefs.current.delete(key);
+                    }}
+                    onClick={() => {
+                      userTapRef.current = true;
+                      onHourChange(key);
+                    }}
+                  />
+                </div>
               </div>
             );
           })}
@@ -295,6 +320,111 @@ function deriveDayBoundaries(hourKeys: string[]): number[] {
     if (key.endsWith('T00')) out.push(i);
   }
   return out;
+}
+
+interface SunEventMarker {
+  type: 'sunrise' | 'sunset';
+  hourKey: string;
+  time: Date;
+}
+
+/**
+ * For each visible day (day 0 = first hour, then each midnight boundary),
+ * compute the true sunrise/sunset times at the SF centroid and snap each to
+ * the nearest hour key that appears in `visibleKeys`. Events that round to a
+ * key outside the window are dropped.
+ */
+function computeSunEventMarkers(
+  visibleKeys: string[],
+  dayBoundaries: number[],
+): SunEventMarker[] {
+  if (visibleKeys.length === 0) return [];
+
+  const validKeys = new Set(visibleKeys);
+  const dayAnchors = [0, ...dayBoundaries.filter((i) => i > 0)];
+  const seen = new Set<string>();
+  const markers: SunEventMarker[] = [];
+
+  for (const idx of dayAnchors) {
+    const anchor = new Date(`${visibleKeys[idx]}:00:00`);
+    if (Number.isNaN(anchor.getTime())) continue;
+    const times = SunCalc.getTimes(anchor, SF_LAT, SF_LNG);
+    for (const type of ['sunrise', 'sunset'] as const) {
+      const time = times[type];
+      if (!time || Number.isNaN(time.getTime())) continue;
+      const key = nearestHourKey(time);
+      if (!validKeys.has(key)) continue;
+      const dedupe = `${type}:${key}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      markers.push({ type, hourKey: key, time });
+    }
+  }
+  return markers;
+}
+
+function nearestHourKey(d: Date): string {
+  const rounded = new Date(d);
+  if (rounded.getMinutes() >= 30) rounded.setHours(rounded.getHours() + 1);
+  rounded.setMinutes(0, 0, 0);
+  const y = rounded.getFullYear();
+  const m = String(rounded.getMonth() + 1).padStart(2, '0');
+  const day = String(rounded.getDate()).padStart(2, '0');
+  const h = String(rounded.getHours()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}`;
+}
+
+function formatEventTime(d: Date): string {
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const suffix = h >= 12 ? 'pm' : 'am';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m}${suffix}`;
+}
+
+interface SunEventBadgeProps {
+  marker: SunEventMarker | undefined;
+  onJump: () => void;
+}
+
+/**
+ * Small tappable pill that sits above the hour card whose nearest hour is the
+ * actual sunrise/sunset. Reserves a fixed slot even when no marker is present
+ * so every card in the strip stays vertically aligned.
+ */
+function SunEventBadge({ marker, onJump }: SunEventBadgeProps) {
+  if (!marker) {
+    return <div className="h-6" aria-hidden="true" />;
+  }
+  const palette = TIME_PALETTES[marker.type];
+  const label =
+    marker.type === 'sunrise'
+      ? `Sunrise ${formatEventTime(marker.time)}`
+      : `Sunset ${formatEventTime(marker.time)}`;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        // Prevent bubbling to the underlying HourCard so we don't double-fire
+        // an already-identical hour change.
+        e.stopPropagation();
+        onJump();
+      }}
+      aria-label={`Jump to ${label.toLowerCase()}`}
+      title={label}
+      className="flex items-center justify-center h-6 min-w-[24px] px-1 rounded-full cursor-pointer transition-transform duration-150 active:scale-95"
+      style={{
+        backgroundColor: palette.selectedBg,
+        border: `1px solid ${palette.selectedBorder}`,
+      }}
+    >
+      <ScoreTypeIcon
+        type={marker.type}
+        size={14}
+        className={palette.iconColor}
+      />
+    </button>
+  );
 }
 
 /** Compact hour like "8p", "12a", "2p" for a card's time label. */
