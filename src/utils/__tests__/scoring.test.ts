@@ -22,7 +22,7 @@ function makeSpot(overrides: Partial<Spot> = {}): Spot {
     lat: 37.78,
     lng: -122.51,
     city: 'sf',
-    category: 'hilltop',
+    category: 'hill',
     elevation: 100,
     lightPollution: 'Low',
     horizonQuality: 'Open',

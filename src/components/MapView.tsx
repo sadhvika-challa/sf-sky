@@ -1,7 +1,7 @@
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
 import { useEffect, useMemo, useRef } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
-import { type Spot } from '../data/spots';
+import { type Spot, type SpotCategory } from '../data/spots';
 import { type CuratedEvent, getTodaysEvents, getActiveEvents } from '../data/events';
 import { type CityConfig } from '../data/cities';
 import { type UserLocation } from '../hooks/useGeolocation';
@@ -343,6 +343,14 @@ function tierAllows(score: number, allowed: ScoreTier[]): boolean {
   return allowed.includes(getScoreTier(score));
 }
 
+// Category filter. Same "empty = unfiltered" convention as tierAllows:
+// deselecting all chips shows every spot, not zero spots. A full
+// selection (all 6 known values) short-circuits the includes check.
+function categoryAllows(category: SpotCategory, allowed: SpotCategory[]): boolean {
+  if (allowed.length === 0 || allowed.length === 6) return true;
+  return allowed.includes(category);
+}
+
 function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): boolean {
   const scores = liveScores.get(spot.id);
   const sunrise = scores?.sunrise ?? spot.sunrise;
@@ -351,7 +359,8 @@ function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): 
   return (
     tierAllows(sunrise, filters.sunrise) &&
     tierAllows(sunset, filters.sunset) &&
-    tierAllows(stargazing, filters.stargazing)
+    tierAllows(stargazing, filters.stargazing) &&
+    categoryAllows(spot.category, filters.category)
   );
 }
 

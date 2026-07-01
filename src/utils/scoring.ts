@@ -343,7 +343,11 @@ export function computeNowBaseScore(spot: Spot): number {
   else if (spot.elevation >= 20) base += 5;
 
   if (spot.category === 'park') base += 10;
-  else if (spot.category === 'hilltop') base += 8;
+  else if (
+    spot.category === 'hill' ||
+    spot.category === 'coastal-bluff' ||
+    spot.category === 'skyscraper'
+  ) base += 8;
   else base += 5;
 
   if (spot.horizonQuality === 'Open') base += 10;

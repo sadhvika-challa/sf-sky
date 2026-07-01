@@ -155,7 +155,7 @@ export const santaCruzSpots: Spot[] = [
     id: 'sc-ucsc-meadow', name: "UCSC Great Meadow",
     lat: 36.9970, lng: -122.0600,
     city: 'santa-cruz',
-    category: 'hilltop', elevation: 220,
+    category: 'hill', elevation: 220,
     lightPollution: 'Low', horizonQuality: 'Open',
     sunrise: 60, sunset: 88, stargazing: 72,
     accessAlert: {
@@ -167,7 +167,7 @@ export const santaCruzSpots: Spot[] = [
     id: 'sc-pogonip-lookout', name: "Pogonip Open Space (Spring Trail Overlook)",
     lat: 36.9860, lng: -122.0540,
     city: 'santa-cruz',
-    category: 'hilltop', elevation: 180,
+    category: 'hill', elevation: 180,
     lightPollution: 'Low', horizonQuality: 'Partial',
     sunrise: 55, sunset: 70, stargazing: 60,
     accessAlert: {
@@ -179,7 +179,7 @@ export const santaCruzSpots: Spot[] = [
     id: 'sc-delaveaga-top', name: "DeLaveaga Park (Top of the World)",
     lat: 36.9770, lng: -122.0120,
     city: 'santa-cruz',
-    category: 'hilltop', elevation: 250,
+    category: 'hill', elevation: 250,
     lightPollution: 'Low', horizonQuality: 'Open',
     sunrise: 80, sunset: 82, stargazing: 65,
     accessAlert: {
@@ -191,7 +191,7 @@ export const santaCruzSpots: Spot[] = [
     id: 'sc-wilder-ridge', name: "Wilder Ranch (Old Dairy Ridge Trail)",
     lat: 36.9620, lng: -122.0870,
     city: 'santa-cruz',
-    category: 'hilltop', elevation: 150,
+    category: 'hill', elevation: 150,
     lightPollution: 'Low', horizonQuality: 'Open',
     sunrise: 45, sunset: 85, stargazing: 72,
     accessAlert: {
@@ -203,7 +203,7 @@ export const santaCruzSpots: Spot[] = [
     id: 'sc-nisene-lookout', name: "Nisene Marks (Sand Point Overlook)",
     lat: 36.9850, lng: -121.9050,
     city: 'santa-cruz',
-    category: 'hilltop', elevation: 300,
+    category: 'hill', elevation: 300,
     lightPollution: 'Low', horizonQuality: 'Partial',
     sunrise: 50, sunset: 55, stargazing: 78,
     accessAlert: {
@@ -215,7 +215,7 @@ export const santaCruzSpots: Spot[] = [
     id: 'sc-loma-prieta-grade', name: "Loma Prieta Grade (Summit Road)",
     lat: 37.0740, lng: -121.8870,
     city: 'santa-cruz',
-    category: 'hilltop', elevation: 850,
+    category: 'hill', elevation: 850,
     lightPollution: 'Low', horizonQuality: 'Open',
     sunrise: 85, sunset: 75, stargazing: 90,
     accessAlert: {
