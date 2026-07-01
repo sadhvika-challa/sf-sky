@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import type { Filters } from '../App';
-import type { City } from '../data/spots';
+import type { City, SpotCategory } from '../data/spots';
 import { getCityById } from '../data/cities';
 import type { LiveScoresMap } from '../hooks/useLiveScores';
 import CityRow from './CityRow';
@@ -10,6 +10,7 @@ interface FilterMenuProps {
   filters: Filters;
   onChange: (f: Filters) => void;
   onReset: () => void;
+  onResetCategory: () => void;
   onClose: () => void;
   liveScores: LiveScoresMap;
   onSuggestSpot: () => void;
@@ -19,6 +20,15 @@ interface FilterMenuProps {
   onOpenCitySheet: () => void;
 }
 
+const CATEGORY_OPTIONS: ReadonlyArray<{ value: SpotCategory; label: string }> = [
+  { value: 'hill', label: 'Hill' },
+  { value: 'beach', label: 'Beach' },
+  { value: 'coastal-bluff', label: 'Coastal Bluff' },
+  { value: 'skyscraper', label: 'Skyscraper' },
+  { value: 'waterfront', label: 'Waterfront' },
+  { value: 'park', label: 'Park' },
+];
+
 function contextualTitle(now: Date = new Date()): string {
   const hour = now.getHours();
   if (hour < 12) return "This Morning's Sky";
@@ -26,7 +36,65 @@ function contextualTitle(now: Date = new Date()): string {
   return "Tonight's Sky";
 }
 
+interface CategoryFilterSectionProps {
+  selected: SpotCategory[];
+  onChange: (next: SpotCategory[]) => void;
+  onReset: () => void;
+}
+
+function CategoryFilterSection({ selected, onChange, onReset }: CategoryFilterSectionProps) {
+  function toggle(value: SpotCategory) {
+    if (selected.includes(value)) {
+      onChange(selected.filter((v) => v !== value));
+    } else {
+      onChange([...selected, value]);
+    }
+  }
+
+  return (
+    <div className="mt-4 pt-3 border-t border-cream-dark">
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-mono text-[10px] tracking-[1.5px] uppercase text-gray-500">
+          Category
+        </span>
+        {selected.length > 0 && (
+          <button
+            type="button"
+            onClick={onReset}
+            className="font-mono text-[10px] tracking-[1px] uppercase text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {CATEGORY_OPTIONS.map((opt) => {
+          const isActive = selected.includes(opt.value);
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggle(opt.value)}
+              aria-pressed={isActive}
+              className={`px-2.5 py-1 rounded-full font-mono text-[10px] tracking-[1px] uppercase transition-colors border ${
+                isActive
+                  ? 'bg-gray-800 text-cream border-gray-800'
+                  : 'bg-transparent text-gray-500 border-cream-dark hover:border-gray-400'
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function FilterContent({
+  filters,
+  onChange,
+  onResetCategory,
   onClose,
   onSuggestSpot,
   onReportBug,
@@ -68,6 +136,14 @@ function FilterContent({
         }
         return null;
       })()}
+
+      {city === 'sf' && (
+        <CategoryFilterSection
+          selected={filters.category}
+          onChange={(next) => onChange({ ...filters, category: next })}
+          onReset={onResetCategory}
+        />
+      )}
 
       <div className="mt-4 pt-3 border-t border-cream-dark flex flex-col">
         <button
@@ -117,6 +193,7 @@ export default function FilterMenu({
   filters,
   onChange,
   onReset,
+  onResetCategory,
   onClose,
   liveScores,
   onSuggestSpot,
@@ -138,6 +215,7 @@ export default function FilterMenu({
     filters,
     onChange,
     onReset,
+    onResetCategory,
     onClose,
     liveScores,
     onSuggestSpot,

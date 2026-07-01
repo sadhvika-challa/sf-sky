@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { type Spot, type City } from './data/spots';
+import { type Spot, type SpotCategory, type City } from './data/spots';
 import { type CuratedEvent } from './data/events';
 import { allSpots } from './data/all-spots';
 import { getCityById, getValidCityId } from './data/cities';
@@ -43,7 +43,20 @@ export interface Filters {
   sunset: ScoreTier[];
   stargazing: ScoreTier[];
   now: ScoreTier[];
+  category: SpotCategory[];
 }
+
+// Kept independent from FILTERS_KEY so category selections survive tier-filter
+// resets and vice versa.
+const CATEGORY_FILTER_STORAGE_KEY = 'sf-sky:categoryFilter';
+const KNOWN_CATEGORIES: readonly SpotCategory[] = [
+  'hill',
+  'beach',
+  'coastal-bluff',
+  'park',
+  'skyscraper',
+  'waterfront',
+];
 
 export type TravelMode = 'walk' | 'car';
 
@@ -102,13 +115,31 @@ const defaultFilters: Filters = {
   sunset: [],
   stargazing: [],
   now: [],
+  category: [],
 };
 
+function readStoredCategoryFilter(): SpotCategory[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(CATEGORY_FILTER_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const filtered = parsed.filter((v): v is SpotCategory =>
+      typeof v === 'string' && (KNOWN_CATEGORIES as readonly string[]).includes(v),
+    );
+    return filtered;
+  } catch {
+    return [];
+  }
+}
+
 function readStoredFilters(): Filters {
-  if (typeof window === 'undefined') return defaultFilters;
+  const category = readStoredCategoryFilter();
+  if (typeof window === 'undefined') return { ...defaultFilters, category };
   try {
     const raw = window.localStorage.getItem(FILTERS_KEY);
-    if (!raw) return defaultFilters;
+    if (!raw) return { ...defaultFilters, category };
     const parsed = JSON.parse(raw);
     if (
       parsed &&
@@ -121,11 +152,12 @@ function readStoredFilters(): Filters {
         sunset: parsed.sunset,
         stargazing: parsed.stargazing,
         now: Array.isArray(parsed.now) ? parsed.now : [],
+        category,
       };
     }
-    return defaultFilters;
+    return { ...defaultFilters, category };
   } catch {
-    return defaultFilters;
+    return { ...defaultFilters, category };
   }
 }
 
@@ -260,8 +292,16 @@ function App() {
   }, [weatherOverlay, weatherMetric, timelineHourKey, weatherForecasts, mapBounds]);
 
   const handleReset = useCallback(() => {
-    setFilters(defaultFilters);
+    // Tier filters only — category selections are managed by
+    // `resetCategoryFilter` and their own storage key so a tier reset
+    // doesn't wipe them out.
+    setFilters((prev) => ({ ...defaultFilters, category: prev.category }));
     try { localStorage.removeItem(FILTERS_KEY); } catch { /* non-fatal */ }
+  }, []);
+
+  const resetCategoryFilter = useCallback(() => {
+    setFilters((prev) => ({ ...prev, category: [] }));
+    try { localStorage.removeItem(CATEGORY_FILTER_STORAGE_KEY); } catch { /* non-fatal */ }
   }, []);
 
   // Refresh `now` every 60s so eventTimes and viewMode stay current.
@@ -301,13 +341,27 @@ function App() {
     } catch { /* non-fatal */ }
   }, [weatherOverlay]);
 
-  // Persist tier filters.
+  // Persist tier filters. Category is stored under its own key below.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+      const { category: _cat, ...tierFilters } = filters;
+      void _cat;
+      window.localStorage.setItem(FILTERS_KEY, JSON.stringify(tierFilters));
     } catch { /* non-fatal */ }
   }, [filters]);
+
+  // Persist category filter separately so tier-reset (handleReset) and any
+  // future storage-format changes to FILTERS_KEY don't collide with it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        CATEGORY_FILTER_STORAGE_KEY,
+        JSON.stringify(filters.category),
+      );
+    } catch { /* non-fatal */ }
+  }, [filters.category]);
 
   // Persist city selections.
   useEffect(() => {
@@ -333,6 +387,7 @@ function App() {
     setSearchOpen(false);
     setFilters(defaultFilters);
     try { localStorage.removeItem(FILTERS_KEY); } catch { /* non-fatal */ }
+    try { localStorage.removeItem(CATEGORY_FILTER_STORAGE_KEY); } catch { /* non-fatal */ }
     setCitySheetOpen(false);
     const config = getCityById(city);
     if (config && !config.hasWeatherMode) {
@@ -693,6 +748,7 @@ function App() {
         filters={filters}
         onChange={setFilters}
         onReset={handleReset}
+        onResetCategory={resetCategoryFilter}
         onClose={() => setMenuOpen(false)}
         liveScores={liveScores}
         onSuggestSpot={handleSuggestFromMenu}
