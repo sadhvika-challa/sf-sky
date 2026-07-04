@@ -21,6 +21,11 @@ const CATEGORY_GLYPH: Record<EventCategory, string> = {
   // 2x2 grid of dots
   'drone-show':
     '<circle cx="3.2" cy="3.2" r="1.2" fill="white"/><circle cx="6.8" cy="3.2" r="1.2" fill="white"/><circle cx="3.2" cy="6.8" r="1.2" fill="white"/><circle cx="6.8" cy="6.8" r="1.2" fill="white"/>',
+  // Fireworks pins don't use the diamond wrapper — `EventMarker` renders a full
+  // flag SVG in its place — so this glyph is only a fallback for anywhere else
+  // that reads by category (banners, sheets). Simple starburst.
+  fireworks:
+    '<path d="M5 0.5 L6 4 L9.5 5 L6 6 L5 9.5 L4 6 L0.5 5 L4 4 Z" fill="white"/>',
 };
 
 /** Inline SVG markup for a category glyph, sized for the diamond interior. */
