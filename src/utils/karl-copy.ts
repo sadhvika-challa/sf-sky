@@ -375,6 +375,12 @@ const EVENT_CATEGORY_LINES: Record<EventCategory, readonly string[]> = {
     'Lights overhead. Not stars. Still cool.',
     'A thousand LEDs vs. Karl. LEDs win.',
   ],
+  fireworks: [
+    'Gunpowder vs. Karl. Loud either way.',
+    'The sky is exploding. Karl brought the fog machine.',
+    'Bangs, sparks, marine layer. Standard July 4.',
+    'Rockets over the bay. Karl is the smoke effect.',
+  ],
 };
 
 /**

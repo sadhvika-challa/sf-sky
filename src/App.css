@@ -243,6 +243,23 @@ body {
   }
 }
 
+/* Warm-gold variant for fireworks pins. Same pulse, celebratory color so the
+   July 4 flag pins do not glow violet like the standard installation events. */
+@keyframes event-glow-fireworks {
+  0%, 100% { box-shadow: 0 0 6px rgba(245, 185, 66, 0.35); }
+  50% { box-shadow: 0 0 16px rgba(245, 185, 66, 0.7); }
+}
+
+.event-pin-active-fireworks {
+  animation: event-glow-fireworks 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .event-pin-active-fireworks {
+    animation: none;
+  }
+}
+
 /* Sun toggle bounce — quick scale pulse when tapping the sun button off. */
 @keyframes sunBounce {
   0%   { transform: scale(1) rotate(0deg); }

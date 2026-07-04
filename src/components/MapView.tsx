@@ -2,7 +2,7 @@ import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet'
 import { useEffect, useMemo, useRef } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
 import { type Spot, type SpotCategory } from '../data/spots';
-import { type CuratedEvent, getTodaysEvents, getActiveEvents } from '../data/events';
+import { type CuratedEvent, getEventsAtHour } from '../data/events';
 import { type CityConfig } from '../data/cities';
 import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
@@ -493,31 +493,36 @@ function SpotClusterLayer({
 }
 
 /**
- * Renders the curated-event diamond pins. Unlike spots, events never
- * participate in supercluster — there are only a handful and each one is an
- * editorial pick, so they always render individually at every zoom level.
+ * Renders the curated-event pins for the scrubbed timeline hour. Unlike spots,
+ * events never participate in supercluster — there are only a handful and each
+ * one is an editorial pick, so they always render individually at every zoom
+ * level. Events are gated to the selected hour via `getEventsAtHour`, so
+ * hour-scoped pins (e.g. July 4 fireworks at 21:00–22:30) surface only at
+ * their window.
  */
 function EventMarkerLayer({
+  hourKey,
   onSelectEvent,
 }: {
+  /** Scrubbed timeline hour, format `YYYY-MM-DDTHH`. */
+  hourKey: string;
   onSelectEvent: (event: CuratedEvent) => void;
 }) {
-  const todaysEvents = useMemo(() => getTodaysEvents(), []);
-  const activeEvents = useMemo(() => getActiveEvents(), []);
-  const activeIds = useMemo(
-    () => new Set(activeEvents.map((e) => e.id)),
-    [activeEvents],
-  );
+  const events = useMemo(() => {
+    // hourKey is `YYYY-MM-DDTHH`; treat it as local wall time.
+    const at = hourKey ? new Date(`${hourKey}:00:00`) : new Date();
+    return getEventsAtHour(at);
+  }, [hourKey]);
 
-  if (todaysEvents.length === 0) return null;
+  if (events.length === 0) return null;
 
   return (
     <>
-      {todaysEvents.map((evt) => (
+      {events.map((evt) => (
         <EventMarker
           key={evt.id}
           event={evt}
-          isActive={activeIds.has(evt.id)}
+          isActive
           onClick={onSelectEvent}
         />
       ))}
@@ -630,7 +635,7 @@ export default function MapView({
       />
       {/* Curated events surface only in Explore mode — never over the weather
           heatmap, where the violet diamonds would clash with the gradient. */}
-      {!isWeather && <EventMarkerLayer onSelectEvent={onSelectEvent} />}
+      {!isWeather && <EventMarkerLayer hourKey={weatherHourKey} onSelectEvent={onSelectEvent} />}
       <MapController selectedSpot={selectedSpot} />
       <HighlightController highlightedSpot={highlightedSpot} />
       <MapClickHandler onDeselect={onDeselectSpot} />
