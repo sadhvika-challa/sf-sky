@@ -1300,6 +1300,50 @@ export const spots: Spot[] = [
     lightPollution: 'High', horizonQuality: 'Partial',
     sunrise: 48, sunset: 52, stargazing: 8,
   },
+  // — NE waterfront / Telegraph Hill / Russian Hill additions —
+  // Curated water-and-city viewpoints in the Embarcadero / Telegraph Hill /
+  // Russian Hill pocket. Pier 7, Jack Early Park, Coit Tower / Pioneer Park,
+  // Filbert Steps, Greenwich Steps, Ina Coolbrith Park, Vallejo Street Steps,
+  // and Sidney Walton Park already exist above and are intentionally NOT
+  // re-added here.
+  {
+    // TODO: Karl copy (no description field in schema yet)
+    id: "sf-pier-9", name: "Pier 9",
+    lat: 37.8000, lng: -122.3979,
+    city: 'sf',
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'High', horizonQuality: 'Open',
+    sunrise: 68, sunset: 42, stargazing: 8,
+  },
+  {
+    // TODO: refine coords to viewpoint (street centroid, not the overlook)
+    // TODO: Karl copy
+    id: "sf-calhoun-terrace", name: "Calhoun Terrace",
+    lat: 37.8010, lng: -122.4036,
+    city: 'sf',
+    category: 'hill', elevation: 60,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 58, sunset: 52, stargazing: 8,
+  },
+  {
+    // TODO: refine coords to viewpoint (lane centroid, not the overlook)
+    // TODO: Karl copy
+    id: "sf-macondray-lane", name: "Macondray Lane",
+    lat: 37.7992, lng: -122.4157,
+    city: 'sf',
+    category: 'park', elevation: 60,
+    lightPollution: 'High', horizonQuality: 'Blocked',
+    sunrise: 20, sunset: 22, stargazing: 5,
+  },
+  {
+    // TODO: Karl copy
+    id: "sf-levis-plaza", name: "Levi's Plaza — Soft Park",
+    lat: 37.8028, lng: -122.4015,
+    city: 'sf',
+    category: 'park', elevation: 5,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 30, sunset: 25, stargazing: 5,
+  },
   // — South Bay (prefix sb-) —
   // Grouped under city 'sf' so they surface on the SF map; the dynamic pan
   // bounds in MapView (boundsFromSpots) auto-extend south to Mt. Umunhum
