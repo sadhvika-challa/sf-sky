@@ -46,6 +46,17 @@ export const CITIES: CityConfig[] = [
     defaultZoom: 11,
     bounds: [[30.10, -98.05], [30.55, -97.55]],
   },
+  {
+    id: 'chicago',
+    name: 'Chicago',
+    short: 'CHI',
+    emoji: '🌆',
+    tagline: 'Lake-effect skies, big-shoulder sunsets',
+    hasWeatherMode: false,
+    center: [41.90, -87.65],
+    defaultZoom: 11,
+    bounds: [[41.70, -87.75], [42.05, -87.52]],
+  },
 ];
 
 export const DEFAULT_CITY_ID: City = 'sf';
