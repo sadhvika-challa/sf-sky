@@ -8,7 +8,7 @@ export type SpotCategory =
 
 export type AccessAlertType = 'hike' | 'tide' | 'hours' | 'paid' | 'info';
 
-export type City = 'sf' | 'austin' | 'santa-cruz';
+export type City = 'sf' | 'austin' | 'santa-cruz' | 'chicago';
 
 // Optional, sparingly applied. Only attach when there's something a visitor
 // genuinely needs to know before going (gate hours, tide windows, hike
@@ -1582,6 +1582,140 @@ export const spots: Spot[] = [
     category: 'beach', elevation: 2,
     lightPollution: 'Mid', horizonQuality: 'Open',
     sunrise: 80, sunset: 62, stargazing: 25,
+  },
+  // ────────────────────────────────────────────
+  // Chicago (chi-) — Lake Michigan west shore
+  // Sun rises over the lake (east), sets over the city/prairie (west).
+  // No marine layer; lake-effect clouds and summer humidity are the
+  // dominant weather factors. Light pollution is uniformly high downtown,
+  // moderate on north/south lakefront, still high inland.
+  //
+  // Grouped under city 'chicago' (added to the City union) so the `chi-`
+  // scoring calibration applies via cityFromSpotId; SF/Austin/Santa Cruz
+  // behavior is unchanged.
+  // ────────────────────────────────────────────
+  {
+    id: 'chi-north-ave-beach',
+    name: 'North Avenue Beach',
+    lat: 41.9117, lng: -87.6264,
+    city: 'chicago',
+    category: 'beach', elevation: 2,
+    lightPollution: 'High', horizonQuality: 'Open',
+    sunrise: 82, sunset: 65, stargazing: 15,
+  },
+  {
+    id: 'chi-montrose-beach',
+    name: 'Montrose Beach',
+    lat: 41.9638, lng: -87.6380,
+    city: 'chicago',
+    category: 'beach', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 85, sunset: 70, stargazing: 22,
+  },
+  {
+    id: 'chi-montrose-sanctuary',
+    name: 'Montrose Point Bird Sanctuary',
+    lat: 41.9627, lng: -87.6352,
+    city: 'chicago',
+    category: 'park', elevation: 3,
+    lightPollution: 'Mid', horizonQuality: 'Partial',
+    sunrise: 72, sunset: 55, stargazing: 18,
+    accessAlert: { message: 'Dawn is best for birding + sunrise combo. Mulch trails, not paved.', type: 'info' },
+  },
+  {
+    id: 'chi-south-pond',
+    name: 'Lincoln Park South Pond',
+    lat: 41.9210, lng: -87.6340,
+    city: 'chicago',
+    category: 'park', elevation: 5,
+    lightPollution: 'High', horizonQuality: 'Blocked',
+    sunrise: 45, sunset: 58, stargazing: 8,
+  },
+  {
+    id: 'chi-lily-pool',
+    name: 'Alfred Caldwell Lily Pool',
+    lat: 41.9248, lng: -87.6342,
+    city: 'chicago',
+    category: 'park', elevation: 8,
+    lightPollution: 'High', horizonQuality: 'Blocked',
+    sunrise: 30, sunset: 35, stargazing: 5,
+    accessAlert: { message: 'Gated garden. Open 7:30am–dusk, closes mid-November through spring.', type: 'hours' },
+  },
+  {
+    id: 'chi-loyola-beach',
+    name: 'Loyola Park Beach',
+    lat: 42.0015, lng: -87.6590,
+    city: 'chicago',
+    category: 'beach', elevation: 2,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 88, sunset: 55, stargazing: 30,
+  },
+  {
+    id: 'chi-promontory-point',
+    name: 'Promontory Point',
+    lat: 41.7947, lng: -87.5795,
+    city: 'chicago',
+    category: 'waterfront', elevation: 5,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 90, sunset: 85, stargazing: 25,
+  },
+  {
+    id: 'chi-northerly-island',
+    name: 'Northerly Island',
+    lat: 41.8575, lng: -87.6095,
+    city: 'chicago',
+    category: 'park', elevation: 5,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 80, sunset: 75, stargazing: 20,
+    accessAlert: { message: 'Closes at 11pm. Summer concerts at Huntington Bank Pavilion can restrict trail access.', type: 'info' },
+  },
+  {
+    id: 'chi-palmisano-park',
+    name: 'Palmisano Park',
+    lat: 41.8431, lng: -87.6486,
+    city: 'chicago',
+    category: 'park', elevation: 10,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 70, sunset: 82, stargazing: 35,
+    accessAlert: { message: 'Former quarry. Climb "Mount Bridgeport" (33 ft above street) for skyline panorama.', type: 'info' },
+  },
+  {
+    id: 'chi-606-observatory',
+    name: 'The 606 — Exelon Observatory',
+    lat: 41.9120, lng: -87.7145,
+    city: 'chicago',
+    category: 'park', elevation: 8,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 40, sunset: 78, stargazing: 12,
+    accessAlert: { message: 'Elevated rail trail, open 6am–11pm. The observatory at the west end is the sunset spot.', type: 'info' },
+  },
+  {
+    id: 'chi-steelworkers-park',
+    name: 'Steelworkers Park',
+    lat: 41.7376, lng: -87.5301,
+    city: 'chicago',
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'Mid', horizonQuality: 'Open',
+    sunrise: 82, sunset: 45, stargazing: 28,
+    accessAlert: { message: 'Far South Side. Former US Steel site with massive ore walls. Remote — plan transport.', type: 'info' },
+  },
+  {
+    id: 'chi-adler-planetarium',
+    name: 'Adler Planetarium Lakefront',
+    lat: 41.8663, lng: -87.6068,
+    city: 'chicago',
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'High', horizonQuality: 'Open',
+    sunrise: 78, sunset: 88, stargazing: 15,
+  },
+  {
+    id: 'chi-humboldt-lagoon',
+    name: 'Humboldt Park Boathouse Lagoon',
+    lat: 41.9020, lng: -87.7010,
+    city: 'chicago',
+    category: 'park', elevation: 5,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 35, sunset: 65, stargazing: 15,
   },
 ];
 
