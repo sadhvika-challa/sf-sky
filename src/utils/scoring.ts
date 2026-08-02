@@ -15,6 +15,67 @@ const SUN_WEATHER_WEIGHT = 0.65;
 const STAR_BASE_WEIGHT = 0.45;
 const STAR_WEATHER_WEIGHT = 0.55;
 
+// ── City calibration ─────────────────────────────────────────────────────
+//
+// The weather sub-scores were originally tuned for SF's specific climate
+// (marine layer, capped visibility, dry-ish summers). City calibration pulls
+// those magic numbers out into a per-city config so the same scoring math can
+// be reused for other cities with different dominant weather factors. The
+// numbers are thresholds/rates only — the formulas are unchanged.
+
+export interface CityCalibration {
+  /** Low cloud % above which penalty kicks in. SF=40 (marine layer buffer), Chicago=20 (no marine layer). */
+  lowCloudPenaltyThreshold: number;
+  /** Multiplier for low cloud penalty. SF=0.8, Chicago=1.0 (low clouds are more punishing without marine layer dynamics). */
+  lowCloudPenaltyRate: number;
+  /** Visibility km considered "excellent". SF=15, Chicago=25 (cold clear days are much clearer). */
+  visExcellentKm: number;
+  /** Visibility km considered "bad". SF=5, Chicago=5 (same — fog/haze below 5km is bad everywhere). */
+  visBadKm: number;
+  /** Humidity % above which stargazing gets penalized. SF=90, Chicago=80 (more humid summers). */
+  starHumidityThreshold: number;
+  /** Penalty per humidity % above threshold. SF=1.0, Chicago=1.2 (haze effect is stronger). */
+  starHumidityRate: number;
+}
+
+const CITY_CALIBRATION: Record<string, CityCalibration> = {
+  sf: {
+    lowCloudPenaltyThreshold: 40,
+    lowCloudPenaltyRate: 0.8,
+    visExcellentKm: 15,
+    visBadKm: 5,
+    starHumidityThreshold: 90,
+    starHumidityRate: 1.0,
+  },
+  chi: {
+    lowCloudPenaltyThreshold: 20,
+    lowCloudPenaltyRate: 1.0,
+    visExcellentKm: 25,
+    visBadKm: 5,
+    starHumidityThreshold: 80,
+    starHumidityRate: 1.2,
+  },
+};
+
+/** Look up a city's calibration, falling back to SF for unknown prefixes. */
+export function getCalibration(cityPrefix: string): CityCalibration {
+  return CITY_CALIBRATION[cityPrefix] ?? CITY_CALIBRATION.sf;
+}
+
+/**
+ * Derive the city calibration prefix from a spot ID. String IDs whose prefix
+ * (segment before the first `-`) is a known calibration key use that key;
+ * everything else (numeric IDs, `atx-`, `sc-`, `sb-`, `eb-`, …) falls back to
+ * SF calibration for now.
+ */
+export function cityFromSpotId(id: number | string): string {
+  if (typeof id === 'string') {
+    const prefix = id.split('-')[0];
+    if (prefix in CITY_CALIBRATION) return prefix;
+  }
+  return 'sf'; // default
+}
+
 // Cloud band verdict thresholds (sun events). Keep next to the scoring
 // constants so they stay in sync with the triangular curves above.
 export const LOW_CLOUD_GOOD = 25;
@@ -88,7 +149,11 @@ function visibilityVerdict(km: number): 'good' | 'neutral' | 'bad' {
  *
  * Returns 0-100 where 100 = ideal cloud setup for this event.
  */
-export function cloudQualityScore(h: HourlyForecast, type: ScoreType): number {
+export function cloudQualityScore(
+  h: HourlyForecast,
+  type: ScoreType,
+  cal: CityCalibration = CITY_CALIBRATION.sf,
+): number {
   if (type === 'stargazing') {
     const total = clamp(safe(h.cloud, 50), 0, 100);
     let score = 100 - total;
@@ -104,7 +169,7 @@ export function cloudQualityScore(h: HourlyForecast, type: ScoreType): number {
 
   const midScore = 100 - Math.abs(cloudMid - 50) * 1.5;
   const highScore = 100 - Math.abs(cloudHigh - 40) * 1.5;
-  const lowPenalty = Math.max(0, cloudLow - 40) * 0.8;
+  const lowPenalty = Math.max(0, cloudLow - cal.lowCloudPenaltyThreshold) * cal.lowCloudPenaltyRate;
   const overcastPenalty = total > 90 ? (total - 90) * 4 : 0;
 
   let score = midScore * 0.6 + highScore * 0.4 - lowPenalty - overcastPenalty;
@@ -152,16 +217,20 @@ export function cloudQualityLabel(score: number, type: ScoreType): string {
  *
  * Returns 0-100.
  */
-export function scoreSunWeather(h: HourlyForecast): number {
-  const cloudScore = cloudQualityScore(h, 'sunset');
+export function scoreSunWeather(
+  h: HourlyForecast,
+  cal: CityCalibration = CITY_CALIBRATION.sf,
+): number {
+  const cloudScore = cloudQualityScore(h, 'sunset', cal);
 
-  // Visibility bonus: 15+ km is excellent (Open-Meteo's SF readings rarely
-  // exceed ~18 km even on sparkling days), < 5 km is bad.
-  const vis = safe(h.visibilityKm, 15);
+  // Visibility bonus: at/above the "excellent" threshold is a full score
+  // (Open-Meteo's SF readings rarely exceed ~18 km even on sparkling days),
+  // at/below the "bad" threshold scores low.
+  const vis = safe(h.visibilityKm, cal.visExcellentKm);
   let visScore: number;
-  if (vis >= 15) visScore = 100;
-  else if (vis <= 5) visScore = 30;
-  else visScore = 30 + ((vis - 5) / 10) * 70;
+  if (vis >= cal.visExcellentKm) visScore = 100;
+  else if (vis <= cal.visBadKm) visScore = 30;
+  else visScore = 30 + ((vis - cal.visBadKm) / (cal.visExcellentKm - cal.visBadKm)) * 70;
 
   // Air-quality penalty: PM2.5 above ~35 µg/m³ starts killing colors.
   const pm25 = safe(h.pm25, 0);
@@ -181,12 +250,19 @@ export function scoreSunWeather(h: HourlyForecast): number {
  *
  * Returns 0-100.
  */
-export function scoreStargazingWeather(h: HourlyForecast, moonIllum: number): number {
-  const cloudScore = cloudQualityScore(h, 'stargazing');
+export function scoreStargazingWeather(
+  h: HourlyForecast,
+  moonIllum: number,
+  cal: CityCalibration = CITY_CALIBRATION.sf,
+): number {
+  const cloudScore = cloudQualityScore(h, 'stargazing', cal);
 
-  // Humidity above ~90% means hazy skies even when "clear".
+  // Humidity above the threshold means hazy skies even when "clear".
   const humidity = clamp(safe(h.humidity, 60), 0, 100);
-  const humidityPenalty = humidity > 90 ? (humidity - 90) * 1.0 : 0;
+  const humidityPenalty =
+    humidity > cal.starHumidityThreshold
+      ? (humidity - cal.starHumidityThreshold) * cal.starHumidityRate
+      : 0;
 
   // Moon: full moon (1.0) costs ~15 points, new moon costs nothing.
   const moonPenalty = clamp(moonIllum, 0, 1) * 15;
@@ -222,6 +298,9 @@ export function computeScoreBreakdown(
   moonIllum: number = 0,
 ): ScoreBreakdown {
   const base = spot[type];
+  // Calibration is derived from the spot ID prefix (e.g. `chi-` → Chicago),
+  // so no call site needs to pass a city — SF spots take the default path.
+  const cal = getCalibration(cityFromSpotId(spot.id));
   let weather: number;
   let baseWeight: number;
   let weatherWeight: number;
@@ -229,12 +308,12 @@ export function computeScoreBreakdown(
   switch (type) {
     case 'sunrise':
     case 'sunset':
-      weather = scoreSunWeather(hourly);
+      weather = scoreSunWeather(hourly, cal);
       baseWeight = SUN_BASE_WEIGHT;
       weatherWeight = SUN_WEATHER_WEIGHT;
       break;
     case 'stargazing':
-      weather = scoreStargazingWeather(hourly, moonIllum);
+      weather = scoreStargazingWeather(hourly, moonIllum, cal);
       baseWeight = STAR_BASE_WEIGHT;
       weatherWeight = STAR_WEATHER_WEIGHT;
       break;
@@ -289,7 +368,7 @@ export function computeScoreBreakdown(
     visibilityVerdict: isSun ? visibilityVerdict(hourly.visibilityKm) : 'neutral',
     aqiPenaltyActive: isSun && pm25 > 35,
     totalCloud: type === 'stargazing' ? totalCloud : null,
-    humidityPenaltyActive: type === 'stargazing' && humidity > 90,
+    humidityPenaltyActive: type === 'stargazing' && humidity > cal.starHumidityThreshold,
     moonIllum: type === 'stargazing' ? clamp(moonIllum, 0, 1) : null,
   };
 }
