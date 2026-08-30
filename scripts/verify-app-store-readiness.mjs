@@ -6,6 +6,7 @@ const paths = {
   capacitor: 'capacitor.config.ts',
   iconContents: 'ios/App/App/Assets.xcassets/AppIcon.appiconset/Contents.json',
   info: 'ios/App/App/Info.plist',
+  mapView: 'src/components/MapView.tsx',
   privacy: 'ios/App/App/PrivacyInfo.xcprivacy',
   project: 'ios/App/App.xcodeproj/project.pbxproj',
   runtime: 'src/platform/runtime.ts',
@@ -71,9 +72,10 @@ const options = parseArguments(process.argv.slice(2));
 const readText = (path) => readFile(new URL(path, root), 'utf8');
 const readBytes = (path) => readFile(new URL(path, root));
 
-const [capacitor, info, privacy, project, runtime, iconContentsText, splashContentsText] = await Promise.all([
+const [capacitor, info, mapView, privacy, project, runtime, iconContentsText, splashContentsText] = await Promise.all([
   readText(paths.capacitor),
   readText(paths.info),
+  readText(paths.mapView),
   readText(paths.privacy),
   readText(paths.project),
   readText(paths.runtime),
@@ -280,6 +282,17 @@ gate(
   'Canonical public origin is eligible and approved for production',
   productionOrigin && options.approvals.publicOrigin,
   `Found: ${publicOrigin ?? 'none'}. Use a stable HTTPS production origin without a path, then set SOLEIL_PUBLIC_ORIGIN_APPROVAL=approved after approval.`,
+);
+
+const cartoRasterUrls = [...mapView.matchAll(/https:\/\/\{s\}\.basemaps\.cartocdn\.com\/rastertiles\/[^'"`\s]+/g)]
+  .map((match) => match[0]);
+const unkeyedCartoRasterUrls = cartoRasterUrls.filter((url) => !/[?&](?:api_?key|apikey)=[^&'"`\s]+/i.test(url));
+gate(
+  'Production map provider is eligible for public web/PWA deployment and TestFlight',
+  unkeyedCartoRasterUrls.length === 0,
+  unkeyedCartoRasterUrls.length > 0
+    ? `Found ${unkeyedCartoRasterUrls.length} unkeyed CARTO raster URL(s) in ${paths.mapView}. Replace them with an authorized production integration before either public web/PWA deployment or TestFlight approval.`
+    : `No unkeyed CARTO raster URL was found in ${paths.mapView}.`,
 );
 
 const failedStatic = staticChecks.filter(({ passed }) => !passed);

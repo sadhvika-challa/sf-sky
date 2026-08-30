@@ -409,3 +409,25 @@ test('cold-starts a hydrated catalog offline from one complete revisioned shell'
     await context.setOffline(false);
   }
 });
+
+test('keeps the public privacy and support documents available offline', async ({ context, page }) => {
+  await page.goto('/');
+  await waitForControlledShell(page);
+  await context.setOffline(true);
+
+  try {
+    const pages = [
+      ['/soleil/privacy', 'Your sky plans should stay yours.'],
+      ['/soleil/support', 'Help with Soleil'],
+    ] as const;
+
+    for (const [path, heading] of pages) {
+      const response = await page.goto(path, { waitUntil: 'domcontentloaded' });
+      expect(response?.status()).toBe(200);
+      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+      await expect(page.locator('.leaflet-container')).toHaveCount(0);
+    }
+  } finally {
+    await context.setOffline(false);
+  }
+});
