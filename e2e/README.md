@@ -10,7 +10,8 @@ This is an application-shell contract, not an offline weather claim. Live foreca
 forecast-trust, timezone identity, and request-budget journeys in desktop
 Chromium, desktop WebKit, and a 402 by 874 mobile WebKit profile. Open-Meteo
 weather and air-quality traffic is fully intercepted and fulfilled by local,
-city-hour fixtures. Carto map tiles are replaced by a one-pixel local fixture.
+city-hour fixtures. OpenFreeMap's remote style is replaced by a local empty
+MapLibre style, and any legacy CARTO request fails the test harness.
 
 ## Enforced request budgets
 

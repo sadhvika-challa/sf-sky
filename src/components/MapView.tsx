@@ -1,5 +1,5 @@
-import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
-import { useEffect, useMemo, useRef } from 'react';
+import { MapContainer, Marker, Tooltip, useMap } from 'react-leaflet';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
 import { type Spot, type SpotCategory } from '../data/spots';
 import { type CuratedEvent, getEventsAtHour } from '../data/events';
@@ -21,6 +21,11 @@ import { parseCanonicalHourKey } from '../utils/timeline';
 import type { ScoreEvidence } from '../utils/confidence';
 import { buildSamples, buildWindDirs, hasSpatialSupport } from '../utils/weatherSamples';
 import { OVERLAY_USABLE_ANCHORS } from '../hooks/useNeighborhoodForecasts';
+import OpenFreeMapLayer, {
+  MAP_BACKGROUND_RESTORED_NOTICE_MS,
+  MapBackgroundStatus,
+  type MapBackgroundNoticeState,
+} from './OpenFreeMapLayer';
 
 const isCoarsePointer =
   typeof window !== 'undefined' &&
@@ -558,9 +563,60 @@ export default function MapView({
   onBoundsChange,
 }: MapViewProps) {
   const isWeather = weatherOverlay;
-  const tileUrl = isWeather
-    ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+  const [mapBackgroundState, setMapBackgroundState] = useState<'loading' | 'ready' | 'unavailable'>('loading');
+  const [mapBackgroundAttempt, setMapBackgroundAttempt] = useState(0);
+  const [recoveryPhase, setRecoveryPhase] = useState<'idle' | 'retrying' | 'restored'>('idle');
+  const mapFrameRef = useRef<HTMLDivElement>(null);
+  const recoveryPhaseRef = useRef<'idle' | 'retrying' | 'restored'>('idle');
+  const restoredTimerRef = useRef<number | null>(null);
+
+  const clearRestoredTimer = useCallback(() => {
+    if (restoredTimerRef.current === null) return;
+    window.clearTimeout(restoredTimerRef.current);
+    restoredTimerRef.current = null;
+  }, []);
+
+  useEffect(() => clearRestoredTimer, [clearRestoredTimer]);
+
+  const handleMapBackgroundState = useCallback((state: 'loading' | 'ready' | 'unavailable') => {
+    setMapBackgroundState(state);
+
+    if (state === 'unavailable') {
+      clearRestoredTimer();
+      recoveryPhaseRef.current = 'idle';
+      setRecoveryPhase('idle');
+      return;
+    }
+
+    if (state === 'loading' && recoveryPhaseRef.current === 'restored') {
+      clearRestoredTimer();
+      recoveryPhaseRef.current = 'idle';
+      setRecoveryPhase('idle');
+      return;
+    }
+
+    if (state === 'ready' && recoveryPhaseRef.current === 'retrying') {
+      recoveryPhaseRef.current = 'restored';
+      setRecoveryPhase('restored');
+      mapFrameRef.current
+        ?.querySelector<HTMLElement>('.leaflet-container')
+        ?.focus({ preventScroll: true });
+      clearRestoredTimer();
+      restoredTimerRef.current = window.setTimeout(() => {
+        restoredTimerRef.current = null;
+        recoveryPhaseRef.current = 'idle';
+        setRecoveryPhase('idle');
+      }, MAP_BACKGROUND_RESTORED_NOTICE_MS);
+    }
+  }, [clearRestoredTimer]);
+
+  const retryMapBackground = useCallback(() => {
+    clearRestoredTimer();
+    recoveryPhaseRef.current = 'retrying';
+    setRecoveryPhase('retrying');
+    setMapBackgroundState('loading');
+    setMapBackgroundAttempt((attempt) => attempt + 1);
+  }, [clearRestoredTimer]);
 
   const exploreBounds = useMemo(() => boundsFromSpots(spotList), [spotList]);
 
@@ -583,87 +639,105 @@ export default function MapView({
 
   const center = cityConfig.center;
   return (
-    <MapContainer
-      center={center}
-      zoom={cityConfig.defaultZoom}
-      zoomSnap={0.5}
-      maxBounds={isWeather ? WEATHER_BOUNDS : exploreBounds}
-      maxBoundsViscosity={isWeather ? 1 : 0.8}
-      minZoom={isWeather ? WEATHER_MIN_ZOOM : 9}
-      maxZoom={17}
-      zoomControl={false}
-      className="w-full h-full"
-      attributionControl
-      preferCanvas
+    <div
+      ref={mapFrameRef}
+      className={`map-view relative h-full w-full${isWeather ? ' is-weather' : ''}`}
     >
-      <TileLayer
-        key={tileUrl}
-        url={tileUrl}
-        subdomains={['a', 'b', 'c', 'd']}
-        detectRetina
-        keepBuffer={4}
-        updateWhenZooming={false}
-        updateWhenIdle
-        attribution="&copy; OpenStreetMap contributors &copy; CARTO"
-      />
-
-      {userLocation && (
-        <Marker
-          position={[userLocation.lat, userLocation.lng]}
-          icon={userIcon}
-          zIndexOffset={500}
-          title={userLocation.precision === 'approximate'
-            ? 'Your approximate location'
-            : 'Your location'}
-          alt={userLocation.precision === 'approximate'
-            ? 'Your approximate location'
-            : 'Your location'}
-        >
-          {!isCoarsePointer && (
-            <Tooltip direction="top" offset={[0, -10]} className="spot-tooltip" opacity={1} interactive={false}>
-              {userLocation.precision === 'approximate'
-                ? 'Your approximate location'
-                : 'You are here'}
-            </Tooltip>
-          )}
-        </Marker>
-      )}
-
-      <ModeBoundsController isWeather={isWeather} exploreBounds={exploreBounds} center={center} defaultZoom={cityConfig.defaultZoom} />
-      <BoundsReporter onChange={onBoundsChange} />
-
-      {isWeather && (
-        <WeatherLayer
-          metric={weatherMetric}
-          hourKey={weatherHourKey}
-          forecasts={weatherForecasts}
+      <MapContainer
+        center={center}
+        zoom={cityConfig.defaultZoom}
+        zoomSnap={0.5}
+        maxBounds={isWeather ? WEATHER_BOUNDS : exploreBounds}
+        maxBoundsViscosity={isWeather ? 1 : 0.8}
+        minZoom={isWeather ? WEATHER_MIN_ZOOM : 9}
+        maxZoom={17}
+        zoomControl={false}
+        className="w-full h-full"
+        aria-label="Soleil sky map"
+        attributionControl
+        preferCanvas
+      >
+        <OpenFreeMapLayer
+          weatherMode={isWeather}
+          attempt={mapBackgroundAttempt}
+          onStateChange={handleMapBackgroundState}
         />
-      )}
 
-      {isWeather && weatherMetric === 'wind' && windSamples.size > 0 && (
-        <WindParticleLayer samples={windSamples} windDirs={windDirMap} />
-      )}
+        {userLocation && (
+          <Marker
+            position={[userLocation.lat, userLocation.lng]}
+            icon={userIcon}
+            zIndexOffset={500}
+            title={userLocation.precision === 'approximate'
+              ? 'Your approximate location'
+              : 'Your location'}
+            alt={userLocation.precision === 'approximate'
+              ? 'Your approximate location'
+              : 'Your location'}
+          >
+            {!isCoarsePointer && (
+              <Tooltip direction="top" offset={[0, -10]} className="spot-tooltip" opacity={1} interactive={false}>
+                {userLocation.precision === 'approximate'
+                  ? 'Your approximate location'
+                  : 'You are here'}
+              </Tooltip>
+            )}
+          </Marker>
+        )}
 
-      <SpotClusterLayer
-        spots={spotList}
-        selectedSpot={selectedSpot}
-        highlightedSpotId={highlightedSpot?.id ?? null}
-        onSelectSpot={onSelectSpot}
-        filters={filters}
-        liveScores={liveScores}
-        viewMode={viewMode}
-      />
-      {/* Curated events surface only in Explore mode — never over the weather
-          heatmap, where the violet diamonds would clash with the gradient. */}
-      {!isWeather && <EventMarkerLayer hourKey={weatherHourKey} onSelectEvent={onSelectEvent} />}
-      <MapController selectedSpot={selectedSpot} />
-      <HighlightController highlightedSpot={highlightedSpot} />
-      <MapClickHandler onDeselect={onDeselectSpot} />
-      <TapSpotAnchorTracker
-        active={!!tapSpotHintActive}
-        onAnchor={onTapSpotAnchorChange}
-        spots={spotList}
-      />
-    </MapContainer>
+        <ModeBoundsController isWeather={isWeather} exploreBounds={exploreBounds} center={center} defaultZoom={cityConfig.defaultZoom} />
+        <BoundsReporter onChange={onBoundsChange} />
+
+        {isWeather && (
+          <WeatherLayer
+            metric={weatherMetric}
+            hourKey={weatherHourKey}
+            forecasts={weatherForecasts}
+          />
+        )}
+
+        {isWeather && weatherMetric === 'wind' && windSamples.size > 0 && (
+          <WindParticleLayer samples={windSamples} windDirs={windDirMap} />
+        )}
+
+        <SpotClusterLayer
+          spots={spotList}
+          selectedSpot={selectedSpot}
+          highlightedSpotId={highlightedSpot?.id ?? null}
+          onSelectSpot={onSelectSpot}
+          filters={filters}
+          liveScores={liveScores}
+          viewMode={viewMode}
+        />
+        {/* Curated events surface only in Explore mode. They never appear over
+            the weather heatmap, where the violet diamonds would compete with
+            the gradient. */}
+        {!isWeather && <EventMarkerLayer hourKey={weatherHourKey} onSelectEvent={onSelectEvent} />}
+        <MapController selectedSpot={selectedSpot} />
+        <HighlightController highlightedSpot={highlightedSpot} />
+        <MapClickHandler onDeselect={onDeselectSpot} />
+        <TapSpotAnchorTracker
+          active={!!tapSpotHintActive}
+          onAnchor={onTapSpotAnchorChange}
+          spots={spotList}
+        />
+      </MapContainer>
+
+      {(() => {
+        const noticeState: MapBackgroundNoticeState | null = recoveryPhase === 'retrying'
+          ? 'retrying'
+          : recoveryPhase === 'restored'
+            ? 'restored'
+            : mapBackgroundState === 'unavailable'
+              ? 'unavailable'
+              : null;
+        return noticeState ? (
+          <MapBackgroundStatus
+            state={noticeState}
+            onRetry={noticeState === 'unavailable' ? retryMapBackground : undefined}
+          />
+        ) : null;
+      })()}
+    </div>
   );
 }

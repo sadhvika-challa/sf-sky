@@ -101,8 +101,73 @@ body {
   bottom: calc(env(safe-area-inset-bottom) + 12.75rem);
 }
 
+.map-view.is-weather .leaflet-bottom.leaflet-right {
+  /* The Now timeline makes the weather sheet taller than the Explore sheet. */
+  bottom: calc(env(safe-area-inset-bottom) + 18rem);
+}
+
 .leaflet-control-attribution a {
   color: #374151 !important;
+}
+
+.map-background-status {
+  position: absolute;
+  z-index: 700;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 13.75rem);
+  width: min(calc(100% - 2rem), 25rem);
+  transform: translateX(-50%);
+  border: 1px solid rgba(120, 53, 15, 0.2);
+  border-radius: 0.875rem;
+  background: rgba(255, 251, 235, 0.96);
+  box-shadow: 0 8px 24px rgba(69, 26, 3, 0.14);
+  color: #78350f;
+  padding: 0.625rem 0.75rem;
+  text-align: center;
+}
+
+.map-background-status p {
+  margin: 0;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.map-background-status button {
+  min-height: 2.75rem;
+  margin-top: 0.25rem;
+  border: 0;
+  border-radius: 0.625rem;
+  background: transparent;
+  color: #92400e;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.map-background-status button:focus-visible {
+  outline: 2px solid #92400e;
+  outline-offset: 2px;
+}
+
+.map-background-status button[aria-disabled='true'] {
+  cursor: wait;
+  opacity: 0.72;
+  text-decoration: none;
+}
+
+.map-background-status[data-state='restored'] {
+  border-color: rgba(22, 101, 52, 0.2);
+  background: rgba(240, 253, 244, 0.96);
+  color: #166534;
+}
+
+.map-view.is-weather .map-background-status {
+  /* Keep recovery above both the taller Now sheet and map attribution. */
+  bottom: calc(env(safe-area-inset-bottom) + 19.25rem);
 }
 
 /* Marker interaction */

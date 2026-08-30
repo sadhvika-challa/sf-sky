@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type Spot, type SpotCategory, type City } from './data/spots';
 import { type CuratedEvent } from './data/events';
 import { allSpots } from './data/all-spots';
@@ -261,6 +261,8 @@ function App() {
   const activeCityConfig = getCityById(activeCityId) ?? getCityById('sf')!;
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [timelineHourKey, setTimelineHourKey] = useState<string>(initialDeepLink.hourKey ?? '');
+  const documentVisibilityRef = useRef<DocumentVisibilityState>(document.visibilityState);
+  const foregroundResetArmedRef = useRef(false);
 
   // Refreshed every 60s (see effect below) so viewMode stays current as
   // real time advances while the user sits on the live "now" view.
@@ -476,15 +478,38 @@ function App() {
   // Also reset the timeline to "now" when the app returns from background.
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
+    let foregroundArmId: ReturnType<typeof setTimeout> | undefined;
+    const armForegroundReset = () => {
+      if (foregroundResetArmedRef.current || foregroundArmId !== undefined) return;
+      foregroundArmId = setTimeout(() => {
+        foregroundArmId = undefined;
+        if (document.visibilityState === 'visible') foregroundResetArmedRef.current = true;
+      }, 1_000);
+    };
+    if (document.visibilityState === 'visible') armForegroundReset();
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
+      const previousVisibility = documentVisibilityRef.current;
+      const nextVisibility = document.visibilityState;
+      documentVisibilityRef.current = nextVisibility;
+      if (nextVisibility !== 'visible') {
+        if (foregroundArmId !== undefined) {
+          clearTimeout(foregroundArmId);
+          foregroundArmId = undefined;
+        }
+        return;
+      }
+
+      const shouldResetTimeline = foregroundResetArmedRef.current && previousVisibility === 'hidden';
+      if (shouldResetTimeline) {
         setNow(new Date());
         setTimelineHourKey('');
       }
+      armForegroundReset();
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       clearInterval(id);
+      if (foregroundArmId !== undefined) clearTimeout(foregroundArmId);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);

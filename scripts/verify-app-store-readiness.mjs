@@ -1,16 +1,19 @@
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
+import { inspectMapProviderContract } from './map-provider-contract.mjs';
 
 const root = new URL('../', import.meta.url);
 const paths = {
   capacitor: 'capacitor.config.ts',
   iconContents: 'ios/App/App/Assets.xcassets/AppIcon.appiconset/Contents.json',
   info: 'ios/App/App/Info.plist',
+  mapLayer: 'src/components/OpenFreeMapLayer.tsx',
   mapView: 'src/components/MapView.tsx',
   privacy: 'ios/App/App/PrivacyInfo.xcprivacy',
   project: 'ios/App/App.xcodeproj/project.pbxproj',
   runtime: 'src/platform/runtime.ts',
   splashContents: 'ios/App/App/Assets.xcassets/Splash.imageset/Contents.json',
+  thirdPartyNotices: 'public/third-party-notices.txt',
 };
 
 const PLACEHOLDER_ICON_HASHES = new Set([
@@ -32,6 +35,7 @@ const parseArguments = (args) => {
     approvals: {
       artwork: isApproved(process.env.SOLEIL_ARTWORK_APPROVAL),
       deviceFamily: isApproved(process.env.SOLEIL_DEVICE_FAMILY_APPROVAL),
+      mapProvider: isApproved(process.env.SOLEIL_MAP_PROVIDER_APPROVAL),
       privacyAudit: isApproved(process.env.SOLEIL_PRIVACY_AUDIT_APPROVAL),
       publicOrigin: isApproved(process.env.SOLEIL_PUBLIC_ORIGIN_APPROVAL),
     },
@@ -56,7 +60,8 @@ const parseArguments = (args) => {
       console.log('Strict mode requires both intended versions and every applicable human gate to resolve.');
       console.log('Version environment: SOLEIL_RELEASE_CANDIDATE=1 SOLEIL_MARKETING_VERSION=1.0.0 SOLEIL_BUILD_NUMBER=1');
       console.log('Nonsecret attestations use the exact value "approved":');
-      console.log('  SOLEIL_DEVICE_FAMILY_APPROVAL, SOLEIL_PRIVACY_AUDIT_APPROVAL,');
+      console.log('  SOLEIL_DEVICE_FAMILY_APPROVAL, SOLEIL_MAP_PROVIDER_APPROVAL,');
+      console.log('  SOLEIL_PRIVACY_AUDIT_APPROVAL,');
       console.log('  SOLEIL_ARTWORK_APPROVAL, SOLEIL_PUBLIC_ORIGIN_APPROVAL');
       console.log('A structurally ineligible gate cannot be bypassed by an attestation.');
       process.exit(0);
@@ -71,16 +76,31 @@ const parseArguments = (args) => {
 const options = parseArguments(process.argv.slice(2));
 const readText = (path) => readFile(new URL(path, root), 'utf8');
 const readBytes = (path) => readFile(new URL(path, root));
+const readSourceTree = async (relativeDirectory) => {
+  const directory = new URL(`${relativeDirectory}/`, root);
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(entries.map(async (entry) => {
+    const relativePath = `${relativeDirectory}/${entry.name}`;
+    if (entry.isDirectory() && entry.name === '__tests__') return [];
+    if (entry.isDirectory()) return readSourceTree(relativePath);
+    if (!entry.isFile() || !/\.[cm]?[jt]sx?$/.test(entry.name) || /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) return [];
+    return [{ path: relativePath, source: await readText(relativePath) }];
+  }));
+  return nested.flat();
+};
 
-const [capacitor, info, mapView, privacy, project, runtime, iconContentsText, splashContentsText] = await Promise.all([
+const [capacitor, info, mapLayer, mapView, privacy, project, runtime, iconContentsText, splashContentsText, thirdPartyNotices, sourceFiles] = await Promise.all([
   readText(paths.capacitor),
   readText(paths.info),
+  readText(paths.mapLayer),
   readText(paths.mapView),
   readText(paths.privacy),
   readText(paths.project),
   readText(paths.runtime),
   readText(paths.iconContents),
   readText(paths.splashContents),
+  readText(paths.thirdPartyNotices),
+  readSourceTree('src'),
 ]);
 
 const staticChecks = [];
@@ -284,15 +304,35 @@ gate(
   `Found: ${publicOrigin ?? 'none'}. Use a stable HTTPS production origin without a path, then set SOLEIL_PUBLIC_ORIGIN_APPROVAL=approved after approval.`,
 );
 
-const cartoRasterUrls = [...mapView.matchAll(/https:\/\/\{s\}\.basemaps\.cartocdn\.com\/rastertiles\/[^'"`\s]+/g)]
-  .map((match) => match[0]);
-const unkeyedCartoRasterUrls = cartoRasterUrls.filter((url) => !/[?&](?:api_?key|apikey)=[^&'"`\s]+/i.test(url));
+const sourceCorpus = sourceFiles.map(({ path, source }) => `// ${path}\n${source}`).join('\n');
+const mapProviderContract = inspectMapProviderContract({ mapLayer, mapView, sourceCorpus });
+const openFreeMapIntegrationEligible = mapProviderContract.eligible;
+
+check(
+  'Approved OpenFreeMap beta layer is structurally wired with no known alternate map provider',
+  openFreeMapIntegrationEligible,
+  openFreeMapIntegrationEligible
+    ? 'MapView renders the credential-free layer, official styles and linked attribution are present, and no legacy TileLayer or known alternate map host was found. Live downstream hosts still require release capture.'
+    : 'Expected a rendered OpenFreeMap layer with official styles and attribution, no credential, no legacy TileLayer, and no known alternate map host in src.',
+);
+const hasMapLicenseNotices = [
+  'MAPLIBRE GL JS 5.17.0',
+  'MAPLIBRE GL LEAFLET 0.1.3',
+  'LEAFLET 1.9.4',
+].every((notice) => thirdPartyNotices.includes(notice));
+check(
+  'Bundled map libraries have public third-party notices',
+  hasMapLicenseNotices,
+  hasMapLicenseNotices
+    ? `${paths.thirdPartyNotices} includes the pinned MapLibre GL, MapLibre Leaflet, and Leaflet notices.`
+    : `${paths.thirdPartyNotices} must include the pinned MapLibre GL, MapLibre Leaflet, and Leaflet notices.`,
+);
 gate(
-  'Production map provider is eligible for public web/PWA deployment and TestFlight',
-  unkeyedCartoRasterUrls.length === 0,
-  unkeyedCartoRasterUrls.length > 0
-    ? `Found ${unkeyedCartoRasterUrls.length} unkeyed CARTO raster URL(s) in ${paths.mapView}. Replace them with an authorized production integration before either public web/PWA deployment or TestFlight approval.`
-    : `No unkeyed CARTO raster URL was found in ${paths.mapView}.`,
+  'Production map-provider terms and reliability risk are approved',
+  openFreeMapIntegrationEligible && options.approvals.mapProvider,
+  openFreeMapIntegrationEligible
+    ? 'Development may proceed. Before private TestFlight, require written embedded-user age clarification or a recorded adult-only tester cohort, plus explicit no-SLA acceptance. Public release still requires the written clarification and live downstream-host audit, or an approved fallback. Set SOLEIL_MAP_PROVIDER_APPROVAL=approved only after the public-release evidence is complete.'
+    : 'The production map integration is structurally ineligible and cannot be approved.',
 );
 
 const failedStatic = staticChecks.filter(({ passed }) => !passed);

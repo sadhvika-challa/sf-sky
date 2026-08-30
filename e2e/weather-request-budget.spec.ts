@@ -36,13 +36,6 @@ async function openWeatherOverlay(page: Page): Promise<void> {
   );
 }
 
-async function selectOceanFromSearch(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Search spots' }).click();
-  const search = page.getByRole('dialog', { name: 'Search spots' });
-  await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
-  await search.getByRole('button', { name: /Ocean Beach/ }).click();
-}
-
 async function dismissSpotSheet(page: Page, accessibleName: string): Promise<void> {
   const dialog = page.getByRole('dialog', { name: accessibleName });
   for (let attempt = 0; attempt < 2 && await dialog.isVisible(); attempt += 1) {
@@ -242,12 +235,18 @@ test('moves a newly selected spot ahead of queued overlay work', async ({ page }
   await page.goto('/');
   await openWeatherOverlay(page);
   await expect.poll(() => harness.requests.forecast.length).toBeGreaterThanOrEqual(3);
-  const initialOverlayJobs = harness.requests.forecast.length;
-  expect(initialOverlayJobs).toBeLessThanOrEqual(4);
+  expect(harness.requests.forecast.length).toBeLessThanOrEqual(4);
 
-  await selectOceanFromSearch(page);
+  await page.getByRole('button', { name: 'Search spots' }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
+  const oceanResult = search.getByRole('button', { name: /Ocean Beach/ });
+  const overlayJobsBeforeSelection = harness.requests.forecast.length;
+  await oceanResult.click();
   await expect.poll(() => harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeGreaterThanOrEqual(0);
-  expect(harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeLessThanOrEqual(initialOverlayJobs);
+  expect(harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeLessThanOrEqual(
+    overlayJobsBeforeSelection,
+  );
   harness.responseDelayMs = 0;
   await expect(
     page.getByRole('dialog', { name: 'Ocean Beach sky scores' })

@@ -258,9 +258,19 @@ test('preserves repeated Pacific hours for an SF spot', async ({ page }, testInf
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PDT');
   await expect(card.getByText('64°', { exact: true })).toBeVisible();
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PDT');
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PST');
   await expect(card.getByText('39°', { exact: true })).toBeVisible();
+  await page.waitForTimeout(1_100);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(slider).toHaveAttribute('aria-valuenow', '0');
 });
 
 test('preserves repeated Central hours for an Austin spot', async ({ page }, testInfo) => {

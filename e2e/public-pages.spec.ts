@@ -21,16 +21,36 @@ const publicPages = [
 function trackDataProviderRequests(page: Page): string[] {
   const providerRequests: string[] = []
   page.on('request', (request) => {
-    if (/open-meteo|carto(?:cdn)?\.com|fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(request.url())) {
+    if (/open-meteo|carto(?:cdn)?\.com|openfreemap\.org|fonts\.googleapis\.com|fonts\.gstatic\.com/i.test(request.url())) {
       providerRequests.push(request.url())
     }
   })
   return providerRequests
 }
 
+function trackForbiddenAppModules(page: Page): string[] {
+  const forbiddenModules: string[] = []
+  const forbiddenModulePatterns = [
+    /\/src\/App\.tsx$/i,
+    /\/src\/components\/MapView\.tsx$/i,
+    /\/(?:node_modules\/\.vite\/deps|node_modules)\/(?:react-)?leaflet(?:\.js|\/|$)/i,
+    /\/(?:node_modules\/\.vite\/deps|node_modules)\/(?:@maplibre\/maplibre-gl-leaflet|maplibre-gl)(?:\.js|\/|$)/i,
+  ]
+
+  page.on('request', (request) => {
+    const pathname = decodeURIComponent(new URL(request.url()).pathname)
+    if (forbiddenModulePatterns.some((pattern) => pattern.test(pathname))) {
+      forbiddenModules.push(pathname)
+    }
+  })
+
+  return forbiddenModules
+}
+
 for (const publicPage of publicPages) {
   test(`${publicPage.title} loads directly, refreshes, and remains independent of the map`, async ({ page }) => {
     const providerRequests = trackDataProviderRequests(page)
+    const forbiddenAppModules = trackForbiddenAppModules(page)
 
     await page.goto(publicPage.path)
 
@@ -57,6 +77,7 @@ for (const publicPage of publicPages) {
     )
     expect(highImpactViolations).toEqual([])
     expect(providerRequests).toEqual([])
+    expect(forbiddenAppModules).toEqual([])
   })
 
   test(`${publicPage.title} accepts its exact trailing-slash path`, async ({ page }) => {

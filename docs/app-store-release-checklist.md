@@ -18,7 +18,7 @@ This checklist separates repository readiness from actions that require Sadhvika
 | Signing | No team ID, certificate, provisioning profile, credential, or upload secret is committed. | Select a team and use Xcode-managed signing locally. Keep all signing material out of the repository. |
 | Artwork | Native icon and splash assets are provisional. | Approve final Soleil artwork and validate the opaque 1024 by 1024 App Store icon. |
 | Public web origin | Native sharing currently uses `https://go-outside-six.vercel.app` unless `VITE_PUBLIC_WEB_ORIGIN` overrides it. | Approve the permanent public origin. If it changes, coordinate app sharing, web metadata, Universal Links, and App Store metadata. |
-| Map provider authorization | Soleil currently requests CARTO raster basemaps without an API key. CARTO's current terms require each customer to use a unique key. | Obtain and configure an approved CARTO key, or approve and validate a replacement provider, before either public web/PWA deployment or TestFlight release approval. Strict release preflight detects the current production URL directly and remains blocked while it is present. |
+| Map provider authorization | The candidate replaces unkeyed CARTO raster tiles with OpenFreeMap vector maps. OpenFreeMap permits commercial websites and apps without a key, but provides no SLA and its current terms contain an under-18 ambiguity for embedded-app users. | Development may proceed. Before private TestFlight, obtain written end-user age clarification, or document an adult-only tester cohort and accept the no-SLA risk. Before public web/PWA or App Store release, obtain the written clarification and accept the no-SLA risk, or configure the approved Stadia Maps fallback. Strict release preflight must keep public distribution as a named human gate. |
 | Privacy and support pages | Proposed URLs are not published, and a fixed support-email retention period is not yet approved. | Approve the operator retention practice, publish, and verify the public pages before submission. Suggested paths are `https://sadhvika.com/soleil/privacy` and `https://sadhvika.com/soleil/support`, but these are not commitments until live. |
 | Privacy | The app declares When In Use location and a UserDefaults required-reason API. | Complete the production vendor and retention audit, generate Xcode's privacy report, and submit truthful App Privacy answers. |
 | Web fonts | Soleil now bundles the used Fontsource webfont subsets and their license notices. | Confirm the exact production build makes no automatic Google Fonts request. |
@@ -32,7 +32,8 @@ This checklist separates repository readiness from actions that require Sadhvika
   - Keeping iPad support requires iPad layout, orientation, accessibility, screenshot, and TestFlight evidence.
 - [ ] Confirm whether iOS 15 remains the minimum supported version.
 - [ ] Approve the permanent release website origin.
-- [ ] Approve the production map-provider contract. The current CARTO integration needs a unique API key under CARTO's current terms. Do not deploy this integration to the public web/PWA or approve it for TestFlight while the strict release preflight reports the unkeyed URL.
+- [ ] Approve the production map-provider contract. For OpenFreeMap, record written clarification that embedded Soleil users are not made 18+, and explicitly accept the no-SLA risk. Otherwise configure and audit Stadia Maps before public release.
+- [ ] If private TestFlight precedes that clarification, record that every invited tester is an adult and explicitly accept the no-SLA risk for the beta cohort. This exception does not authorize public distribution.
 - [ ] Approve the final icon, splash treatment, and screenshot visual direction.
 - [ ] Approve the App Store category. Draft recommendation: primary `Weather`, secondary `Travel`.
 - [ ] Decide whether version `1.0` or `1.0.0` is the intended first public version. Do not change it after submitting that version for review without a release reason.
@@ -81,24 +82,26 @@ Use Apple's current [screenshot specifications](https://developer.apple.com/help
 - [ ] Confirm the selected Xcode includes the iOS 26 SDK or later. Apple states that uploads must use Xcode 26 and the iOS 26 SDK starting April 28, 2026. Check [Upcoming Requirements](https://developer.apple.com/news/upcoming-requirements/) again on release day.
 - [ ] Run repository checks from a clean checkout of the exact candidate commit.
 - [ ] Run `npm ci`, `npm run build`, `npm run ios:verify`, and the repository's release-readiness verification command.
-- [ ] Run strict release preflight with the intended version and build. The four approval variables are nonsecret attestations and must be set only by the named release owner after reviewing the corresponding evidence:
+- [ ] Run strict release preflight with the intended version and build. The five approval variables are nonsecret attestations and must be set only by the named release owner after reviewing the corresponding evidence:
 
 ```bash
 SOLEIL_RELEASE_CANDIDATE=1 \
 SOLEIL_MARKETING_VERSION=1.0 \
 SOLEIL_BUILD_NUMBER=1 \
 SOLEIL_DEVICE_FAMILY_APPROVAL=approved \
+SOLEIL_MAP_PROVIDER_APPROVAL=approved \
 SOLEIL_PRIVACY_AUDIT_APPROVAL=approved \
 SOLEIL_ARTWORK_APPROVAL=approved \
 SOLEIL_PUBLIC_ORIGIN_APPROVAL=approved \
 npm run ios:release:verify
 ```
 
-  Strict preflight also requires eligible repository state, an authorized production map integration for both public web/PWA deployment and TestFlight, and removal of the legacy signing identity through the supported Xcode version. The map-provider gate reads the production map source and cannot be bypassed by an attestation while an unkeyed CARTO raster URL remains. An attestation cannot bypass an ineligible icon, splash, origin, privacy structure, or device-family setting. This command verifies only the gates it names. It does not attest to enrollment, export compliance, App Store metadata, archive validation, signing, physical-device acceptance, or TestFlight acceptance.
+  Strict preflight also requires eligible repository state, an approved production map-provider contract for public web/PWA and App Store distribution, and removal of the legacy signing identity through the supported Xcode version. The map-provider attestation must not be set for OpenFreeMap until its embedded-user age terms and no-SLA risk are accepted against written evidence. An attestation cannot bypass an ineligible provider integration, icon, splash, origin, privacy structure, or device-family setting. This command verifies only the gates it names. It does not attest to enrollment, export compliance, App Store metadata, archive validation, signing, physical-device acceptance, or TestFlight acceptance.
 - [ ] Confirm generated native web assets have no uncommitted drift.
 - [ ] In Xcode, select Sadhvika's team and use automatic signing.
 - [ ] Confirm Release configuration, bundle identifier, marketing version, build number, deployment target, and device family.
 - [ ] Generate and inspect Xcode's aggregated privacy report for the archive.
+- [ ] Capture the complete map request-host list from the live OpenFreeMap styles in both a web session and the candidate WKWebView. Reconcile style, sprite, glyph, vector-tile, and CDN hosts with the privacy inventory.
 - [ ] Run the archive locally on the iPhone 17 Pro where possible, then complete [testflight-acceptance.md](./testflight-acceptance.md).
 - [ ] Archive with the generic iOS device destination and validate the archive in Xcode Organizer.
 
@@ -110,6 +113,7 @@ No successful browser test or static repository check replaces an Xcode archive,
 - [ ] Wait for App Store Connect processing and resolve all warnings.
 - [ ] Verify the processed build displays the intended version, build, bundle identifier, icon, privacy manifest, and supported devices.
 - [ ] Complete beta app description, feedback email, contact information, and `What to Test`.
+- [ ] Before inviting any tester, attach either OpenFreeMap's written embedded-user age clarification or the recorded adult-only beta cohort and no-SLA acceptance to the release log.
 - [ ] Start with internal TestFlight testers. Apple supports up to 100 App Store Connect users as internal testers.
 - [ ] Use external testing only after internal acceptance. Apple supports up to 10,000 external testers, and the first external build generally requires Beta App Review.
 - [ ] Remember that TestFlight builds expire after 90 days.
