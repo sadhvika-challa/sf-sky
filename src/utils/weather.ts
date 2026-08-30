@@ -61,6 +61,34 @@ const REQUIRED_FIELDS: Record<ForecastScoreMode, ReadonlyArray<keyof HourlyForec
   stargazing: ['cloud', 'humidity'],
 };
 
+function isValidForecastField(field: keyof HourlyForecast, value: number): boolean {
+  if (!Number.isFinite(value)) return false;
+  switch (field) {
+    case 'cloud':
+    case 'cloudLow':
+    case 'cloudMid':
+    case 'cloudHigh':
+    case 'humidity':
+    case 'precipProb':
+      return value >= 0 && value <= 100;
+    case 'visibilityKm':
+    case 'pm25':
+    case 'windMph':
+    case 'gustMph':
+      return value >= 0;
+    case 'aqi':
+      return value >= 0 && value <= 500;
+    case 'windDir':
+      return value >= 0 && value <= 360;
+    case 'tempF':
+      return value >= -150 && value <= 150;
+    default: {
+      const _exhaustive: never = field;
+      return _exhaustive;
+    }
+  }
+}
+
 export function clampPercentage(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -73,7 +101,7 @@ export function getHourlyForecastCompleteness(
 ): ForecastCompletenessRead {
   const fields = REQUIRED_FIELDS[mode];
   const availableFields = hourly
-    ? fields.filter((field) => Number.isFinite(hourly[field])).length
+    ? fields.filter((field) => isValidForecastField(field, hourly[field])).length
     : 0;
   const percent = clampPercentage((availableFields / fields.length) * 100);
   return {

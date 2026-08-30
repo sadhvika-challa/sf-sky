@@ -127,6 +127,15 @@ function forecastStatusLabel(
   return { state: 'event-forecast', label: eventLabel };
 }
 
+function missingHourStatusLabel(moment: ForecastMoment, mode: ViewMode): string {
+  if (moment === 'current') return 'Current forecast unavailable · curated estimate';
+  if (moment === 'selected-hour') return 'Selected hour unavailable · curated estimate';
+  const eventLabel = mode === 'stargazing'
+    ? 'Stargazing'
+    : `${mode[0].toUpperCase()}${mode.slice(1)}`;
+  return `${eventLabel} forecast unavailable · curated estimate`;
+}
+
 /** Build the presentation contract consumed by every score surface. */
 export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
   const nowMs = input.now.getTime();
@@ -172,7 +181,7 @@ export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
 
     if (input.error || input.unavailableReason) {
       const unavailableLabel = input.unavailableReason === 'missing-hour'
-        ? 'Selected hour unavailable · curated estimate'
+        ? missingHourStatusLabel(input.moment, input.mode)
         : input.unavailableReason === 'malformed' || input.unavailableReason === 'empty'
           ? 'Forecast data unavailable · curated estimate'
           : 'Forecast unavailable · curated estimate';

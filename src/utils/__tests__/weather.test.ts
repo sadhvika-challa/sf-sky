@@ -53,6 +53,50 @@ describe('getHourlyForecastCompleteness', () => {
     expect(getHourlyForecastCompleteness(malformed, 'stargazing').completeness).toBe('missing');
     expect(getHourlyForecastCompleteness(null, 'now').completeness).toBe('missing');
   });
+
+  it.each([
+    ['cloud', -1],
+    ['cloudLow', 101],
+    ['visibilityKm', -0.1],
+    ['tempF', 151],
+    ['tempF', -151],
+    ['precipProb', 101],
+    ['pm25', -0.1],
+    ['windMph', -1],
+  ] as const)('marks out-of-domain Now field %s=%s partial', (field, value) => {
+    expect(getHourlyForecastCompleteness(hour({ [field]: value }), 'now').completeness)
+      .toBe('partial');
+  });
+
+  it.each([
+    ['cloud', 101],
+    ['cloudLow', -1],
+    ['cloudMid', 101],
+    ['cloudHigh', -1],
+    ['visibilityKm', -1],
+    ['humidity', 101],
+    ['pm25', -1],
+  ] as const)('marks out-of-domain sunset field %s=%s partial', (field, value) => {
+    expect(getHourlyForecastCompleteness(hour({ [field]: value }), 'sunset').completeness)
+      .toBe('partial');
+  });
+
+  it('marks an hour missing when every required field is outside its domain', () => {
+    const invalid = hour({
+      cloud: 101,
+      cloudLow: -1,
+      visibilityKm: -1,
+      tempF: 151,
+      precipProb: -1,
+      pm25: -1,
+      windMph: -1,
+    });
+    expect(getHourlyForecastCompleteness(invalid, 'now')).toMatchObject({
+      completeness: 'missing',
+      availableFields: 0,
+      percent: 0,
+    });
+  });
 });
 
 describe('clampPercentage', () => {

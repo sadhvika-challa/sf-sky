@@ -117,13 +117,41 @@ describe('buildScoreEvidence', () => {
     });
   });
 
+  it('does not grant high confidence to finite but out-of-domain weather', () => {
+    const read = evidence({ hourly: hour({ cloud: 140 }) });
+    expect(read).toMatchObject({
+      completeness: 'partial',
+      confidence: 'low',
+      state: 'partial-forecast',
+      reason: 'missing-required-fields',
+    });
+  });
+
   it('distinguishes loading, missing-hour unavailable, and curated estimate', () => {
     expect(evidence({ hourly: null, fetchedAt: null, loading: true }).state).toBe('loading');
     expect(evidence({
       hourly: null,
       unavailableReason: 'missing-hour',
-    })).toMatchObject({ state: 'unavailable', reason: 'missing-hour' });
+    })).toMatchObject({
+      state: 'unavailable',
+      reason: 'missing-hour',
+      statusLabel: 'Current forecast unavailable · curated estimate',
+    });
     expect(evidence({ hourly: null, fetchedAt: null }).state).toBe('curated-estimate');
+  });
+
+  it.each([
+    ['selected-hour', 'now', 'Selected hour unavailable · curated estimate'],
+    ['event', 'sunrise', 'Sunrise forecast unavailable · curated estimate'],
+    ['event', 'sunset', 'Sunset forecast unavailable · curated estimate'],
+    ['event', 'stargazing', 'Stargazing forecast unavailable · curated estimate'],
+  ] as const)('uses %s/%s missing-hour copy', (moment, mode, statusLabel) => {
+    expect(evidence({
+      hourly: null,
+      moment,
+      mode,
+      unavailableReason: 'missing-hour',
+    })).toMatchObject({ state: 'unavailable', reason: 'missing-hour', statusLabel });
   });
 
   it('distinguishes empty data from a fetch failure', () => {
