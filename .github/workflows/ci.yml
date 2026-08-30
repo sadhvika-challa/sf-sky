@@ -47,6 +47,9 @@ jobs:
       - name: Verify iOS shell
         run: npm run ios:verify
 
+      - name: Verify App Store release structure
+        run: npm run ios:release:verify
+
       - name: Verify generated native state is committed
         run: git diff --exit-code
 
@@ -55,3 +58,49 @@ jobs:
 
       - name: Verify production PWA
         run: npm run test:pwa:artifact
+
+  ios-native-build:
+    name: Build native iOS shell
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify required Xcode toolchain
+        run: |
+          xcodebuild -version
+          XCODE_MAJOR="$(xcodebuild -version | awk '/Xcode/{split($2, version, "."); print version[1]}')"
+          IOS_SDK_MAJOR="$(xcodebuild -showsdks | sed -nE 's/.*-sdk iphoneos([0-9]+).*/\1/p' | sort -nr | head -1)"
+          test "${XCODE_MAJOR}" -ge 26
+          test "${IOS_SDK_MAJOR}" -ge 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate native web bundle
+        run: npm run native:sync
+
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+
+      - name: Build Release shell without signing
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Verify generated native state is committed
+        run: git diff --exit-code

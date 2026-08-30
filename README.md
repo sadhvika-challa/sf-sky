@@ -53,6 +53,7 @@ npm exec -- tsc -b
 npm test
 npm run build
 npm run ios:verify
+npm run ios:release:verify
 npm run test:pwa:artifact
 ```
 
@@ -78,7 +79,7 @@ public/sw.js               Static-asset cache and offline navigation fallback
 
 `App.tsx` selects the active city, spot, event, filters, timeline hour, and weather mode. Forecast hooks load coordinate-based Open-Meteo data and cache it in session storage. Pure utilities turn forecast slices and curated spot attributes into scores, confidence, narratives, and display ranges. React Leaflet renders those results on the map, while sheets and cards provide the detailed decision flow. Durable web preferences such as city, filters, weather mode, onboarding, and units use local storage.
 
-For the native workflow, boundaries, verification commands, and remaining Apple gates, see [Soleil iOS development](docs/ios-development.md).
+For the native workflow, boundaries, verification commands, and remaining Apple gates, see [Soleil iOS development](docs/ios-development.md). Release owners should also use the [App Store release checklist](docs/app-store-release-checklist.md), [metadata draft](docs/app-store-metadata.md), [privacy data inventory](docs/app-privacy-data-inventory.md), and [TestFlight acceptance checklist](docs/testflight-acceptance.md).
 
 ## Data and product boundaries
 
