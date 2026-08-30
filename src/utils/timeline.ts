@@ -202,9 +202,9 @@ export function formatActiveTimelineLabel(
 export function describeActiveForecastTrust(activeStates: readonly boolean[]): string {
   if (activeStates.length === 0) return 'No visible scores';
   const forecastCount = activeStates.filter(Boolean).length;
-  if (forecastCount === activeStates.length) return 'Exact forecast-backed scores';
-  if (forecastCount === 0) return 'Estimated scores';
-  return 'Mix of exact forecasts and estimates';
+  if (forecastCount === activeStates.length) return 'Forecast-backed scores';
+  if (forecastCount === 0) return 'Curated estimates';
+  return 'Mix of forecast-backed scores and curated estimates';
 }
 
 /** Preserve '' as the canonical live state and reject unavailable forecast keys. */

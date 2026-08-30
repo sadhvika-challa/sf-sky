@@ -43,6 +43,51 @@ export interface HourlyForecast {
   windDir: number;
 }
 
+export type ForecastCompleteness = 'complete' | 'partial' | 'missing';
+
+export interface ForecastCompletenessRead {
+  completeness: ForecastCompleteness;
+  availableFields: number;
+  requiredFields: number;
+  percent: number;
+}
+
+type ForecastScoreMode = 'now' | 'sunrise' | 'sunset' | 'stargazing';
+
+const REQUIRED_FIELDS: Record<ForecastScoreMode, ReadonlyArray<keyof HourlyForecast>> = {
+  now: ['cloud', 'cloudLow', 'visibilityKm', 'tempF', 'precipProb', 'pm25', 'windMph'],
+  sunrise: ['cloud', 'cloudLow', 'cloudMid', 'cloudHigh', 'visibilityKm', 'humidity', 'pm25'],
+  sunset: ['cloud', 'cloudLow', 'cloudMid', 'cloudHigh', 'visibilityKm', 'humidity', 'pm25'],
+  stargazing: ['cloud', 'humidity'],
+};
+
+export function clampPercentage(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+/** Report only fields the selected scoring mode actually requires. */
+export function getHourlyForecastCompleteness(
+  hourly: HourlyForecast | null,
+  mode: ForecastScoreMode,
+): ForecastCompletenessRead {
+  const fields = REQUIRED_FIELDS[mode];
+  const availableFields = hourly
+    ? fields.filter((field) => Number.isFinite(hourly[field])).length
+    : 0;
+  const percent = clampPercentage((availableFields / fields.length) * 100);
+  return {
+    completeness: availableFields === 0
+      ? 'missing'
+      : availableFields === fields.length
+        ? 'complete'
+        : 'partial',
+    availableFields,
+    requiredFields: fields.length,
+    percent,
+  };
+}
+
 export interface SpotForecast {
   /** ISO hour key (YYYY-MM-DDTHH) -> hourly forecast slice. */
   hours: Record<string, HourlyForecast>;

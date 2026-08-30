@@ -17,6 +17,7 @@ import WeatherLayer from './WeatherLayer';
 import WindParticleLayer from './WindParticleLayer';
 import type { WeatherMetric } from '../utils/interpolate';
 import type { SpotForecast } from '../utils/weather';
+import type { ScoreEvidence } from '../utils/confidence';
 import { buildSamples, buildWindDirs } from '../utils/weatherSamples';
 
 const isCoarsePointer =
@@ -395,6 +396,7 @@ interface SpotClusterLayerProps {
 interface ClusterPayload {
   spot: Spot;
   score: number;
+  evidence: ScoreEvidence | null;
   quip: string | undefined;
 }
 
@@ -419,6 +421,7 @@ function SpotClusterLayer({
         payload: {
           spot,
           score: getViewModeScore(spot, liveScores, viewMode),
+          evidence: liveScores.get(spot.id)?.activeEvidence ?? null,
           quip: getMarkerQuip(spot, liveScores),
         } satisfies ClusterPayload,
       }));
@@ -483,6 +486,7 @@ function SpotClusterLayer({
             key={payload.spot.id}
             spot={payload.spot}
             score={payload.score}
+            evidence={payload.evidence}
             isActive={selectedSpot?.id === payload.spot.id}
             isHighlighted={highlightedSpotId === payload.spot.id}
             onClick={onSelectSpot}

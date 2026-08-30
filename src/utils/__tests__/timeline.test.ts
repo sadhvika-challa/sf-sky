@@ -106,8 +106,8 @@ describe('timeline helpers', () => {
   });
 
   it('describes active Search trust without overstating fallback estimates', () => {
-    expect(describeActiveForecastTrust([true, true])).toBe('Exact forecast-backed scores');
-    expect(describeActiveForecastTrust([true, false])).toBe('Mix of exact forecasts and estimates');
-    expect(describeActiveForecastTrust([false, false])).toBe('Estimated scores');
+    expect(describeActiveForecastTrust([true, true])).toBe('Forecast-backed scores');
+    expect(describeActiveForecastTrust([true, false])).toBe('Mix of forecast-backed scores and curated estimates');
+    expect(describeActiveForecastTrust([false, false])).toBe('Curated estimates');
   });
 });

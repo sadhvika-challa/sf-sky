@@ -843,7 +843,7 @@ function App() {
 
       {!weatherOverlay && showWeatherOverlayHint && !selectedSpot && (
         <OnboardingHint
-          message="Tap to see live weather on the map"
+          message="Tap to see forecast-backed scores on the map"
           arrow="to-sun"
           positionClassName="top-[calc(env(safe-area-inset-top)+4.25rem)] left-[3.0625rem]"
           onDismiss={handleDismissWeatherOverlayHint}

@@ -9,6 +9,7 @@ import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
 import { parseHourKeyInTimeZone, SCORE_CARD_ORDER } from '../utils/timeline';
 import type { SpotForecast } from '../utils/weather';
+import { scoreEvidenceAccessibilityLabel } from '../utils/confidence';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
@@ -644,7 +645,12 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 <span
                   className="font-serif text-3xl font-light leading-none flex-shrink-0 tabular-nums"
                   style={{ color: getScoreColor(getScoreFor(activeCardType)) }}
-                  aria-label={`${typeLabel[activeCardType]} score ${getScoreFor(activeCardType)} out of 100`}
+                  aria-label={`${typeLabel[activeCardType]} score ${scoreEvidenceAccessibilityLabel(
+                    getScoreFor(activeCardType),
+                    activeCardType === 'now'
+                      ? live!.activeEvidence
+                      : live!.evidence[activeCardType],
+                  )}`}
                 >
                   {getScoreFor(activeCardType)}
                 </span>
@@ -801,8 +807,10 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                       scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
                       scrubViewMode={card.type === 'now' ? viewMode : undefined}
                       activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
-                      activeScoreIsLive={card.type === 'now' ? (live?.activeIsLive ?? false) : undefined}
                       canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
+                      scoreEvidence={card.type === 'now'
+                        ? live!.activeEvidence
+                        : live!.evidence[card.type]}
                       onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
                       timeZone={timeZone}
                       forecast={forecast}

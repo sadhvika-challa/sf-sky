@@ -4,7 +4,8 @@ import { toBlob } from 'html-to-image';
 import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
-import { fogDensity, type HourlyForecast, type SpotForecast } from '../utils/weather';
+import { clampPercentage, fogDensity, type HourlyForecast, type SpotForecast } from '../utils/weather';
+import type { ScoreEvidence } from '../utils/confidence';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
@@ -13,7 +14,6 @@ import { computeEventTimes } from '../utils/events';
 import {
   deriveSpotTimelineHourKeys,
   formatHourKeyInTimeZone,
-  nearestForecastAtCityInstant,
   normalizeTimelineHourKey,
   parseHourKeyInTimeZone,
 } from '../utils/timeline';
@@ -28,8 +28,8 @@ interface ScoreCardProps {
   scrubHourKey?: string;
   scrubViewMode?: 'now' | 'sunrise' | 'sunset' | 'stargazing';
   activeScore?: number;
-  activeScoreIsLive?: boolean;
   canonicalScore?: number;
+  scoreEvidence: ScoreEvidence;
   onTimelineHourChange?: (key: string) => void;
   timeZone: string;
   forecast: SpotForecast | null;
@@ -64,12 +64,6 @@ function formatDateShort(date: Date, timeZone: string): string {
 
 function formatFullDate(date: Date, timeZone: string): string {
   return date.toLocaleDateString('en-US', { timeZone, month: 'numeric', day: 'numeric', year: 'numeric' });
-}
-
-function getEstimatedTemp(): number {
-  const month = new Date().getMonth();
-  const temps = [54, 56, 57, 58, 60, 62, 63, 64, 66, 64, 58, 54];
-  return temps[month];
 }
 
 function getSkyGradient(type: CardType, score: number): string {
@@ -195,7 +189,7 @@ function MetricCell({ label, value, barValue, barColor }: MetricCellProps) {
 interface DetailRowProps {
   label: string;
   value: string;
-  barValue: number;
+  barValue?: number;
   barColor: string;
 }
 
@@ -204,10 +198,12 @@ function DetailRow({ label, value, barValue, barColor }: DetailRowProps) {
     <div className="flex items-center gap-4 py-2.5">
       <span className="font-serif text-[14px] text-gray-700 w-[90px] flex-shrink-0">{label}</span>
       <div className="flex-1 h-[3px] bg-gray-100 rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-[width] duration-300"
-          style={{ width: `${Math.max(0, Math.min(100, barValue))}%`, background: barColor }}
-        />
+        {barValue !== undefined && (
+          <div
+            className="h-full rounded-full transition-[width] duration-300"
+            style={{ width: `${clampPercentage(barValue)}%`, background: barColor }}
+          />
+        )}
       </div>
       <span className="font-mono text-[12px] text-gray-600 w-[52px] text-right flex-shrink-0">{value}</span>
     </div>
@@ -499,7 +495,7 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode, activeScore, activeScoreIsLive, canonicalScore, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -535,9 +531,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     ? (scrubHourKey || formatHourKeyInTimeZone(eventInstant, timeZone))
     : '';
   const hourly: HourlyForecast | null = forecast && !Number.isNaN(eventInstant.getTime())
-    ? (type === 'now'
-        ? (forecast.hours[exactHourKey] ?? null)
-        : nearestForecastAtCityInstant(forecast, eventInstant, timeZone))
+    ? (forecast.hours[type === 'now'
+        ? exactHourKey
+        : formatHourKeyInTimeZone(eventInstant, timeZone)] ?? null)
     : null;
 
   const breakdown: ScoreBreakdown | null = hourly && displayType !== 'now'
@@ -551,7 +547,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     if (canonicalScore !== undefined) return canonicalScore;
     return breakdown ? breakdown.total : spot[type];
   })();
-  const isLive = hourly !== null && (type !== 'now' || activeScoreIsLive === true);
+  const isForecastBacked = scoreEvidence.provenance === 'forecast';
 
   const spotScore = type === 'now' ? computeNowBaseScore(spot) : spot[type];
   const skyScore = (() => {
@@ -583,14 +579,12 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     : [];
   const eventTimes = computeEventTimes(new Date(), spot.lat, spot.lng);
 
-  const tempF = hourly && Number.isFinite(hourly.tempF)
-    ? hourly.tempF
-    : getEstimatedTemp();
+  const tempF = hourly && Number.isFinite(hourly.tempF) ? hourly.tempF : null;
   const [tempUnit, setTempUnit] = useTempUnit();
-  const displayTemp = Math.round(convertTempF(tempF, tempUnit));
-  const tempCopy = getTempCopy(tempF);
+  const displayTemp = tempF === null ? '--' : Math.round(convertTempF(tempF, tempUnit));
+  const tempCopy = tempF === null ? 'Unavailable' : getTempCopy(tempF);
   const humidityStr = hourly && Number.isFinite(hourly.humidity)
-    ? `${Math.round(hourly.humidity)}%`
+    ? `${clampPercentage(hourly.humidity)}%`
     : '--';
   const dots = dotColors[type];
 
@@ -656,7 +650,13 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   // Derived cloud/visibility/conditions for the summary strip
   const cloudLabel = hourly ? cloudCoverLabel(hourly.cloud) : '--';
   const conditionsLabel = (() => {
-    if (!hourly) return '--';
+    if (!hourly || ![
+      hourly.cloud,
+      hourly.cloudLow,
+      hourly.visibilityKm,
+      hourly.humidity,
+      hourly.windMph,
+    ].every(Number.isFinite)) return '--';
     const fog = fogDensity(hourly);
     if (fog > 0.7) return 'Foggy';
     if (fog > 0.4) return 'Hazy';
@@ -665,7 +665,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     return 'Strong';
   })();
   const visLabel = hourly && Number.isFinite(hourly.visibilityKm)
-    ? `${Math.round((hourly.visibilityKm / 30) * 100)}%`
+    ? `${clampPercentage((hourly.visibilityKm / 30) * 100)}%`
     : '--';
   const visBarValue = hourly && Number.isFinite(hourly.visibilityKm)
     ? Math.min(100, (hourly.visibilityKm / 30) * 100)
@@ -673,7 +673,11 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
 
   // Fog data for detail face
   const fogLevel = (() => {
-    if (!hourly) return { label: '--', barValue: 0 };
+    if (!hourly || ![
+      hourly.visibilityKm,
+      hourly.cloudLow,
+      hourly.humidity,
+    ].every(Number.isFinite)) return { label: '--', barValue: undefined };
     const fog = fogDensity(hourly);
     if (fog > 0.7) return { label: 'Dense', barValue: 90 };
     if (fog > 0.3) return { label: 'Light', barValue: 50 };
@@ -681,9 +685,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   })();
 
   // Wind data for the "now" card metric grid
-  const windMph = hourly && Number.isFinite(hourly.windMph) ? hourly.windMph : 8;
-  const windLabelText = getWindLabel(windMph);
-  const windBarValue = windBarPercent(windMph);
+  const windMph = hourly && Number.isFinite(hourly.windMph) ? hourly.windMph : null;
+  const windLabelText = windMph === null ? '--' : getWindLabel(windMph);
+  const windBarValue = windMph === null ? undefined : windBarPercent(windMph);
 
   return (
     <div ref={cardRef} className="relative rounded-xl bg-white shadow-md w-full">
@@ -743,16 +747,10 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                 style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
               >
                 <span
-                  className={`inline-block w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-400' : 'bg-white/40'}`}
-                  style={isLive ? { boxShadow: '0 0 6px rgba(52,211,153,0.85)' } : undefined}
+                  className={`inline-block w-1.5 h-1.5 rounded-full ${isForecastBacked ? 'bg-emerald-400' : 'bg-white/40'}`}
+                  style={isForecastBacked ? { boxShadow: '0 0 6px rgba(52,211,153,0.85)' } : undefined}
                 />
-                {loading && !forecast
-                  ? 'Loading'
-                  : error && !forecast
-                    ? 'Error'
-                    : isLive
-                      ? (type === 'now' && scrubHourKey ? 'Exact forecast' : 'Live')
-                      : (type === 'now' && scrubHourKey ? 'Hour unavailable' : 'Static')}
+                {scoreEvidence.statusLabel}
               </div>
               {type === 'stargazing' && (
                 <>
@@ -803,9 +801,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <span className="font-serif italic text-[14px] text-gray-500">{poetic}</span>
                 </div>
                 <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1.5">
-                  {isLive
-                    ? (type === 'now' && scrubHourKey ? 'Forecast at selected hour' : 'Forecast firming up')
-                    : (type === 'now' && scrubHourKey ? 'Selected hour unavailable' : 'Static estimate')}
+                  {scoreEvidence.provenanceLabel}
+                  <span aria-hidden="true"> · </span>
+                  {scoreEvidence.retrievalLabel}
                 </p>
                 {showSparkStrip ? (
                   <SparkStrip points={sparkPoints} timeZone={timeZone} />
@@ -849,7 +847,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <MetricCell
                     label="Clouds"
                     value={cloudLabel}
-                    barValue={hourly ? hourly.cloud : 0}
+                    barValue={hourly && Number.isFinite(hourly.cloud) ? clampPercentage(hourly.cloud) : undefined}
                     barColor={METRIC_COLORS.clouds}
                   />
                   <MetricCell
@@ -881,7 +879,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <MetricCell
                     label="Clouds"
                     value={cloudLabel}
-                    barValue={hourly ? hourly.cloud : 0}
+                    barValue={hourly && Number.isFinite(hourly.cloud) ? clampPercentage(hourly.cloud) : undefined}
                     barColor={METRIC_COLORS.clouds}
                   />
                   {/* Conditions */}
@@ -981,7 +979,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                     <DetailRow
                       label="Cloud"
                       value={cloudLabel}
-                      barValue={hourly ? hourly.cloud : 0}
+                      barValue={hourly && Number.isFinite(hourly.cloud) ? hourly.cloud : undefined}
                       barColor={DETAIL_BAR_COLORS.cloud}
                     />
                     <DetailRow
@@ -993,7 +991,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                     <DetailRow
                       label="Visibility"
                       value={visLabel}
-                      barValue={visBarValue}
+                      barValue={hourly && Number.isFinite(hourly.visibilityKm) ? visBarValue : undefined}
                       barColor={DETAIL_BAR_COLORS.fog}
                     />
                     <DetailRow
@@ -1007,14 +1005,14 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <>
                     <DetailRow
                       label="Cloud"
-                      value={hourly ? cloudQualityLabel(cloudQualityScore(hourly, type as 'sunrise' | 'sunset'), type as 'sunrise' | 'sunset') : '--'}
-                      barValue={hourly ? cloudQualityScore(hourly, type as 'sunrise' | 'sunset') : 0}
+                      value={hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityLabel(cloudQualityScore(hourly, type as 'sunrise' | 'sunset'), type as 'sunrise' | 'sunset') : '--'}
+                      barValue={hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityScore(hourly, type as 'sunrise' | 'sunset') : undefined}
                       barColor={DETAIL_BAR_COLORS.cloud}
                     />
                     <DetailRow
                       label="Humidity"
                       value={humidityStr}
-                      barValue={hourly ? hourly.humidity : 0}
+                      barValue={hourly && Number.isFinite(hourly.humidity) ? hourly.humidity : undefined}
                       barColor={DETAIL_BAR_COLORS.humidity}
                     />
                     <DetailRow
@@ -1028,14 +1026,14 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <>
                     <DetailRow
                       label="Cloud"
-                      value={hourly ? cloudQualityLabel(cloudQualityScore(hourly, 'stargazing'), 'stargazing') : '--'}
-                      barValue={hourly ? cloudQualityScore(hourly, 'stargazing') : 0}
+                      value={hourly && Number.isFinite(hourly.cloud) ? cloudQualityLabel(cloudQualityScore(hourly, 'stargazing'), 'stargazing') : '--'}
+                      barValue={hourly && Number.isFinite(hourly.cloud) ? cloudQualityScore(hourly, 'stargazing') : undefined}
                       barColor={DETAIL_BAR_COLORS.cloud}
                     />
                     <DetailRow
                       label="Humidity"
                       value={humidityStr}
-                      barValue={hourly ? hourly.humidity : 0}
+                      barValue={hourly && Number.isFinite(hourly.humidity) ? hourly.humidity : undefined}
                       barColor={DETAIL_BAR_COLORS.humidity}
                     />
                     <DetailRow
