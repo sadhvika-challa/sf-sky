@@ -26,7 +26,7 @@ const VIEW_MODE_LABEL: Record<ViewMode, string> = {
 /** Live (or base) score for a spot at the current view mode. */
 function spotScore(spot: Spot, liveScores: LiveScoresMap | undefined, viewMode: ViewMode): number {
   const live = liveScores?.get(spot.id);
-  if (live) return live[viewMode];
+  if (live) return live.active;
   if (viewMode === 'now') return computeNowBaseScore(spot);
   return spot[viewMode];
 }

@@ -3,9 +3,8 @@ import { createPortal } from 'react-dom';
 import { toBlob } from 'html-to-image';
 import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
-import { useSpotForecast } from '../hooks/useSpotForecast';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
-import { fogDensity, getForecastAt, type HourlyForecast } from '../utils/weather';
+import { fogDensity, getForecastAt, type HourlyForecast, type SpotForecast } from '../utils/weather';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
@@ -29,8 +28,12 @@ interface ScoreCardProps {
   scrubViewMode?: 'now' | 'sunrise' | 'sunset' | 'stargazing';
   activeScore?: number;
   activeScoreIsLive?: boolean;
+  canonicalScore?: number;
   onTimelineHourChange?: (key: string) => void;
   timeZone: string;
+  forecast: SpotForecast | null;
+  forecastLoading: boolean;
+  forecastError: Error | null;
 }
 
 function formatTime(date: Date, timeZone: string): { time: string; period: string } {
@@ -491,7 +494,7 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode, activeScore, activeScoreIsLive, onTimelineHourChange, timeZone }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode, activeScore, activeScoreIsLive, canonicalScore, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -523,7 +526,6 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const fullDate = formatFullDate(eventInstant, timeZone);
   const moonIllum = SunCalc.getMoonIllumination(eventInstant);
 
-  const { forecast, loading, error } = useSpotForecast(spot);
   const exactHourKey = type === 'now'
     ? (scrubHourKey || formatHourKeyInTimeZone(eventInstant, timeZone))
     : '';
@@ -539,6 +541,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
       if (activeScore !== undefined) return activeScore;
       return hourly ? computeNowScore(spot, hourly) : computeNowBaseScore(spot);
     }
+    if (canonicalScore !== undefined) return canonicalScore;
     return breakdown ? breakdown.total : spot[type];
   })();
   const isLive = hourly !== null && (type !== 'now' || activeScoreIsLive === true);

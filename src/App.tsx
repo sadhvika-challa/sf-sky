@@ -256,12 +256,14 @@ function App() {
     [activeCityId],
   );
   const userLocation = useGeolocation();
-  const liveScores = useTimelineScores(
+  const timelineScores = useTimelineScores(
     activeSpots,
     timelineHourKey,
     viewMode,
     activeCityConfig.timeZone,
+    now,
   );
+  const liveScores = timelineScores.scores;
   const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
     useNeighborhoodForecasts(true);
 
@@ -782,6 +784,12 @@ function App() {
           timelineHourKey={timelineHourKey}
           onTimelineHourChange={handleTimelineHourChange}
           timeZone={activeCityConfig.timeZone}
+          forecast={timelineScores.forecasts.get(selectedSpot.id) ?? null}
+          forecastLoading={
+            !timelineScores.forecasts.has(selectedSpot.id) &&
+            !timelineScores.forecastErrors.has(selectedSpot.id)
+          }
+          forecastError={timelineScores.forecastErrors.get(selectedSpot.id) ?? null}
         />
       )}
 

@@ -8,6 +8,7 @@ import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
 import { parseHourKeyInTimeZone, SCORE_CARD_ORDER } from '../utils/timeline';
+import type { SpotForecast } from '../utils/weather';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
@@ -72,10 +73,10 @@ const typeLabel: Record<CardType, string> = {
   stargazing: 'Stargazing',
 };
 
-function formatStripTime(date: Date): string {
+function formatStripTime(date: Date, timeZone: string): string {
   if (Number.isNaN(date.getTime())) return '—';
   return date
-    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true })
     .toLowerCase()
     .replace(/\s/g, ' ');
 }
@@ -306,6 +307,9 @@ interface ScorePanelProps {
   timelineHourKey?: string;
   onTimelineHourChange: (key: string) => void;
   timeZone: string;
+  forecast: SpotForecast | null;
+  forecastLoading: boolean;
+  forecastError: Error | null;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -334,7 +338,7 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
@@ -361,23 +365,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   // mode field from the same live map that drives the selected map pin.
   const primary = cards[0];
   const live = liveScores.get(spot.id);
-  const primaryScore = (() => {
-    if (primary.type === 'now' && timelineHourKey) {
-      const activeMode = viewMode ?? 'now';
-      return live?.[activeMode] ?? (activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]);
-    }
-    if (primary.type === 'now') return live?.now ?? computeNowBaseScore(spot);
-    return live ? live[primary.type] : spot[primary.type];
-  })();
+  const activeMode = viewMode ?? 'now';
+  const primaryScore = live?.active ?? (
+    activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]
+  );
   const karlPill = getKarlPill(primaryScore, city);
   const scoreColor = getScoreColor(primaryScore);
 
   const getScoreFor = (type: CardType): number => {
-    if (type === 'now' && timelineHourKey) {
-      const activeMode = viewMode ?? 'now';
-      return live?.[activeMode] ?? (activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]);
-    }
-    if (type === 'now') return live?.now ?? computeNowBaseScore(spot);
+    if (type === 'now') return primaryScore;
     return live ? live[type] : spot[type];
   };
 
@@ -884,9 +880,13 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
                     scrubViewMode={card.type === 'now' ? viewMode : undefined}
                     activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
-                    activeScoreIsLive={card.type === 'now' ? (live?.isLive ?? false) : undefined}
+                    activeScoreIsLive={card.type === 'now' ? (live?.activeIsLive ?? false) : undefined}
+                    canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
                     onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
                     timeZone={timeZone}
+                    forecast={forecast}
+                    forecastLoading={forecastLoading}
+                    forecastError={forecastError}
                   />
                 </div>
               ))}
@@ -940,7 +940,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 </span>
               </div>
               <p className="font-mono text-[10px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
-                {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime)}
+                {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime, timeZone)}
                 {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`}
               </p>
             </div>

@@ -4,6 +4,7 @@ import { resolveViewMode } from './events';
 export const SCORE_CARD_ORDER = ['now', 'sunrise', 'sunset', 'stargazing'] as const;
 
 const HOUR_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/;
+const hourKeyFormatters = new Map<string, Intl.DateTimeFormat>();
 
 interface HourKeyParts {
   year: number;
@@ -31,14 +32,19 @@ function readHourKeyParts(hourKey: string): HourKeyParts | null {
 }
 
 function zonedParts(date: Date, timeZone: string): HourKeyParts {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
+  let formatter = hourKeyFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    });
+    hourKeyFormatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     Number(parts.find((candidate) => candidate.type === type)?.value);
   return {
@@ -76,6 +82,9 @@ export function parseHourKeyInTimeZone(hourKey: string, timeZone: string): Date 
     instantMs = next;
   }
   const result = new Date(instantMs);
+  // Open-Meteo keys omit an offset. During the repeated fall-back hour, the
+  // same key can represent two instants, so this parser deterministically
+  // selects one but cannot recover which occurrence the source intended.
   // Reject nonexistent local hours during the spring daylight-saving jump.
   return sameParts(zonedParts(result, timeZone), parts) ? result : null;
 }

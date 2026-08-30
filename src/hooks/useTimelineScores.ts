@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import SunCalc from 'suncalc';
 import type { Spot } from '../data/spots';
-import { fetchSpotForecast, type SpotForecast } from '../utils/weather';
+import { fetchSpotForecast, type HourlyForecast, type SpotForecast } from '../utils/weather';
 import {
   computeLiveScore,
   computeNowScore,
@@ -13,16 +13,39 @@ import { getUpcomingEventTimes } from '../utils/events';
 import { formatHourKeyInTimeZone, parseHourKeyInTimeZone } from '../utils/timeline';
 
 export interface LiveSpotScores {
+  /** Canonical score for the next sunrise event. */
   sunrise: number;
+  /** Canonical score for the next sunset event. */
   sunset: number;
+  /** Canonical score for the next stargazing event. */
   stargazing: number;
+  /** Canonical score for the current city-local hour. */
   now: number;
+  /** True when at least one canonical score uses forecast data. */
   isLive: boolean;
+  /** Score for the exact selected timeline hour and resolved view mode. */
+  active: number;
+  /** True only when active uses an exact forecast hour. */
+  activeIsLive: boolean;
 }
 
 export type LiveScoresMap = Map<string, LiveSpotScores>;
+export type SpotForecastMap = Map<string, SpotForecast>;
+export type SpotForecastErrorMap = Map<string, Error>;
 
-function staticScores(spot: Spot): LiveSpotScores {
+export interface TimelineScoresResult {
+  scores: LiveScoresMap;
+  forecasts: SpotForecastMap;
+  forecastErrors: SpotForecastErrorMap;
+}
+
+function staticScoreForMode(spot: Spot, viewMode: ViewMode): number {
+  return viewMode === 'now' ? computeNowBaseScore(spot) : spot[viewMode];
+}
+
+function staticCanonicalScores(
+  spot: Spot,
+): Omit<LiveSpotScores, 'active' | 'activeIsLive'> {
   return {
     sunrise: spot.sunrise,
     sunset: spot.sunset,
@@ -32,35 +55,66 @@ function staticScores(spot: Spot): LiveSpotScores {
   };
 }
 
-function exactForecastAtInstant(forecast: SpotForecast, instant: Date, timeZone: string) {
-  return forecast.hours[formatHourKeyInTimeZone(instant, timeZone)] ?? null;
+function staticScores(spot: Spot, viewMode: ViewMode): LiveSpotScores {
+  return {
+    ...staticCanonicalScores(spot),
+    active: staticScoreForMode(spot, viewMode),
+    activeIsLive: false,
+  };
 }
 
-function nearestForecastAtInstant(forecast: SpotForecast, instant: Date, timeZone: string) {
-  const exact = exactForecastAtInstant(forecast, instant, timeZone);
+interface ForecastIndexEntry {
+  key: string;
+  instantMs: number;
+}
+
+const forecastIndexCache = new WeakMap<SpotForecast, Map<string, ForecastIndexEntry[]>>();
+
+function forecastTimeIndex(forecast: SpotForecast, timeZone: string): ForecastIndexEntry[] {
+  let byTimeZone = forecastIndexCache.get(forecast);
+  if (!byTimeZone) {
+    byTimeZone = new Map();
+    forecastIndexCache.set(forecast, byTimeZone);
+  }
+  const cached = byTimeZone.get(timeZone);
+  if (cached) return cached;
+  const index: ForecastIndexEntry[] = [];
+  for (const key of Object.keys(forecast.hours)) {
+    const instant = parseHourKeyInTimeZone(key, timeZone);
+    if (instant) index.push({ key, instantMs: instant.getTime() });
+  }
+  byTimeZone.set(timeZone, index);
+  return index;
+}
+
+function nearestForecastAtInstant(
+  forecast: SpotForecast,
+  instant: Date,
+  timeZone: string,
+): HourlyForecast | null {
+  const exact = forecast.hours[formatHourKeyInTimeZone(instant, timeZone)];
   if (exact) return exact;
   let nearestKey = '';
   let nearestDiff = Infinity;
-  for (const key of Object.keys(forecast.hours)) {
-    const candidate = parseHourKeyInTimeZone(key, timeZone);
-    if (!candidate) continue;
-    const diff = Math.abs(candidate.getTime() - instant.getTime());
+  for (const entry of forecastTimeIndex(forecast, timeZone)) {
+    const diff = Math.abs(entry.instantMs - instant.getTime());
     if (diff < nearestDiff) {
-      nearestKey = key;
+      nearestKey = entry.key;
       nearestDiff = diff;
     }
   }
   return nearestKey ? forecast.hours[nearestKey] : null;
 }
 
-function liveScoresForSpot(
+/** Compute canonical event scores without reference to the scrubbed hour. */
+export function canonicalScoresForSpot(
   spot: Spot,
   forecast: SpotForecast,
   timeZone: string,
-): LiveSpotScores {
+  currentHourKey: string,
+): Omit<LiveSpotScores, 'active' | 'activeIsLive'> {
   const events = getUpcomingEventTimes(spot);
   const moonIllum = SunCalc.getMoonIllumination(events.stargazing).fraction;
-
   const sunriseHour = Number.isNaN(events.sunrise.getTime())
     ? null
     : nearestForecastAtInstant(forecast, events.sunrise, timeZone);
@@ -70,10 +124,8 @@ function liveScoresForSpot(
   const starHour = Number.isNaN(events.stargazing.getTime())
     ? null
     : nearestForecastAtInstant(forecast, events.stargazing, timeZone);
-
-  const nowHour = exactForecastAtInstant(forecast, new Date(), timeZone);
-
-  const result = {
+  const nowHour = forecast.hours[currentHourKey] ?? null;
+  return {
     sunrise: sunriseHour ? computeLiveScore(spot, 'sunrise', sunriseHour) : spot.sunrise,
     sunset: sunsetHour ? computeLiveScore(spot, 'sunset', sunsetHour) : spot.sunset,
     stargazing: starHour
@@ -82,70 +134,52 @@ function liveScoresForSpot(
     now: nowHour ? computeNowScore(spot, nowHour) : computeNowBaseScore(spot),
     isLive: Boolean(sunriseHour || sunsetHour || starHour || nowHour),
   };
-  return result;
 }
 
-function scrubbedScoresForSpot(
+export function activeScoreForSpot(
   spot: Spot,
-  forecast: SpotForecast,
-  hourKey: string,
+  forecast: SpotForecast | null,
+  selectedHourKey: string,
+  selectedInstant: Date | null,
   viewMode: ViewMode,
-  timeZone: string,
-): LiveSpotScores {
-  const hourly = forecast.hours[hourKey] ?? null;
-  if (!hourly) return staticScores(spot);
-
-  const scrubbedTime = parseHourKeyInTimeZone(hourKey, timeZone);
-  if (!scrubbedTime) return staticScores(spot);
-  const moonIllum = SunCalc.getMoonIllumination(scrubbedTime).fraction;
-  const activeScore = computeScoreAtTime(spot, viewMode, hourly, moonIllum);
-
-  const events = getUpcomingEventTimes(spot);
-  const eventMoonIllum = SunCalc.getMoonIllumination(events.stargazing).fraction;
-  const sunriseHour = Number.isNaN(events.sunrise.getTime()) ? null : nearestForecastAtInstant(forecast, events.sunrise, timeZone);
-  const sunsetHour = Number.isNaN(events.sunset.getTime()) ? null : nearestForecastAtInstant(forecast, events.sunset, timeZone);
-  const starHour = Number.isNaN(events.stargazing.getTime()) ? null : nearestForecastAtInstant(forecast, events.stargazing, timeZone);
-  const nowHour = exactForecastAtInstant(forecast, new Date(), timeZone);
-
-  const result = {
-    sunrise: viewMode === 'sunrise' ? activeScore : (sunriseHour ? computeLiveScore(spot, 'sunrise', sunriseHour) : spot.sunrise),
-    sunset: viewMode === 'sunset' ? activeScore : (sunsetHour ? computeLiveScore(spot, 'sunset', sunsetHour) : spot.sunset),
-    stargazing: viewMode === 'stargazing' ? activeScore : (starHour ? computeLiveScore(spot, 'stargazing', starHour, eventMoonIllum) : spot.stargazing),
-    now: viewMode === 'now' ? activeScore : (nowHour ? computeNowScore(spot, nowHour) : computeNowBaseScore(spot)),
-    isLive: true,
+): { active: number; activeIsLive: boolean } {
+  const hourly = forecast?.hours[selectedHourKey] ?? null;
+  if (!hourly || !selectedInstant) {
+    return { active: staticScoreForMode(spot, viewMode), activeIsLive: false };
+  }
+  const moonIllum = SunCalc.getMoonIllumination(selectedInstant).fraction;
+  return {
+    active: computeScoreAtTime(spot, viewMode, hourly, moonIllum),
+    activeIsLive: true,
   };
-  return result;
 }
 
-function buildInitialMap(spots: ReadonlyArray<Spot>): LiveScoresMap {
-  const map: LiveScoresMap = new Map();
-  for (const spot of spots) map.set(spot.id, staticScores(spot));
-  return map;
+export function combineTimelineScores(
+  canonical: Omit<LiveSpotScores, 'active' | 'activeIsLive'>,
+  active: Pick<LiveSpotScores, 'active' | 'activeIsLive'>,
+): LiveSpotScores {
+  return { ...canonical, ...active };
 }
 
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
- * Single source of truth for pin scores. Replaces `useLiveScores`.
- *
- * When `hourKey` is '' (timeline at "now"), scores the exact city-local
- * current forecast hour plus each upcoming event hour.
- *
- * When `hourKey` is set (user is scrubbing), extracts the cached forecast
- * exact slice for that hour and computes `computeScoreAtTime` for every spot.
+ * Single source of truth for canonical event scores, active timeline scores,
+ * and the forecast objects consumed by the selected spot sheet.
  */
 export function useTimelineScores(
   spots: ReadonlyArray<Spot>,
   hourKey: string,
   viewMode: ViewMode,
   timeZone: string,
-): LiveScoresMap {
-  const [forecasts, setForecasts] = useState<Map<string, SpotForecast>>(() => new Map());
+  now: Date,
+): TimelineScoresResult {
+  const [forecasts, setForecasts] = useState<SpotForecastMap>(() => new Map());
+  const [forecastErrors, setForecastErrors] = useState<SpotForecastErrorMap>(() => new Map());
   const [refreshTick, setRefreshTick] = useState(0);
 
-  // Periodic refresh + foreground refresh (same as old useLiveScores).
   useEffect(() => {
-    const bump = () => setRefreshTick((t) => t + 1);
+    const bump = () => setRefreshTick((tick) => tick + 1);
     const interval = setInterval(bump, REFRESH_INTERVAL_MS);
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') bump();
@@ -157,55 +191,79 @@ export function useTimelineScores(
     };
   }, []);
 
-  // Fetch forecasts for all spots.
   useEffect(() => {
     let cancelled = false;
-
     for (const spot of spots) {
       fetchSpotForecast(spot.lat, spot.lng)
         .then((forecast) => {
           if (cancelled) return;
-          setForecasts((prev) => {
-            if (prev.get(spot.id) === forecast) return prev;
-            const next = new Map(prev);
+          setForecasts((previous) => {
+            if (previous.get(spot.id) === forecast) return previous;
+            const next = new Map(previous);
             next.set(spot.id, forecast);
             return next;
           });
+          setForecastErrors((previous) => {
+            if (!previous.has(spot.id)) return previous;
+            const next = new Map(previous);
+            next.delete(spot.id);
+            return next;
+          });
         })
-        .catch(() => {});
+        .catch((reason: unknown) => {
+          if (cancelled) return;
+          const error = reason instanceof Error ? reason : new Error(String(reason));
+          setForecastErrors((previous) => {
+            const next = new Map(previous);
+            next.set(spot.id, error);
+            return next;
+          });
+        });
     }
-
     return () => {
       cancelled = true;
     };
   }, [spots, refreshTick]);
 
-  // Derive scores synchronously from (spots, forecasts, hourKey, viewMode).
-  // Computing this during render — rather than in an effect — guarantees the
-  // returned map is always consistent with the `viewMode` it was built for.
-  // An async effect lagged behind `viewMode` (which App derives synchronously
-  // from the scrubbed hour), so at each sunrise/sunset boundary pins briefly
-  // read the previous map's untouched field — the spot's high *static base*
-  // score — and flashed green until the recompute committed.
-  const scores = useMemo<LiveScoresMap>(() => {
-    if (forecasts.size === 0) return buildInitialMap(spots);
-
-    const next: LiveScoresMap = new Map();
+  const currentHourKey = formatHourKeyInTimeZone(now, timeZone);
+  const canonicalScores = useMemo(() => {
+    const result = new Map<string, Omit<LiveSpotScores, 'active' | 'activeIsLive'>>();
     for (const spot of spots) {
       const forecast = forecasts.get(spot.id);
-      if (!forecast) {
-        next.set(spot.id, staticScores(spot));
-        continue;
-      }
-
-      if (hourKey === '') {
-        next.set(spot.id, liveScoresForSpot(spot, forecast, timeZone));
+      if (forecast) {
+        result.set(spot.id, canonicalScoresForSpot(spot, forecast, timeZone, currentHourKey));
       } else {
-        next.set(spot.id, scrubbedScoresForSpot(spot, forecast, hourKey, viewMode, timeZone));
+        result.set(spot.id, staticCanonicalScores(spot));
       }
     }
-    return next;
-  }, [spots, forecasts, hourKey, timeZone, viewMode]);
+    return result;
+  }, [currentHourKey, forecasts, spots, timeZone]);
 
-  return scores;
+  // The selected instant is parsed once per scrub step, not once per spot.
+  const selectedHourKey = hourKey || currentHourKey;
+  const selectedInstant = useMemo(
+    () => hourKey ? parseHourKeyInTimeZone(hourKey, timeZone) : now,
+    [hourKey, now, timeZone],
+  );
+
+  const scores = useMemo<LiveScoresMap>(() => {
+    const result: LiveScoresMap = new Map();
+    for (const spot of spots) {
+      const canonical = canonicalScores.get(spot.id);
+      const active = activeScoreForSpot(
+        spot,
+        forecasts.get(spot.id) ?? null,
+        selectedHourKey,
+        selectedInstant,
+        viewMode,
+      );
+      result.set(
+        spot.id,
+        combineTimelineScores(canonical ?? staticScores(spot, viewMode), active),
+      );
+    }
+    return result;
+  }, [canonicalScores, forecasts, selectedHourKey, selectedInstant, spots, viewMode]);
+
+  return { scores, forecasts, forecastErrors };
 }

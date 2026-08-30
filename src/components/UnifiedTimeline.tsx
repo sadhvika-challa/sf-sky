@@ -212,7 +212,7 @@ export default function UnifiedTimeline({
           {hourKey !== '' && (
             <button
               type="button"
-              className="min-h-10 px-3 rounded-lg text-[10px] font-mono text-gray-700 bg-gray-100 active:bg-gray-200"
+              className="min-h-11 px-3 rounded-lg text-[10px] font-mono text-gray-700 bg-gray-100 active:bg-gray-200"
               onClick={() => onHourChange('')}
             >
               Return to Now
@@ -221,9 +221,9 @@ export default function UnifiedTimeline({
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-1" aria-label="Timeline shortcuts">
-          <button type="button" className="min-h-10 rounded-lg text-[10px] font-mono text-gray-600 active:bg-gray-100" onClick={() => onHourChange('')}>Now</button>
-          <button type="button" className="min-h-10 rounded-lg text-[10px] font-mono text-[#9B1D7D] active:bg-pink-50" onClick={() => jumpToEvent('sunrise')}>Sunrise {formatTime(eventTimes.sunrise, timeZone, false)}</button>
-          <button type="button" className="min-h-10 rounded-lg text-[10px] font-mono text-[#8B1A23] active:bg-red-50" onClick={() => jumpToEvent('sunset')}>Sunset {formatTime(eventTimes.sunset, timeZone, false)}</button>
+          <button type="button" className="min-h-11 rounded-lg text-[10px] font-mono text-gray-600 active:bg-gray-100" onClick={() => onHourChange('')}>Now</button>
+          <button type="button" className="min-h-11 rounded-lg text-[10px] font-mono text-[#9B1D7D] active:bg-pink-50" onClick={() => jumpToEvent('sunrise')}>Sunrise {formatTime(eventTimes.sunrise, timeZone, false)}</button>
+          <button type="button" className="min-h-11 rounded-lg text-[10px] font-mono text-[#8B1A23] active:bg-red-50" onClick={() => jumpToEvent('sunset')}>Sunset {formatTime(eventTimes.sunset, timeZone, false)}</button>
         </div>
       )}
     </div>

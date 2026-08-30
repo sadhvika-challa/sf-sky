@@ -368,13 +368,12 @@ function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): 
 }
 
 /**
- * Pin label score — the score for the current view mode (sunrise / sunset /
- * stargazing / now). Falls back to the spot's static score when live data
- * hasn't arrived yet so pins always render with a number.
+ * Pin label score for the exact active timeline hour and resolved mode.
+ * Falls back to the corresponding static score until forecast data arrives.
  */
 function getViewModeScore(spot: Spot, liveScores: LiveScoresMap, viewMode: ViewMode): number {
   const live = liveScores.get(spot.id);
-  if (live) return live[viewMode];
+  if (live) return live.active;
   if (viewMode === 'now') return computeNowBaseScore(spot);
   return spot[viewMode];
 }
