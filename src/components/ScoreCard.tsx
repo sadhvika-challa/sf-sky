@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toBlob } from 'html-to-image';
 import { buildPublicShareUrl } from '../platform/runtime';
+import { PUBLIC_APP_PATH } from '../platform/publicUrlContract';
 import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
@@ -572,7 +573,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
     const hourParam = type === 'now' && scrubHourKey
       ? `&instant=${encodeURIComponent(scrubHourKey)}`
       : '';
-    const url = buildPublicShareUrl(`/?spot=${spot.id}&view=${type}${hourParam}`);
+    const url = buildPublicShareUrl(`${PUBLIC_APP_PATH}?spot=${spot.id}&view=${type}${hourParam}`);
     const title = `Soleil \u00b7 ${spot.name}`;
     const timeContext = type === 'now'
       ? ` at ${eventTimeData.time} ${eventTimeData.period}`

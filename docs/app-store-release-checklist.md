@@ -65,6 +65,7 @@ Do not commit App Store Connect credentials, issuer IDs, private keys, signing i
 
 - [ ] Publish a privacy policy at an approved HTTPS URL.
 - [ ] Publish a support page with a working contact route at an approved HTTPS URL.
+- [ ] Run `npm run public:release:verify -- --origin https://example.com` against the proposed root origin. Attach its anonymous direct-response evidence to the release record. A passing command does not approve the hostname or the policy content.
 - [ ] Finalize the text in [app-store-metadata.md](./app-store-metadata.md).
 - [ ] Finalize the privacy answers using [app-privacy-data-inventory.md](./app-privacy-data-inventory.md).
 - [ ] Approve the final 1024 by 1024 App Store icon. It must not contain transparency.
@@ -127,6 +128,7 @@ See Apple's [TestFlight overview](https://developer.apple.com/help/app-store-con
 - [ ] Complete App Privacy answers after the vendor and retention audit, not from assumptions.
 - [ ] Complete export-compliance answers as a human legal attestation for that binary. See [Overview of export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance).
 - [ ] Confirm the support and privacy URLs are live without authentication.
+- [ ] Re-run `npm run public:release:verify -- --origin https://example.com` against the exact public candidate immediately before submission.
 - [ ] Provide review notes and a deterministic review path. Location must remain optional.
 - [ ] Confirm the reviewer can browse cities, open spots, inspect sky conditions, use the Now scrubber, save spots, and understand confidence and freshness without granting location.
 - [ ] Confirm every external provider and content source is permitted for production App Store use.

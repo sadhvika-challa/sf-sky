@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { PUBLIC_SERVICE_WORKER_PATH } from './platform/publicUrlContract.ts'
 import { matchPublicRoute } from './public/routes.ts'
 
 const publicRoute = matchPublicRoute(window.location.pathname)
@@ -41,7 +42,7 @@ if (import.meta.env.PROD) {
   const registerServiceWorker = () => {
     void import('./platform/runtime.ts').then(({ isNativeRuntime }) => {
       if (!isNativeRuntime() && 'serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(() => {
+        navigator.serviceWorker.register(PUBLIC_SERVICE_WORKER_PATH).catch(() => {
           // Service worker registration failed. The app still works without it.
         })
       }

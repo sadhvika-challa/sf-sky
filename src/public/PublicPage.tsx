@@ -1,4 +1,10 @@
 import { useEffect } from 'react'
+import {
+  PUBLIC_APP_PATH,
+  PUBLIC_PRIVACY_PATH,
+  PUBLIC_SUPPORT_PATH,
+  PUBLIC_THIRD_PARTY_NOTICES_PATH,
+} from '../platform/publicUrlContract'
 import type { PublicRoute } from './routes'
 import './public-page.css'
 
@@ -54,21 +60,21 @@ function SiteHeader({ route }: PublicPageProps) {
     <>
       <a className="public-skip-link" href="#main-content">Skip to main content</a>
       <header className="public-header">
-        <a className="public-brand" href="/" aria-label="Open Soleil map">
+        <a className="public-brand" href={PUBLIC_APP_PATH} aria-label="Open Soleil map">
           <span className="public-brand-mark" aria-hidden="true">☀</span>
           <span>Soleil</span>
         </a>
         <nav className="public-nav" aria-label="Public pages">
-          <a href="/" className="public-nav-link">Open Soleil</a>
+          <a href={PUBLIC_APP_PATH} className="public-nav-link">Open Soleil</a>
           <a
-            href="/soleil/privacy"
+            href={PUBLIC_PRIVACY_PATH}
             className="public-nav-link"
             aria-current={route === 'privacy' ? 'page' : undefined}
           >
             Privacy
           </a>
           <a
-            href="/soleil/support"
+            href={PUBLIC_SUPPORT_PATH}
             className="public-nav-link"
             aria-current={route === 'support' ? 'page' : undefined}
           >
@@ -190,7 +196,7 @@ function PrivacyPage() {
         <p>
           Soleil is operated by Sadhvika Challa. For privacy questions, email{' '}
           <a href={`mailto:${SUPPORT_EMAIL}?subject=Soleil%20privacy%20question`}>{SUPPORT_EMAIL}</a> or visit the{' '}
-          <a href="/soleil/support">Soleil support page</a>.
+          <a href={PUBLIC_SUPPORT_PATH}>Soleil support page</a>.
         </p>
       </section>
     </article>
@@ -270,7 +276,7 @@ function SupportPage() {
       <section aria-labelledby="privacy-help-heading">
         <h2 id="privacy-help-heading">Privacy questions</h2>
         <p>
-          Read the <a href="/soleil/privacy">Soleil privacy notice</a> for details about location, local storage,
+          Read the <a href={PUBLIC_PRIVACY_PATH}>Soleil privacy notice</a> for details about location, local storage,
           weather providers, maps, local typography, hosting, and support messages.
         </p>
       </section>
@@ -290,8 +296,8 @@ export default function PublicPage({ route }: PublicPageProps) {
       <footer className="public-footer">
         <p>© 2026 Sadhvika Challa</p>
         <div className="public-footer-links">
-          <a href="/third-party-notices.txt">Third-party notices</a>
-          <a href="/">Open Soleil</a>
+          <a href={PUBLIC_THIRD_PARTY_NOTICES_PATH}>Third-party notices</a>
+          <a href={PUBLIC_APP_PATH}>Open Soleil</a>
         </div>
       </footer>
     </div>
