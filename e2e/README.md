@@ -95,13 +95,27 @@ that city browsing remains available without exposing a futile retry. A denied
 journey also switches to Austin through the public Settings and city sheet,
 proving that location failure does not block manual browsing.
 
-Saved spots do not yet have a product UI in this release slice. The browser
-acceptance test therefore uses an explicit integration fixture built from the
-production `SavedSpotsController`, browser storage adapter, catalog IDs, and
-storage subscription. A save from one real page must update another page in
-the same browser context without reload. This proves the web cross-page
-storage event path without inventing hidden user-facing controls. Visible save
-and unsave journeys remain a gate for the later saved-spots UI slice.
+Saved spots have a visible, device-local product journey. Desktop Chromium and
+the 402 by 874 mobile WebKit profile exercise the selected-sheet save control,
+durable success feedback, settings count, one all-city collection, cross-city
+selection, and removal from both the selected sheet and collection. The saved
+selection must switch the active city and open the requested spot sheet in one
+transition. Opening it starts exactly one forecast and one air-quality request,
+without duplicate coordinate work.
+
+Reload and same-context relaunch checks read the authoritative
+`soleil-device-storage` IndexedDB database directly. The suite also verifies
+the loading and empty states, corrupt-data recovery, future-version protection
+without overwrite, IndexedDB-unavailable fail-closed behavior, write-failure
+rollback, offline bundled-catalog access, keyboard activation, accessible
+names, and the explicit explanation that saves stay on this device and do not
+sync. Desktop and narrow-phone screenshots are attached to the acceptance run.
+
+The lower-level browser acceptance test continues to use an explicit
+integration fixture built from the production `SavedSpotsController`, browser
+storage adapter, catalog IDs, and storage subscription. A save from one real
+page must update another page in the same browser context without reload. This
+proves the web cross-page storage event path independently of the visible UI.
 
 The same two-page fixture gates both controller updates before either starts
 its IndexedDB transaction. Both pages therefore begin their save intent before
