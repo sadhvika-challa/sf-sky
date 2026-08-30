@@ -5,10 +5,18 @@ import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots
 import SunCalc from 'suncalc';
 import { useSpotForecast } from '../hooks/useSpotForecast';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
-import { getForecastAt, fogDensity, type HourlyForecast } from '../utils/weather';
+import { fogDensity, getForecastAt, type HourlyForecast } from '../utils/weather';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
+import UnifiedTimeline from './UnifiedTimeline';
+import { computeEventTimes } from '../utils/events';
+import {
+  deriveSpotTimelineHourKeys,
+  formatHourKeyInTimeZone,
+  normalizeTimelineHourKey,
+  parseHourKeyInTimeZone,
+} from '../utils/timeline';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
@@ -19,10 +27,15 @@ interface ScoreCardProps {
   city: City;
   scrubHourKey?: string;
   scrubViewMode?: 'now' | 'sunrise' | 'sunset' | 'stargazing';
+  activeScore?: number;
+  activeScoreIsLive?: boolean;
+  onTimelineHourChange?: (key: string) => void;
+  timeZone: string;
 }
 
-function formatTime(date: Date): { time: string; period: string } {
+function formatTime(date: Date, timeZone: string): { time: string; period: string } {
   const str = date.toLocaleTimeString('en-US', {
+    timeZone,
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
@@ -42,8 +55,8 @@ function formatDateShort(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function formatFullDate(date: Date): string {
-  return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+function formatFullDate(date: Date, timeZone: string): string {
+  return date.toLocaleDateString('en-US', { timeZone, month: 'numeric', day: 'numeric', year: 'numeric' });
 }
 
 function getEstimatedTemp(): number {
@@ -478,62 +491,57 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode, activeScore, activeScoreIsLive, onTimelineHourChange, timeZone }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
 
   const times = SunCalc.getTimes(eventDate, spot.lat, spot.lng);
-  const moonIllum = SunCalc.getMoonIllumination(eventDate);
+  const displayType: CardType = type === 'now' ? (scrubViewMode ?? 'now') : type;
   const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventDate);
-  const fullDate = formatFullDate(eventDate);
-
   let eventInstant: Date;
+
   let eventTimeData: { time: string; period: string };
   if (type === 'now') {
     if (!scrubHourKey) {
       eventInstant = new Date();
-      eventTimeData = formatTime(new Date());
-    } else if (scrubViewMode === 'now') {
-      const scrubDate = new Date(`${scrubHourKey}:00:00`);
-      eventInstant = scrubDate;
-      eventTimeData = formatTime(scrubDate);
+      eventTimeData = formatTime(eventInstant, timeZone);
     } else {
-      const scrubDate = new Date(`${scrubHourKey}:00:00`);
-      const scrubTimes = SunCalc.getTimes(scrubDate, spot.lat, spot.lng);
-      const midpoint = new Date(
-        (scrubTimes.sunrise.getTime() + scrubTimes.sunset.getTime()) / 2
-      );
-      eventInstant = midpoint;
-      eventTimeData = formatTime(midpoint);
+      eventInstant = parseHourKeyInTimeZone(scrubHourKey, timeZone) ?? new Date();
+      eventTimeData = formatTime(eventInstant, timeZone);
     }
   } else if (type === 'sunrise') {
     eventInstant = times.sunrise;
-    eventTimeData = formatTime(times.sunrise);
+    eventTimeData = formatTime(times.sunrise, timeZone);
   } else if (type === 'sunset') {
     eventInstant = times.sunset;
-    eventTimeData = formatTime(times.sunset);
+    eventTimeData = formatTime(times.sunset, timeZone);
   } else {
     eventInstant = times.nauticalDusk;
-    eventTimeData = formatTime(times.nauticalDusk);
+    eventTimeData = formatTime(times.nauticalDusk, timeZone);
   }
+  const fullDate = formatFullDate(eventInstant, timeZone);
+  const moonIllum = SunCalc.getMoonIllumination(eventInstant);
 
   const { forecast, loading, error } = useSpotForecast(spot);
-  const hourly: HourlyForecast | null =
-    forecast && !Number.isNaN(eventInstant.getTime())
-      ? getForecastAt(forecast, eventInstant)
-      : null;
+  const exactHourKey = type === 'now'
+    ? (scrubHourKey || formatHourKeyInTimeZone(eventInstant, timeZone))
+    : '';
+  const hourly: HourlyForecast | null = forecast && !Number.isNaN(eventInstant.getTime())
+    ? (type === 'now' ? (forecast.hours[exactHourKey] ?? null) : getForecastAt(forecast, eventInstant))
+    : null;
 
-  const breakdown: ScoreBreakdown | null = hourly && type !== 'now'
-    ? computeScoreBreakdown(spot, type, hourly, moonIllum.fraction)
+  const breakdown: ScoreBreakdown | null = hourly && displayType !== 'now'
+    ? computeScoreBreakdown(spot, displayType, hourly, moonIllum.fraction)
     : null;
   const score = (() => {
     if (type === 'now') {
+      if (activeScore !== undefined) return activeScore;
       return hourly ? computeNowScore(spot, hourly) : computeNowBaseScore(spot);
     }
     return breakdown ? breakdown.total : spot[type];
   })();
-  const isLive = hourly !== null;
+  const isLive = hourly !== null && (type !== 'now' || activeScoreIsLive === true);
 
   const spotScore = type === 'now' ? computeNowBaseScore(spot) : spot[type];
   const skyScore = (() => {
@@ -553,12 +561,17 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const showSparkSkeleton = type !== 'now' && !forecast && !error;
   const showSparkStrip = type !== 'now' && sparkPoints.length > 0;
 
-  const poetic = getPoetic(type, score);
-  const isSunEvent = type === 'sunrise' || type === 'sunset';
+  const poetic = getPoetic(displayType, score);
+  const isSunEvent = displayType === 'sunrise' || displayType === 'sunset';
   const karlLine = breakdown && isSunEvent
     ? getKarlBreakdownLine(breakdown.base, breakdown.weather)
-    : getKarlComment(score, type, spot.id, eventDate, city);
-  const gradient = getSkyGradient(type, score);
+    : getKarlComment(score, displayType, spot.id, eventInstant, city);
+  const gradient = getSkyGradient(displayType, score);
+
+  const timelineHourKeys = forecast
+    ? deriveSpotTimelineHourKeys(Object.keys(forecast.hours), new Date(), timeZone)
+    : [];
+  const eventTimes = computeEventTimes(new Date(), spot.lat, spot.lng);
 
   const tempF = hourly && Number.isFinite(hourly.tempF)
     ? hourly.tempF
@@ -728,8 +741,8 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   : error && !forecast
                     ? 'Error'
                     : isLive
-                      ? 'Live'
-                      : 'Static'}
+                      ? (type === 'now' && scrubHourKey ? 'Exact forecast' : 'Live')
+                      : (type === 'now' && scrubHourKey ? 'Hour unavailable' : 'Static')}
               </div>
               {type === 'stargazing' && (
                 <>
@@ -748,7 +761,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h3 className="font-mono text-[13px] tracking-[2.5px] text-gray-700 uppercase font-semibold leading-tight">
-                    {type === 'now' ? typeTitle[type] : <>{dateLabel}&apos;s {typeTitle[type]}</>}
+                    {type === 'now'
+                      ? (scrubHourKey ? `NOW · ${typeTitle[displayType]}` : typeTitle[type])
+                      : <>{dateLabel}&apos;s {typeTitle[type]}</>}
                   </h3>
                   <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1 truncate">
                     {poetic}
@@ -778,7 +793,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <span className="font-serif italic text-[14px] text-gray-500">{poetic}</span>
                 </div>
                 <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1.5">
-                  {isLive ? 'Forecast firming up' : 'Static estimate'}
+                  {isLive
+                    ? (type === 'now' && scrubHourKey ? 'Forecast at selected hour' : 'Forecast firming up')
+                    : (type === 'now' && scrubHourKey ? 'Selected hour unavailable' : 'Static estimate')}
                 </p>
                 {showSparkStrip ? (
                   <SparkStrip points={sparkPoints} />
@@ -790,6 +807,22 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   />
                 ) : null}
               </div>
+
+              {type === 'now' && onTimelineHourChange && (
+                <div className="mt-4 border-t border-gray-100 pt-3">
+                  <UnifiedTimeline
+                    hourKeys={timelineHourKeys}
+                    hourKey={scrubHourKey ?? ''}
+                    onHourChange={(key) =>
+                      onTimelineHourChange(normalizeTimelineHourKey(key, timelineHourKeys))
+                    }
+                    viewMode={displayType}
+                    eventTimes={eventTimes}
+                    timeZone={timeZone}
+                    loading={loading}
+                  />
+                </div>
+              )}
 
               {/* Condensed metrics strip */}
               {type === 'now' ? (

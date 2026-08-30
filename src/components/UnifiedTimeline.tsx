@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ViewMode } from '../utils/scoring';
 import type { EventTimes } from '../utils/events';
+import { formatHourKeyInTimeZone, parseHourKeyInTimeZone } from '../utils/timeline';
 
 interface UnifiedTimelineProps {
   hourKeys: string[];
@@ -8,6 +9,8 @@ interface UnifiedTimelineProps {
   onHourChange: (key: string) => void;
   viewMode: ViewMode;
   eventTimes: EventTimes;
+  timeZone: string;
+  loading?: boolean;
 }
 
 const ZONE_COLORS: Record<ViewMode, string> = {
@@ -24,90 +27,38 @@ const VIEW_MODE_LABELS: Record<ViewMode, string> = {
   sunset: 'Sunset',
 };
 
-function formatTimeLabel(date: Date): string {
-  const h = date.getHours();
-  const m = String(date.getMinutes()).padStart(2, '0');
-  const suffix = h >= 12 ? 'p' : 'a';
-  const h12 = h % 12 || 12;
-  return `${h12}:${m}${suffix}`;
+function formatTime(date: Date, timeZone: string, includeMinutes = true): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    minute: includeMinutes ? '2-digit' : undefined,
+    hour12: true,
+  }).format(date).toLowerCase().replace(/\s/g, '');
 }
 
-function nearestHourLabel(date: Date): string {
-  const rounded = date.getMinutes() >= 30
-    ? new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours() + 1)
-    : new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours());
-  const h = rounded.getHours();
-  const suffix = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 || 12;
-  return `${h12}${suffix}`;
+function formatSelectedTime(hourKey: string, timeZone: string): string {
+  if (!hourKey) return `Now · ${formatTime(new Date(), timeZone, false)}`;
+  const instant = parseHourKeyInTimeZone(hourKey, timeZone);
+  if (!instant) return 'Forecast hour unavailable';
+  const todayKey = formatHourKeyInTimeZone(new Date(), timeZone).slice(0, 10);
+  const selectedDate = hourKey.slice(0, 10);
+  const date = new Date(`${selectedDate}T12:00:00Z`);
+  const dayLabel = selectedDate === todayKey
+    ? 'Today'
+    : new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(date);
+  return `${dayLabel} · ${formatTime(instant, timeZone)}`;
 }
 
-function formatScrubTime(hourKey: string): string {
-  if (!hourKey) return 'Now';
-  const d = new Date(`${hourKey}:00:00`);
-  if (Number.isNaN(d.getTime())) return hourKey;
-
-  const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-
-  const h = d.getHours();
-  const suffix = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 || 12;
-  const time = `${h12}:00${suffix}`;
-
-  if (isToday) {
-    return (h >= 18 || h < 6) ? `Tonight · ${time}` : `Today · ${time}`;
-  }
-  if (isTomorrow) {
-    if (h < 6) return `Tonight · ${time}`;
-    return `Tomorrow · ${time}`;
-  }
-
-  const weekday = d.toLocaleDateString(undefined, { weekday: 'short' });
-  return `${weekday} · ${time}`;
-}
-
-function formatEventScrubTime(date: Date): string {
-  if (Number.isNaN(date.getTime())) return '—';
-
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const isTomorrow = date.toDateString() === tomorrow.toDateString();
-
-  const h = date.getHours();
-  const m = String(date.getMinutes()).padStart(2, '0');
-  const suffix = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 || 12;
-  const time = `${h12}:${m}${suffix}`;
-
-  if (isToday) {
-    return (h >= 18 || h < 6) ? `Tonight · ${time}` : `Today · ${time}`;
-  }
-  if (isTomorrow) {
-    if (h < 6) return `Tonight · ${time}`;
-    return `Tomorrow · ${time}`;
-  }
-
-  const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
-  return `${weekday} · ${time}`;
-}
-
-function nearestHourKeyForTime(eventTime: Date, hourKeys: string[]): string {
-  if (hourKeys.length === 0) return '';
-  const target = eventTime.getTime();
-  let best = hourKeys[0];
+function nearestHourKeyForTime(eventTime: Date, hourKeys: string[], timeZone: string): string {
+  let best = '';
   let bestDiff = Infinity;
   for (const key of hourKeys) {
-    const t = new Date(`${key}:00:00`).getTime();
-    const diff = Math.abs(t - target);
+    const instant = parseHourKeyInTimeZone(key, timeZone);
+    if (!instant) continue;
+    const diff = Math.abs(instant.getTime() - eventTime.getTime());
     if (diff < bestDiff) {
-      bestDiff = diff;
       best = key;
+      bestDiff = diff;
     }
   }
   return best;
@@ -119,289 +70,162 @@ export default function UnifiedTimeline({
   onHourChange,
   viewMode,
   eventTimes,
+  timeZone,
+  loading = false,
 }: UnifiedTimelineProps) {
   const railRef = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
   const [pulseKey, setPulseKey] = useState(0);
-  const [snappedEvent, setSnappedEvent] = useState<{
-    type: 'sunrise' | 'sunset';
-    time: Date;
-  } | null>(null);
+  const disabled = hourKeys.length === 0;
+  // Position zero is always the canonical live state. Forecast hours begin at one.
+  const max = hourKeys.length;
+  const selectedForecastIndex = hourKey === '' ? -1 : hourKeys.indexOf(hourKey);
+  const selectionUnavailable = hourKey !== '' && selectedForecastIndex < 0;
+  const currentIndex = selectedForecastIndex >= 0 ? selectedForecastIndex + 1 : 0;
+  const thumbPct = max > 0 ? (currentIndex / max) * 100 : 0;
 
-  const max = Math.max(0, hourKeys.length - 1);
-  const currentIndex = hourKey === '' ? 0 : Math.max(0, hourKeys.indexOf(hourKey));
-  const baseThumbPct = max > 0 ? (currentIndex / max) * 100 : 0;
+  const railPcts = useMemo(() => ({
+    sunrisePct: eventTimes.sunrisePct,
+    sunsetPct: eventTimes.sunsetPct,
+  }), [eventTimes.sunrisePct, eventTimes.sunsetPct]);
 
-  const railPcts = useMemo(() => {
-    if (hourKeys.length < 2) return { sunrisePct: 0, sunsetPct: 0, duskPct: 0 };
-    const startMs = new Date(`${hourKeys[0]}:00:00`).getTime();
-    const endMs = new Date(`${hourKeys[hourKeys.length - 1]}:00:00`).getTime();
-    const span = endMs - startMs || 1;
-    const toPct = (d: Date) => Math.max(0, Math.min(100, ((d.getTime() - startMs) / span) * 100));
-    return {
-      sunrisePct: toPct(eventTimes.sunrise),
-      sunsetPct: toPct(eventTimes.sunset),
-      duskPct: toPct(eventTimes.dusk),
-    };
-  }, [hourKeys, eventTimes]);
-
-  const thumbPct = snappedEvent
-    ? (snappedEvent.type === 'sunrise' ? railPcts.sunrisePct : railPcts.sunsetPct)
-    : baseThumbPct;
-
-  // Compute zone segments for the rail background gradient.
   const zoneGradient = useMemo(() => {
-    const { sunrisePct, sunsetPct, duskPct } = railPcts;
-    const sunriseStart = Math.max(0, sunrisePct - 3);
-    const sunriseEnd = Math.min(100, sunrisePct + 3);
-    const sunsetStart = Math.max(0, sunsetPct - 3);
-    const sunsetEnd = Math.min(100, sunsetPct + 3);
-
-    const segments: string[] = [];
-    segments.push(`${ZONE_COLORS.stargazing} 0%`);
-    segments.push(`${ZONE_COLORS.stargazing} ${sunriseStart}%`);
-    segments.push(`${ZONE_COLORS.sunrise} ${sunriseStart}%`);
-    segments.push(`${ZONE_COLORS.sunrise} ${sunriseEnd}%`);
-    segments.push(`${ZONE_COLORS.now} ${sunriseEnd}%`);
-    segments.push(`${ZONE_COLORS.now} ${sunsetStart}%`);
-    segments.push(`${ZONE_COLORS.sunset} ${sunsetStart}%`);
-    segments.push(`${ZONE_COLORS.sunset} ${sunsetEnd}%`);
-    segments.push(`${ZONE_COLORS.stargazing} ${sunsetEnd}%`);
-
-    if (duskPct > sunsetEnd) {
-      segments.push(`${ZONE_COLORS.stargazing} ${duskPct}%`);
-    }
-    segments.push(`${ZONE_COLORS.stargazing} 100%`);
-
-    return `linear-gradient(to right, ${segments.join(', ')})`;
+    const sunriseStart = Math.max(0, railPcts.sunrisePct - 3);
+    const sunriseEnd = Math.min(100, railPcts.sunrisePct + 3);
+    const sunsetStart = Math.max(0, railPcts.sunsetPct - 3);
+    const sunsetEnd = Math.min(100, railPcts.sunsetPct + 3);
+    return `linear-gradient(to right, ${ZONE_COLORS.stargazing} 0%, ${ZONE_COLORS.stargazing} ${sunriseStart}%, ${ZONE_COLORS.sunrise} ${sunriseStart}%, ${ZONE_COLORS.sunrise} ${sunriseEnd}%, ${ZONE_COLORS.now} ${sunriseEnd}%, ${ZONE_COLORS.now} ${sunsetStart}%, ${ZONE_COLORS.sunset} ${sunsetStart}%, ${ZONE_COLORS.sunset} ${sunsetEnd}%, ${ZONE_COLORS.stargazing} ${sunsetEnd}%, ${ZONE_COLORS.stargazing} 100%)`;
   }, [railPcts]);
 
-  const resolvePositionToKey = useCallback(
-    (clientX: number) => {
-      if (!railRef.current || hourKeys.length === 0) return;
-      const rect = railRef.current.getBoundingClientRect();
-      const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-      const pct = x / rect.width;
-      const idx = Math.round(pct * max);
-      // The far-left position is the live "Now" state ('' key), matching the
-      // Now dot at 0%. This keeps the scrubber forward-looking — it can never
-      // land on the rounded current-hour slot, which already reads as past.
-      const key = idx <= 0 ? '' : hourKeys[Math.min(idx, max)];
-      if (key !== undefined) onHourChange(key);
-    },
-    [hourKeys, max, onHourChange],
-  );
+  const keyForIndex = useCallback((index: number): string => {
+    if (index <= 0) return '';
+    return hourKeys[Math.min(index - 1, hourKeys.length - 1)] ?? '';
+  }, [hourKeys]);
 
-  // Tracks whether a drag actually moved, so a press that *starts* on a
-  // marker but turns into a drag doesn't also fire the marker's
-  // tap-to-jump on release.
-  const movedDuringDragRef = useRef(false);
+  const resolvePosition = useCallback((clientX: number) => {
+    const rail = railRef.current;
+    if (!rail || disabled) return;
+    const rect = rail.getBoundingClientRect();
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+    const index = Math.round((x / Math.max(rect.width, 1)) * max);
+    onHourChange(keyForIndex(index));
+  }, [disabled, keyForIndex, max, onHourChange]);
 
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      const fromButton = !!(e.target as HTMLElement).closest?.('button');
-      movedDuringDragRef.current = false;
-      setDragging(true);
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      if (!fromButton) {
-        setSnappedEvent(null);
-        resolvePositionToKey(e.clientX);
-      }
-    },
-    [resolvePositionToKey],
-  );
+  const jumpToEvent = useCallback((event: 'sunrise' | 'sunset') => {
+    const key = nearestHourKeyForTime(eventTimes[event], hourKeys, timeZone);
+    if (key) onHourChange(key);
+  }, [eventTimes, hourKeys, onHourChange, timeZone]);
 
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragging) return;
-      movedDuringDragRef.current = true;
-      setSnappedEvent(null);
-      resolvePositionToKey(e.clientX);
-    },
-    [dragging, resolvePositionToKey],
-  );
-
-  const handlePointerUp = useCallback(() => {
-    setDragging(false);
-    setPulseKey((k) => k + 1);
-  }, []);
-
-  // Haptic feedback on hour change.
-  const lastKeyRef = useRef(hourKey);
-  useEffect(() => {
-    if (hourKey !== lastKeyRef.current) {
-      lastKeyRef.current = hourKey;
-      if (dragging) navigator.vibrate?.(8);
-    }
-  }, [hourKey, dragging]);
-
-  const sunriseKey = useMemo(
-    () => nearestHourKeyForTime(eventTimes.sunrise, hourKeys),
-    [eventTimes.sunrise, hourKeys],
-  );
-  const sunsetKey = useMemo(
-    () => nearestHourKeyForTime(eventTimes.sunset, hourKeys),
-    [eventTimes.sunset, hourKeys],
-  );
-
-  const clampPct = (pct: number) => Math.max(3, Math.min(97, pct));
+  const valueText = `${VIEW_MODE_LABELS[viewMode]}, ${formatSelectedTime(hourKey, timeZone)}`;
 
   return (
     <div
       className="flex flex-col gap-1.5"
       role="group"
       aria-label="Timeline scrubber"
+      onPointerDown={(event) => event.stopPropagation()}
+      onPointerMove={(event) => event.stopPropagation()}
+      onPointerUp={(event) => event.stopPropagation()}
     >
-      {/* Active label row */}
       <div className="flex items-center justify-between px-0.5">
         <span className="font-serif text-[18px] leading-tight text-gray-800">
           {VIEW_MODE_LABELS[viewMode]}
         </span>
-        <span className="font-mono text-[11px] tabular-nums text-[#9a9488]">
-          {snappedEvent
-            ? formatEventScrubTime(snappedEvent.time)
-            : hourKey === ''
-              ? `Now · ${nearestHourLabel(new Date())}`
-              : formatScrubTime(hourKey)}
+        <span className="font-mono text-[11px] tabular-nums text-[#9a9488]" aria-live="polite">
+          {formatSelectedTime(hourKey, timeZone)}
         </span>
       </div>
 
-      {/* Zoned rail */}
       <div
         ref={railRef}
-        className="relative h-8 touch-none select-none cursor-pointer"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        className={`relative h-11 touch-none select-none rounded-lg ${disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer'}`}
         role="slider"
+        aria-label="Forecast hour"
         aria-valuemin={0}
         aria-valuemax={max}
         aria-valuenow={currentIndex}
-        aria-label="Timeline position"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowRight' && currentIndex < max) {
-            setSnappedEvent(null);
-            onHourChange(hourKeys[currentIndex + 1]);
-          } else if (e.key === 'ArrowLeft' && currentIndex > 0) {
-            setSnappedEvent(null);
-            onHourChange(hourKeys[currentIndex - 1]);
-          } else if (e.key === 'Home') {
-            setSnappedEvent(null);
-            onHourChange('');
+        aria-valuetext={valueText}
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (disabled || (event.pointerType === 'mouse' && event.button !== 0)) return;
+          draggingRef.current = true;
+          event.currentTarget.focus({ preventScroll: true });
+          event.currentTarget.setPointerCapture(event.pointerId);
+          resolvePosition(event.clientX);
+        }}
+        onPointerMove={(event) => {
+          event.stopPropagation();
+          if (draggingRef.current) resolvePosition(event.clientX);
+        }}
+        onPointerUp={(event) => {
+          event.stopPropagation();
+          draggingRef.current = false;
+          setPulseKey((key) => key + 1);
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
           }
         }}
+        onPointerCancel={(event) => {
+          event.stopPropagation();
+          draggingRef.current = false;
+        }}
+        onKeyDown={(event) => {
+          if (disabled) return;
+          let nextIndex = currentIndex;
+          if (event.key === 'ArrowRight' || event.key === 'ArrowUp') nextIndex += 1;
+          else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') nextIndex -= 1;
+          else if (event.key === 'Home') nextIndex = 0;
+          else if (event.key === 'End') nextIndex = max;
+          else return;
+          event.preventDefault();
+          onHourChange(keyForIndex(Math.max(0, Math.min(max, nextIndex))));
+        }}
       >
-        {/* Rail track */}
-        <div
-          className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[6px] rounded-full"
-          style={{ background: zoneGradient }}
-          aria-hidden="true"
-        />
-
-        {/* Now dot (left edge) */}
-        <button
-          type="button"
-          onClick={() => {
-            if (movedDuringDragRef.current) return;
-            setSnappedEvent(null);
-            onHourChange('');
-          }}
-          className="absolute top-1/2 -translate-y-1/2 w-[6px] h-[6px] rounded-full bg-[#1a1a18] z-10 hover:scale-150 transition-transform"
-          style={{ left: '0%' }}
-          aria-label="Jump to now"
-        />
-
-        {/* Sunrise marker */}
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[6px] rounded-full" style={{ background: zoneGradient }} aria-hidden="true" />
+        <span className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-[#1a1a18]" style={{ left: 0 }} aria-hidden="true" />
         {railPcts.sunrisePct > 0 && railPcts.sunrisePct < 100 && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (movedDuringDragRef.current) return;
-              setSnappedEvent({ type: 'sunrise', time: eventTimes.sunrise });
-              if (sunriseKey) onHourChange(sunriseKey);
-            }}
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 w-6 h-6 rounded-full flex items-center justify-center hover:scale-110 transition-transform"
-            style={{
-              left: `${railPcts.sunrisePct}%`,
-              backgroundColor: '#D946A8',
-              border: '2px solid #FAF9F6',
-            }}
-            aria-label={`Jump to sunrise at ${formatTimeLabel(eventTimes.sunrise)}`}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 18a5 5 0 0 0-10 0" />
-              <line x1="12" y1="9" x2="12" y2="2" />
-              <polyline points="8 6 12 2 16 6" />
-            </svg>
-          </button>
+          <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#D946A8] border-2 border-[#FAF9F6]" style={{ left: `${railPcts.sunrisePct}%` }} aria-hidden="true" />
         )}
-
-        {/* Sunset marker */}
         {railPcts.sunsetPct > 0 && railPcts.sunsetPct < 100 && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (movedDuringDragRef.current) return;
-              setSnappedEvent({ type: 'sunset', time: eventTimes.sunset });
-              if (sunsetKey) onHourChange(sunsetKey);
-            }}
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 w-6 h-6 rounded-full flex items-center justify-center hover:scale-110 transition-transform"
-            style={{
-              left: `${railPcts.sunsetPct}%`,
-              backgroundColor: '#CC2936',
-              border: '2px solid #FAF9F6',
-            }}
-            aria-label={`Jump to sunset at ${formatTimeLabel(eventTimes.sunset)}`}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 18a5 5 0 0 0-10 0" />
-              <line x1="12" y1="2" x2="12" y2="9" />
-              <polyline points="16 6 12 10 8 6" />
-            </svg>
-          </button>
+          <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#CC2936] border-2 border-[#FAF9F6]" style={{ left: `${railPcts.sunsetPct}%` }} aria-hidden="true" />
         )}
-
-        {/* Thumb */}
-        {hourKeys.length > 0 && (
-          <div
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-[#1a1a18] pointer-events-none z-20"
-            style={{
-              left: `${thumbPct}%`,
-              border: '2.5px solid #FAF9F6',
-            }}
-          >
-            <span
-              key={pulseKey}
-              aria-hidden="true"
-              className="block absolute inset-0 rounded-full border border-[#1a1a18]/40 weather-thumb-pulse"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Time labels below rail */}
-      <div className="relative h-3 text-[9px] font-mono text-[#9a9488]">
-        {railPcts.sunrisePct > 2 && railPcts.sunrisePct < 98 && (
-          <span
-            className="absolute -translate-x-1/2"
-            style={{ left: `${clampPct(railPcts.sunrisePct)}%` }}
-          >
-            {formatTimeLabel(eventTimes.sunrise)}
-          </span>
-        )}
-        {railPcts.sunsetPct > 2 && railPcts.sunsetPct < 98 && (
-          <span
-            className="absolute -translate-x-1/2"
-            style={{ left: `${clampPct(railPcts.sunsetPct)}%` }}
-          >
-            {formatTimeLabel(eventTimes.sunset)}
+        {!disabled && (
+          <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-[#1a1a18] pointer-events-none z-20 border-[2.5px] border-[#FAF9F6]" style={{ left: `${thumbPct}%` }} aria-hidden="true">
+            <span key={pulseKey} className="block absolute inset-0 rounded-full border border-[#1a1a18]/40 weather-thumb-pulse" />
           </span>
         )}
       </div>
+
+      {selectionUnavailable && (
+        <p className="text-center font-mono text-[10px] text-amber-700" role="status">
+          That exact hour is unavailable. Choose another hour or return to Now.
+        </p>
+      )}
+      {disabled ? (
+        <div className="min-h-10 flex items-center justify-between gap-2">
+          <p className="font-mono text-[10px] text-[#9a9488]" role="status">
+            {loading ? 'Loading forecast hours…' : 'Hourly forecast unavailable'}
+          </p>
+          {hourKey !== '' && (
+            <button
+              type="button"
+              className="min-h-10 px-3 rounded-lg text-[10px] font-mono text-gray-700 bg-gray-100 active:bg-gray-200"
+              onClick={() => onHourChange('')}
+            >
+              Return to Now
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-1" aria-label="Timeline shortcuts">
+          <button type="button" className="min-h-10 rounded-lg text-[10px] font-mono text-gray-600 active:bg-gray-100" onClick={() => onHourChange('')}>Now</button>
+          <button type="button" className="min-h-10 rounded-lg text-[10px] font-mono text-[#9B1D7D] active:bg-pink-50" onClick={() => jumpToEvent('sunrise')}>Sunrise {formatTime(eventTimes.sunrise, timeZone, false)}</button>
+          <button type="button" className="min-h-10 rounded-lg text-[10px] font-mono text-[#8B1A23] active:bg-red-50" onClick={() => jumpToEvent('sunset')}>Sunset {formatTime(eventTimes.sunset, timeZone, false)}</button>
+        </div>
+      )}
     </div>
   );
 }

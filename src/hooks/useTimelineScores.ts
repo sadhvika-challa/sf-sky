@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import SunCalc from 'suncalc';
 import type { Spot } from '../data/spots';
-import { fetchSpotForecast, getForecastAt, type SpotForecast } from '../utils/weather';
+import { fetchSpotForecast, type SpotForecast } from '../utils/weather';
 import {
   computeLiveScore,
   computeNowScore,
@@ -10,6 +10,7 @@ import {
   type ViewMode,
 } from '../utils/scoring';
 import { getUpcomingEventTimes } from '../utils/events';
+import { formatHourKeyInTimeZone, parseHourKeyInTimeZone } from '../utils/timeline';
 
 export interface LiveSpotScores {
   sunrise: number;
@@ -31,21 +32,46 @@ function staticScores(spot: Spot): LiveSpotScores {
   };
 }
 
-function liveScoresForSpot(spot: Spot, forecast: SpotForecast): LiveSpotScores {
+function exactForecastAtInstant(forecast: SpotForecast, instant: Date, timeZone: string) {
+  return forecast.hours[formatHourKeyInTimeZone(instant, timeZone)] ?? null;
+}
+
+function nearestForecastAtInstant(forecast: SpotForecast, instant: Date, timeZone: string) {
+  const exact = exactForecastAtInstant(forecast, instant, timeZone);
+  if (exact) return exact;
+  let nearestKey = '';
+  let nearestDiff = Infinity;
+  for (const key of Object.keys(forecast.hours)) {
+    const candidate = parseHourKeyInTimeZone(key, timeZone);
+    if (!candidate) continue;
+    const diff = Math.abs(candidate.getTime() - instant.getTime());
+    if (diff < nearestDiff) {
+      nearestKey = key;
+      nearestDiff = diff;
+    }
+  }
+  return nearestKey ? forecast.hours[nearestKey] : null;
+}
+
+function liveScoresForSpot(
+  spot: Spot,
+  forecast: SpotForecast,
+  timeZone: string,
+): LiveSpotScores {
   const events = getUpcomingEventTimes(spot);
   const moonIllum = SunCalc.getMoonIllumination(events.stargazing).fraction;
 
   const sunriseHour = Number.isNaN(events.sunrise.getTime())
     ? null
-    : getForecastAt(forecast, events.sunrise);
+    : nearestForecastAtInstant(forecast, events.sunrise, timeZone);
   const sunsetHour = Number.isNaN(events.sunset.getTime())
     ? null
-    : getForecastAt(forecast, events.sunset);
+    : nearestForecastAtInstant(forecast, events.sunset, timeZone);
   const starHour = Number.isNaN(events.stargazing.getTime())
     ? null
-    : getForecastAt(forecast, events.stargazing);
+    : nearestForecastAtInstant(forecast, events.stargazing, timeZone);
 
-  const nowHour = getForecastAt(forecast, new Date());
+  const nowHour = exactForecastAtInstant(forecast, new Date(), timeZone);
 
   const result = {
     sunrise: sunriseHour ? computeLiveScore(spot, 'sunrise', sunriseHour) : spot.sunrise,
@@ -64,20 +90,22 @@ function scrubbedScoresForSpot(
   forecast: SpotForecast,
   hourKey: string,
   viewMode: ViewMode,
+  timeZone: string,
 ): LiveSpotScores {
   const hourly = forecast.hours[hourKey] ?? null;
   if (!hourly) return staticScores(spot);
 
-  const scrubbedTime = new Date(`${hourKey}:00:00`);
+  const scrubbedTime = parseHourKeyInTimeZone(hourKey, timeZone);
+  if (!scrubbedTime) return staticScores(spot);
   const moonIllum = SunCalc.getMoonIllumination(scrubbedTime).fraction;
   const activeScore = computeScoreAtTime(spot, viewMode, hourly, moonIllum);
 
   const events = getUpcomingEventTimes(spot);
   const eventMoonIllum = SunCalc.getMoonIllumination(events.stargazing).fraction;
-  const sunriseHour = Number.isNaN(events.sunrise.getTime()) ? null : getForecastAt(forecast, events.sunrise);
-  const sunsetHour = Number.isNaN(events.sunset.getTime()) ? null : getForecastAt(forecast, events.sunset);
-  const starHour = Number.isNaN(events.stargazing.getTime()) ? null : getForecastAt(forecast, events.stargazing);
-  const nowHour = getForecastAt(forecast, new Date());
+  const sunriseHour = Number.isNaN(events.sunrise.getTime()) ? null : nearestForecastAtInstant(forecast, events.sunrise, timeZone);
+  const sunsetHour = Number.isNaN(events.sunset.getTime()) ? null : nearestForecastAtInstant(forecast, events.sunset, timeZone);
+  const starHour = Number.isNaN(events.stargazing.getTime()) ? null : nearestForecastAtInstant(forecast, events.stargazing, timeZone);
+  const nowHour = exactForecastAtInstant(forecast, new Date(), timeZone);
 
   const result = {
     sunrise: viewMode === 'sunrise' ? activeScore : (sunriseHour ? computeLiveScore(spot, 'sunrise', sunriseHour) : spot.sunrise),
@@ -100,16 +128,17 @@ const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 /**
  * Single source of truth for pin scores. Replaces `useLiveScores`.
  *
- * When `hourKey` is '' (timeline at "now"), fetches forecasts and scores at
- * the next upcoming event time — identical to the old `useLiveScores`.
+ * When `hourKey` is '' (timeline at "now"), scores the exact city-local
+ * current forecast hour plus each upcoming event hour.
  *
  * When `hourKey` is set (user is scrubbing), extracts the cached forecast
- * slice for that hour and computes `computeScoreAtTime` for every spot.
+ * exact slice for that hour and computes `computeScoreAtTime` for every spot.
  */
 export function useTimelineScores(
   spots: ReadonlyArray<Spot>,
   hourKey: string,
   viewMode: ViewMode,
+  timeZone: string,
 ): LiveScoresMap {
   const [forecasts, setForecasts] = useState<Map<string, SpotForecast>>(() => new Map());
   const [refreshTick, setRefreshTick] = useState(0);
@@ -170,13 +199,13 @@ export function useTimelineScores(
       }
 
       if (hourKey === '') {
-        next.set(spot.id, liveScoresForSpot(spot, forecast));
+        next.set(spot.id, liveScoresForSpot(spot, forecast, timeZone));
       } else {
-        next.set(spot.id, scrubbedScoresForSpot(spot, forecast, hourKey, viewMode));
+        next.set(spot.id, scrubbedScoresForSpot(spot, forecast, hourKey, viewMode, timeZone));
       }
     }
     return next;
-  }, [spots, forecasts, hourKey, viewMode]);
+  }, [spots, forecasts, hourKey, timeZone, viewMode]);
 
   return scores;
 }

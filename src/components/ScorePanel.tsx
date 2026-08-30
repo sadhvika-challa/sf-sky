@@ -7,6 +7,7 @@ import { getScoreTier, getSpectrumColor, tierColors, type ScoreTier, type ViewMo
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
+import { parseHourKeyInTimeZone, SCORE_CARD_ORDER } from '../utils/timeline';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
@@ -16,18 +17,12 @@ interface CardInfo {
   eventTime: Date;
 }
 
-const CHRONOLOGICAL_CYCLE: CardType[] = ['sunrise', 'now', 'sunset', 'stargazing'];
-
-function getCardOrder(activeMode: ViewMode): CardType[] {
-  const idx = CHRONOLOGICAL_CYCLE.indexOf(activeMode as CardType);
-  if (idx <= 0) return CHRONOLOGICAL_CYCLE;
-  return [...CHRONOLOGICAL_CYCLE.slice(idx), ...CHRONOLOGICAL_CYCLE.slice(0, idx)];
-}
-
-function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = 'now'): CardInfo[] {
+function getNextEvents(spot: Spot, scrubHourKey: string, timeZone: string): CardInfo[] {
   const now = new Date();
-  const baseDate = scrubHourKey ? new Date(`${scrubHourKey}:00:00`) : now;
-  const today = new Date(baseDate);
+  const selectedInstant = scrubHourKey
+    ? (parseHourKeyInTimeZone(scrubHourKey, timeZone) ?? now)
+    : now;
+  const today = new Date(now);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -37,7 +32,7 @@ function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = '
   const cardsMap = new Map<CardType, CardInfo>();
 
   // Now
-  cardsMap.set('now', { type: 'now', eventDate: today, eventTime: baseDate });
+  cardsMap.set('now', { type: 'now', eventDate: selectedInstant, eventTime: selectedInstant });
 
   // Sunrise
   if (todayTimes.sunrise > now) {
@@ -67,7 +62,7 @@ function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = '
     cardsMap.set('stargazing', { type: 'stargazing', eventDate: tomorrow, eventTime: tomorrowDusk });
   }
 
-  return getCardOrder(viewMode).map((t) => cardsMap.get(t)!);
+  return SCORE_CARD_ORDER.map((type) => cardsMap.get(type)!);
 }
 
 const typeLabel: Record<CardType, string> = {
@@ -309,6 +304,8 @@ interface ScorePanelProps {
   city: City;
   viewMode?: ViewMode;
   timelineHourKey?: string;
+  onTimelineHourChange: (key: string) => void;
+  timeZone: string;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -337,7 +334,7 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
@@ -359,25 +356,28 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const cards = getNextEvents(spot, timelineHourKey, viewMode ?? 'now');
-  // The soonest upcoming event is the one we feature in the collapsed strip.
-  // Read the score from the same live map that drives the map pin so the
-  // strip number and the pin number always agree.
+  const cards = getNextEvents(spot, timelineHourKey, timeZone);
+  // The Now card remains the sheet's primary card. Its score uses the active
+  // mode field from the same live map that drives the selected map pin.
   const primary = cards[0];
   const live = liveScores.get(spot.id);
   const primaryScore = (() => {
-    if (primary.type === 'now') {
-      return live?.now ?? computeNowBaseScore(spot);
+    if (primary.type === 'now' && timelineHourKey) {
+      const activeMode = viewMode ?? 'now';
+      return live?.[activeMode] ?? (activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]);
     }
+    if (primary.type === 'now') return live?.now ?? computeNowBaseScore(spot);
     return live ? live[primary.type] : spot[primary.type];
   })();
   const karlPill = getKarlPill(primaryScore, city);
   const scoreColor = getScoreColor(primaryScore);
 
   const getScoreFor = (type: CardType): number => {
-    if (type === 'now') {
-      return live?.now ?? computeNowBaseScore(spot);
+    if (type === 'now' && timelineHourKey) {
+      const activeMode = viewMode ?? 'now';
+      return live?.[activeMode] ?? (activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]);
     }
+    if (type === 'now') return live?.now ?? computeNowBaseScore(spot);
     return live ? live[type] : spot[type];
   };
 
@@ -386,10 +386,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const [expanded, setExpanded] = useState(true);
   // Which card is currently centered in the swipe scroller — drives the
   // active page-indicator dot at the bottom of the sheet.
-  const viewModeCard: CardType | undefined =
-    viewMode ? viewMode as CardType : undefined;
   const initialActiveCardType: CardType =
-    initialCardType ?? viewModeCard ?? cards[0]?.type ?? 'now';
+    initialCardType ?? 'now';
   const [activeCardType, setActiveCardType] = useState<CardType>(
     initialActiveCardType,
   );
@@ -582,14 +580,14 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   };
 
   useEffect(() => {
-    const scrollTarget = initialCardType ?? viewModeCard;
+    const scrollTarget = initialCardType ?? 'now';
     if (!scrollTarget || !expanded) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     const target = scroller.querySelector<HTMLElement>(`[data-card-type="${scrollTarget}"]`);
     if (!target) return;
     scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
-  }, [initialCardType, viewModeCard, spot.id, expanded]);
+  }, [initialCardType, spot.id, expanded]);
 
   // Track which card is centered as the user swipes. We watch each card with
   // an IntersectionObserver scoped to the horizontal scroller, picking the
@@ -885,6 +883,10 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     city={city}
                     scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
                     scrubViewMode={card.type === 'now' ? viewMode : undefined}
+                    activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
+                    activeScoreIsLive={card.type === 'now' ? (live?.isLive ?? false) : undefined}
+                    onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
+                    timeZone={timeZone}
                   />
                 </div>
               ))}

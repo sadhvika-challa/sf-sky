@@ -25,8 +25,8 @@ import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
 import MapErrorBoundary from './components/MapErrorBoundary';
 import type { ScoreTier, ViewMode } from './utils/scoring';
-import { resolveViewMode } from './utils/events';
 import type { WeatherMetric } from './utils/interpolate';
+import { formatHourKeyInTimeZone, viewModeForHourKey } from './utils/timeline';
 import {
   ONBOARDING_KEYS,
   isOnboardingDone,
@@ -104,19 +104,6 @@ function readStoredActiveCity(fallback: City): City {
   } catch {
     return fallback;
   }
-}
-
-/**
- * "YYYY-MM-DDTHH" key for the current local hour. Matches the format
- * `weather.ts` uses for `SpotForecast.hours`.
- */
-function nowHourKey(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  return `${y}-${m}-${day}T${h}`;
 }
 
 const defaultFilters: Filters = {
@@ -232,16 +219,17 @@ function App() {
   // real time advances while the user sits on the live "now" view.
   const [now, setNow] = useState(() => new Date());
 
-  // Derive viewMode from the scrubbed hour. When at '' (now), use city centroid
-  // to resolve the current time-of-day mode.
+  // Resolve both live and forecast keys in the active city's time zone.
   const viewMode: ViewMode = useMemo(() => {
     const lat = activeCityConfig.center[0];
     const lng = activeCityConfig.center[1];
-    if (timelineHourKey === '') {
-      return resolveViewMode(now, lat, lng);
-    }
-    const scrubbed = new Date(`${timelineHourKey}:00:00`);
-    return resolveViewMode(scrubbed, lat, lng);
+    return viewModeForHourKey(
+      timelineHourKey,
+      activeCityConfig.timeZone,
+      lat,
+      lng,
+      now,
+    );
   }, [timelineHourKey, activeCityConfig, now]);
   // Onboarding: welcome card on first load, then a chain of one-time
   // hints tied to specific interactions. Each step is gated by a
@@ -268,7 +256,12 @@ function App() {
     [activeCityId],
   );
   const userLocation = useGeolocation();
-  const liveScores = useTimelineScores(activeSpots, timelineHourKey, viewMode);
+  const liveScores = useTimelineScores(
+    activeSpots,
+    timelineHourKey,
+    viewMode,
+    activeCityConfig.timeZone,
+  );
   const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
     useNeighborhoodForecasts(true);
 
@@ -278,12 +271,12 @@ function App() {
   // scrubber can mark the live hour. The app's scrubbing convention uses
   // '' for live-now, so tapping the Now card maps back to '' (see below).
   const { resolvedNowKey, nowIndex } = useMemo(() => {
-    const candidate = nowHourKey();
+    const candidate = formatHourKeyInTimeZone(now, activeCityConfig.timeZone);
     const key = weatherHourKeys.includes(candidate)
       ? candidate
       : (weatherHourKeys[0] ?? '');
     return { resolvedNowKey: key, nowIndex: weatherHourKeys.indexOf(key) };
-  }, [weatherHourKeys]);
+  }, [activeCityConfig.timeZone, now, weatherHourKeys]);
 
   // Stable 24h range for legend labels — computed once from all hours, never
   // changes as the user scrubs the timeline.
@@ -300,7 +293,7 @@ function App() {
   // Visible-area average for the legend marker position.
   const visibleMetricAvg = useMemo(() => {
     if (!weatherOverlay) return undefined;
-    const hourKey = timelineHourKey || nowHourKey();
+    const hourKey = timelineHourKey || formatHourKeyInTimeZone(now, activeCityConfig.timeZone);
     const samples = buildSamples(weatherMetric, hourKey, weatherForecasts);
     if (samples.size === 0) return undefined;
 
@@ -315,7 +308,7 @@ function App() {
       count++;
     }
     return count > 0 ? sum / count : undefined;
-  }, [weatherOverlay, weatherMetric, timelineHourKey, weatherForecasts, mapBounds]);
+  }, [activeCityConfig.timeZone, mapBounds, now, timelineHourKey, weatherForecasts, weatherMetric, weatherOverlay]);
 
   const handleReset = useCallback(() => {
     // Tier filters only — category selections are managed by
@@ -394,6 +387,7 @@ function App() {
 
   const setActiveCity = useCallback((city: City) => {
     setActiveCityIdRaw(city);
+    setTimelineHourKey('');
     setSelectedSpot(null);
     setHighlightedSpot(null);
     setInitialCardType(undefined);
@@ -504,16 +498,6 @@ function App() {
     }, DISMISS_HIGHLIGHT_MS);
     return () => window.clearTimeout(timer);
   }, [highlightedSpot]);
-
-  // Close score panel when the user scrubs the timeline — the panel content
-  // is anchored to a specific moment and scrubbing away invalidates it.
-  const prevTimelineKeyRef = useRef(timelineHourKey);
-  useEffect(() => {
-    if (prevTimelineKeyRef.current !== timelineHourKey && selectedSpot) {
-      setSelectedSpot(null);
-    }
-    prevTimelineKeyRef.current = timelineHourKey;
-  }, [timelineHourKey, selectedSpot]);
 
   const handleOpenSuggest = useCallback((seed = '') => {
     setSuggestSeed(seed);
@@ -645,7 +629,7 @@ function App() {
           weatherOverlay={weatherOverlay}
           cityConfig={activeCityConfig}
           weatherMetric={weatherMetric}
-          weatherHourKey={timelineHourKey || nowHourKey()}
+          weatherHourKey={timelineHourKey || formatHourKeyInTimeZone(now, activeCityConfig.timeZone)}
           weatherForecasts={weatherForecasts}
           tapSpotHintActive={showTapSpotHint && !selectedSpot}
           onTapSpotAnchorChange={setTapSpotAnchor}
@@ -788,7 +772,7 @@ function App() {
           spot={selectedSpot}
           onClose={() => handleSelectSpot(null)}
           userLocation={userLocation}
-          initialCardType={initialCardType ?? viewMode}
+          initialCardType={initialCardType}
           travelMode={travelMode}
           onTravelModeChange={setTravelMode}
           liveScores={liveScores}
@@ -796,6 +780,8 @@ function App() {
           city={activeCityId}
           viewMode={viewMode}
           timelineHourKey={timelineHourKey}
+          onTimelineHourChange={handleTimelineHourChange}
+          timeZone={activeCityConfig.timeZone}
         />
       )}
 
