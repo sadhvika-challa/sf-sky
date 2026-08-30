@@ -298,6 +298,26 @@ test('dismisses the sheet from the dedicated handle pointer drag', async ({ page
   await expect(handle).toBeVisible();
   const box = await handle.boundingBox();
   if (!box) throw new Error('Sheet handle has no layout box');
+  console.info(`[handle-target] ${Math.round(box.width)}x${Math.round(box.height)}px`);
+  expect(box.height, 'Dedicated sheet-dismiss handle must provide a 44px touch target').toBeGreaterThanOrEqual(44);
+
+  for (const actionName of ['Get directions', 'Open Street View']) {
+    const action = dialog.getByRole('button', { name: actionName });
+    const actionBox = await action.boundingBox();
+    if (!actionBox) throw new Error(`${actionName} has no layout box`);
+    const verticalOverlap = Math.max(
+      0,
+      Math.min(box.y + box.height, actionBox.y + actionBox.height) - Math.max(box.y, actionBox.y),
+    );
+    expect(verticalOverlap, `Sheet handle overlaps ${actionName}`).toBe(0);
+    const receivesPointer = await action.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return document
+        .elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        ?.closest('button') === element;
+    });
+    expect(receivesPointer, `${actionName} must remain the topmost pointer target`).toBe(true);
+  }
 
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
