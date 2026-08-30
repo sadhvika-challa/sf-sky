@@ -46,16 +46,26 @@ xcodebuild \
   -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath /tmp/Soleil.xcarchive \
+  -disableAutomaticPackageResolution \
   CODE_SIGNING_ALLOWED=NO \
   archive
+
+ditto -c -k --sequesterRsrc --keepParent \
+  /tmp/Soleil.xcarchive \
+  /tmp/Soleil.xcarchive.zip
 
 npm run ios:archive:verify -- \
   --archive /tmp/Soleil.xcarchive \
   --marketing-version 1.0 \
-  --build-number 1
+  --build-number 1 \
+  --source-commit "$(git rev-parse HEAD)" \
+  --package /tmp/Soleil.xcarchive.zip \
+  --report /tmp/soleil-ios-archive-verification.json
 ```
 
-The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. CI retains the unsigned archive, its Xcode result bundle, and a machine-readable verification report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. Its machine-readable report also records the full source commit, SHA-256 digests of `package-lock.json` and the Xcode workspace `Package.resolved`, Xcode version and build, and iPhoneOS SDK version and build. It requires the claimed commit to equal the checked-out `HEAD`, requires a clean worktree, binds the archive and app directory trees with deterministic content digests, and binds the exact retained archive zip with SHA-256. CI retains the zip, its Xcode result bundle, both dependency locks, and that report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+
+The source commit and clean-worktree checks identify the reviewed checkout used to produce the archive. The JavaScript and Swift package lockfiles pin both dependency graphs, while the JavaScript lockfile digest and toolchain fields make dependency or build-environment drift visible. Release archives disable automatic Swift package resolution so Xcode must use the committed `Package.resolved`. The archive, app, and package digests prevent a report from being silently paired with different build output. Keep the report and the exact package together. For a later signed archive, confirm these provenance and artifact bindings match the reviewed release checkout and recorded TestFlight candidate before accepting the build.
 
 This archive deliberately uses `CODE_SIGNING_ALLOWED=NO`. It proves that the Release archive action produces the expected device artifact before Apple Developer Program enrollment, but it cannot be installed, exported for distribution, uploaded to TestFlight, or used as signing validation.
 
