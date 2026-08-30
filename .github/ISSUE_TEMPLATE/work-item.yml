@@ -1,0 +1,72 @@
+name: Work item
+description: Plan a bounded Soleil product, engineering, design, or release change.
+title: "[Work]: "
+labels: []
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Describe the user or project outcome, not only the implementation.
+      placeholder: A user can...
+    validations:
+      required: true
+
+  - type: input
+    id: owner
+    attributes:
+      label: Owner
+      description: Name one person or agent responsible for delivery.
+      placeholder: "@owner"
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Files and boundaries
+      description: List the files or directories this work owns, plus anything explicitly out of scope.
+      placeholder: |
+        Owns: src/components/Example.tsx
+        Out of scope: scoring changes
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use observable, testable statements.
+      placeholder: |
+        - [ ] The primary flow works.
+        - [ ] The relevant unavailable state is useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tests
+    attributes:
+      label: Test plan
+      description: Name automated checks and manual journeys, devices, or viewports.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      description: Choose the highest applicable level from AGENTS.md.
+      options:
+        - Low
+        - Medium
+        - High
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: List screenshots, recordings, logs, request counts, or device results needed for review.
+    validations:
+      required: true
