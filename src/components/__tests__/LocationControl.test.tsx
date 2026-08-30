@@ -3,13 +3,18 @@ import { describe, expect, it, vi } from 'vitest';
 import type { LocationState } from '../../hooks/useLocation';
 import LocationControl from '../LocationControl';
 
-function render(state: LocationState): string {
+function render(
+  state: LocationState,
+  options: { canOpenLocationSettings?: boolean } = {},
+): string {
   return renderToStaticMarkup(
     <LocationControl
       state={state}
       onRequest={vi.fn()}
       onChooseCity={vi.fn()}
       onUseCityInstead={vi.fn()}
+      canOpenLocationSettings={options.canOpenLocationSettings}
+      onOpenLocationSettings={vi.fn().mockResolvedValue({ status: 'opened' })}
     />,
   );
 }
@@ -51,6 +56,26 @@ describe('LocationControl', () => {
     expect(html).toContain('Using approximate location. Distances are approximate.');
     expect(html).toContain('>Retry</button>');
     expect(html).toContain('Use city instead');
+  });
+
+  it('offers native Settings recovery only after location is denied', () => {
+    const denied = render(
+      { status: 'denied' },
+      { canOpenLocationSettings: true },
+    );
+    expect(denied).toContain('Open Settings');
+    expect(denied).toContain('Retry location');
+    expect(denied).toContain('Choose a city');
+
+    const webDenied = render({ status: 'denied' });
+    expect(webDenied).not.toContain('Open Settings');
+    expect(webDenied).toContain('>Retry</button>');
+
+    const beforeRequest = render(
+      { status: 'not-requested' },
+      { canOpenLocationSettings: true },
+    );
+    expect(beforeRequest).not.toContain('Open Settings');
   });
 
   it('confirms precise location without a retry action', () => {

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { LocationState } from '../hooks/useLocation';
+import type { OpenAppSettingsResult } from '../platform/appSettings';
 import LocationControl from './LocationControl';
 
 export type HomeSheetScopeNotice =
@@ -22,6 +23,8 @@ interface HomeSheetProps {
   onRequestLocation: () => void | Promise<LocationState>;
   onChooseCity: () => void;
   onUseCityInstead: () => void;
+  canOpenLocationSettings?: boolean;
+  onOpenLocationSettings?: () => Promise<OpenAppSettingsResult>;
   scopeNotice?: HomeSheetScopeNotice | null;
   recommendation?: ReactNode;
   timeline?: ReactNode;
@@ -104,6 +107,8 @@ export default function HomeSheet({
   onRequestLocation,
   onChooseCity,
   onUseCityInstead,
+  canOpenLocationSettings = false,
+  onOpenLocationSettings,
   scopeNotice = null,
   recommendation,
   timeline,
@@ -118,6 +123,8 @@ export default function HomeSheet({
         onRequest={onRequestLocation}
         onChooseCity={onChooseCity}
         onUseCityInstead={onUseCityInstead}
+        canOpenLocationSettings={canOpenLocationSettings}
+        onOpenLocationSettings={onOpenLocationSettings}
       />
       <div className="space-y-2">
         {scopeNotice && <ScopeNotice notice={scopeNotice} onChooseCity={onChooseCity} />}

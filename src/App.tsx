@@ -30,6 +30,7 @@ import BestNearbyCard, {
 } from './components/BestNearbyCard';
 import SavedSpotsSheet from './components/SavedSpotsSheet';
 import { useSavedSpots } from './hooks/useSavedSpots';
+import { appSettingsController } from './platform/appSettings';
 import { type ScoreTier, type ViewMode } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
@@ -564,6 +565,11 @@ function App() {
     return nextState;
   }, [requestLocation]);
 
+  const handleOpenLocationSettings = useCallback(
+    () => appSettingsController.open(),
+    [],
+  );
+
   const handleUseCityInstead = useCallback(() => {
     clearLocation();
     setManualCityMode(true);
@@ -996,6 +1002,8 @@ function App() {
           onRequestLocation={handleRequestLocation}
           onChooseCity={() => setCitySheetOpen(true)}
           onUseCityInstead={handleUseCityInstead}
+          canOpenLocationSettings={appSettingsController.isAvailable()}
+          onOpenLocationSettings={handleOpenLocationSettings}
           scopeNotice={homeScopeNotice}
           recommendation={timelineHourKey && !weatherOverlay ? (
             <section
