@@ -831,42 +831,50 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
               className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
               style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
             >
-              {cards.map((card) => (
-                <div
-                  key={card.type}
-                  data-card-type={card.type}
-                  className="w-full min-h-0 flex-shrink-0 snap-center"
-                  style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
-                >
+              {cards.map((card) => {
+                const isActive = card.type === activeCardType;
+                return (
                   <div
-                    data-card-scroll
-                    className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                    key={card.type}
+                    id={`score-card-panel-${card.type}`}
+                    role="tabpanel"
+                    aria-labelledby={`score-card-tab-${card.type}`}
+                    aria-hidden={!isActive}
+                    inert={!isActive}
+                    data-card-type={card.type}
+                    className="w-full min-h-0 flex-shrink-0 snap-center"
                     style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                   >
-                    <ScoreCard
-                      spot={spot}
-                      type={card.type}
-                      eventInstant={card.eventTime}
-                      city={city}
-                      scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
-                      scrubViewMode={card.type === 'now' ? viewMode : undefined}
-                      activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
-                      canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
-                      scoreEvidence={card.type === 'now'
-                        ? live!.activeEvidence
-                        : live!.evidence[card.type]}
-                      onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
-                      timeZone={timeZone}
-                      forecast={forecast}
-                      forecastLoading={forecastLoading}
-                      forecastError={forecastError}
-                      onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
-                      forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
-                      now={now}
-                    />
+                    <div
+                      data-card-scroll
+                      className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                      style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+                    >
+                      <ScoreCard
+                        spot={spot}
+                        type={card.type}
+                        eventInstant={card.eventTime}
+                        city={city}
+                        scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
+                        scrubViewMode={card.type === 'now' ? viewMode : undefined}
+                        activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
+                        canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
+                        scoreEvidence={card.type === 'now'
+                          ? live!.activeEvidence
+                          : live!.evidence[card.type]}
+                        onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
+                        timeZone={timeZone}
+                        forecast={forecast}
+                        forecastLoading={forecastLoading}
+                        forecastError={forecastError}
+                        onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
+                        forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
+                        now={now}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Page tabs keep a compact visual dot inside a full-size target.
@@ -881,12 +889,14 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 return (
                   <button
                     key={card.type}
+                    id={`score-card-tab-${card.type}`}
                     type="button"
                     role="tab"
                     ref={(element) => {
                       cardTabRefs.current[card.type] = element;
                     }}
                     aria-selected={isActive}
+                    aria-controls={`score-card-panel-${card.type}`}
                     aria-label={`Show ${typeLabel[card.type]} card`}
                     tabIndex={isActive ? 0 : -1}
                     onClick={() => handleDotClick(card.type)}

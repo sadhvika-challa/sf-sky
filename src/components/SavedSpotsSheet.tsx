@@ -118,7 +118,10 @@ function SavedSpotRow({ spot, onSelect, onUnsave }: SavedSpotRowProps) {
           <span className="block font-serif text-base font-medium text-gray-800 truncate">
             {spot.name}
           </span>
-          <span className="block mt-0.5 font-mono text-[10px] tracking-[1px] uppercase text-gray-400">
+          <span
+            className="block mt-0.5 font-mono text-[10px] tracking-[1px] uppercase text-gray-600"
+            data-contrast-audit="saved-spot-category"
+          >
             {spot.category.replace('-', ' ')}
           </span>
         </button>
@@ -129,8 +132,9 @@ function SavedSpotRow({ spot, onSelect, onUnsave }: SavedSpotRowProps) {
             setFeedback(null);
           }}
           disabled={pending}
-          className="w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center text-gray-400 active:bg-cream-dark/50 disabled:opacity-50"
+          className="w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center text-gray-600 active:bg-cream-dark/50 disabled:opacity-50"
           aria-label={`Remove ${spot.name} from saved spots`}
+          data-contrast-audit="saved-spot-remove"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 6h18" />

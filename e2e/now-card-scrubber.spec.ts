@@ -97,12 +97,22 @@ test('gives every card-page tab a full hit target and supports keyboard paging',
   const stargazingTab = tablist.getByRole('tab', { name: 'Show Stargazing card' });
   await expect(nowTab).toHaveAttribute('tabindex', '0');
   await expect(sunriseTab).toHaveAttribute('tabindex', '-1');
+  const nowPage = dialog.locator('[data-card-type="now"]');
+  const sunrisePage = dialog.locator('[data-card-type="sunrise"]');
+  await expect(nowPage).toHaveAttribute('aria-hidden', 'false');
+  await expect(sunrisePage).toHaveAttribute('aria-hidden', 'true');
+  await expect(nowPage.getByRole('button', { name: 'See breakdown' })).toHaveCount(1);
+  await expect(sunrisePage.getByRole('button', { name: 'See breakdown' })).toHaveCount(0);
 
   await nowTab.focus();
   await nowTab.press('ArrowRight');
   await expect(sunriseTab).toBeFocused();
   await expect(sunriseTab).toHaveAttribute('aria-selected', 'true');
   await expect(sunriseTab).toHaveAttribute('tabindex', '0');
+  await expect(nowPage).toHaveAttribute('aria-hidden', 'true');
+  await expect(sunrisePage).toHaveAttribute('aria-hidden', 'false');
+  await expect(nowPage.getByRole('button', { name: 'See breakdown' })).toHaveCount(0);
+  await expect(sunrisePage.getByRole('button', { name: 'See breakdown' })).toHaveCount(1);
 
   await sunriseTab.press('End');
   await expect(stargazingTab).toBeFocused();
@@ -186,7 +196,19 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   const seriousViolations = accessibility.violations.filter(
     (violation) => violation.impact === 'serious' || violation.impact === 'critical',
   );
+  const trustStatusContrast = await new AxeBuilder({ page })
+    .include('[data-contrast-audit="weather-trust-status"]')
+    .withRules(['color-contrast'])
+    .analyze();
+  const unresolvedContrast = trustStatusContrast.incomplete.filter(
+    (result) => result.id === 'color-contrast',
+  );
+  const trustStatusViolations = trustStatusContrast.violations.filter(
+    (result) => result.id === 'color-contrast',
+  );
   expect(seriousViolations).toEqual([]);
+  expect(trustStatusViolations).toEqual([]);
+  expect(unresolvedContrast).toEqual([]);
   console.info(
     `[axe:${testInfo.project.name}:expanded-sheet] serious-or-critical=` +
     JSON.stringify(seriousViolations.map((violation) => ({ id: violation.id, nodes: violation.nodes.length }))),
@@ -198,6 +220,29 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   console.info(
     '[weather-fixture] selected-spot budget: one forecast and one air-quality request',
   );
+});
+
+test('keeps only the visible card face in the accessibility tree and restores focus after flipping', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const nowCard = dialog.locator('[data-card-type="now"]');
+  const breakdown = nowCard.getByRole('button', { name: 'See breakdown' });
+  await expect(breakdown).toBeVisible();
+  await expect(nowCard.getByRole('button', { name: 'Back' })).toHaveCount(0);
+
+  await breakdown.click();
+  const back = nowCard.getByRole('button', { name: 'Back' });
+  await expect(back).toBeVisible();
+  await expect(back).toBeFocused();
+  await expect(nowCard.getByRole('button', { name: 'See breakdown' })).toHaveCount(0);
+
+  await back.click();
+  const restoredBreakdown = nowCard.getByRole('button', { name: 'See breakdown' });
+  await expect(restoredBreakdown).toBeVisible();
+  await expect(restoredBreakdown).toBeFocused();
+  await expect(nowCard.getByRole('button', { name: 'Back' })).toHaveCount(0);
 });
 
 test('shares and restores the selected Now-card hour', async ({ page }, testInfo) => {
