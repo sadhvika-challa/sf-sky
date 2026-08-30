@@ -41,8 +41,8 @@ export function getPublicShareOrigin(options: PublicOriginOptions = {}): string 
   return validHttpsOrigin(configuredOrigin) ?? DEFAULT_PUBLIC_WEB_ORIGIN;
 }
 
-export function buildPublicShareUrl(path: string): string {
-  return new URL(path, `${getPublicShareOrigin()}/`).toString();
+export function buildPublicShareUrl(path: string, options: PublicOriginOptions = {}): string {
+  return new URL(path, `${getPublicShareOrigin(options)}/`).toString();
 }
 
 export function getCurrentPublicShareUrl(): string {

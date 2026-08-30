@@ -12,6 +12,7 @@ const [
   nativeIndex,
   nativeConfig,
   packageJson,
+  publicContractText,
   mainSource,
   mapLayerSource,
   installPromptSource,
@@ -28,6 +29,7 @@ const [
   read('ios/App/App/public/index.html'),
   read('ios/App/App/capacitor.config.json'),
   read('package.json'),
+  read('config/public-url-contract.json'),
   read('src/main.tsx'),
   read('src/components/OpenFreeMapLayer.tsx'),
   read('src/components/PWAInstallPrompt.tsx'),
@@ -36,6 +38,32 @@ const [
   read('public/manifest.json'),
   read('public/sw.js'),
 ]);
+
+const publicContract = JSON.parse(publicContractText);
+const publicOrigin = runtimeSource.match(/\bDEFAULT_PUBLIC_WEB_ORIGIN\s*=\s*['"]([^'"]+)['"]/)?.[1];
+let structurallyEligiblePublicOrigin = false;
+if (publicOrigin) {
+  try {
+    const parsed = new URL(publicOrigin);
+    structurallyEligiblePublicOrigin = parsed.protocol === 'https:'
+      && !parsed.username
+      && !parsed.password
+      && parsed.pathname === '/'
+      && !parsed.search
+      && !parsed.hash
+      && parsed.origin === publicOrigin;
+  } catch {
+    structurallyEligiblePublicOrigin = false;
+  }
+}
+
+const parsedWebManifest = JSON.parse(webManifest);
+const contractIcons = publicContract.icons.map(({ src, width, height, contentType, purpose }) => (
+  `${src}|${width}x${height}|${contentType}|${purpose}`
+));
+const manifestIcons = (parsedWebManifest.icons ?? []).map(({ src, sizes, type, purpose }) => (
+  `${src}|${sizes}|${type}|${purpose}`
+));
 
 const checks = [
   ['Capacitor app ID', config.includes("appId: 'com.sadhvika.soleil'")],
@@ -69,12 +97,16 @@ const checks = [
   ['no committed signing identity', !project.includes('CODE_SIGN_IDENTITY')],
   ['no committed provisioning profile', !/PROVISIONING_PROFILE(?:_SPECIFIER)?\s*=/.test(project)],
   ['service worker retained for PWA', webManifest.includes('"display": "standalone"') && serviceWorker.length > 0],
+  ['public route contract is root scoped', publicContract.paths.app === '/' && publicContract.pwa.id === '/' && publicContract.pwa.startUrl === '/' && publicContract.pwa.scope === '/'],
+  ['manifest identity matches public route contract', parsedWebManifest.id === publicContract.pwa.id && parsedWebManifest.start_url === publicContract.pwa.startUrl && parsedWebManifest.scope === publicContract.pwa.scope],
+  ['manifest icons match public route contract', JSON.stringify(manifestIcons) === JSON.stringify(contractIcons)],
+  ['service worker path matches public route contract', mainSource.includes(`register(PUBLIC_SERVICE_WORKER_PATH)`) && publicContract.paths.serviceWorker === '/sw.js'],
   ['service worker disabled only in native',
     mainSource.includes("'serviceWorker' in navigator")
       && mainSource.includes("import('./platform/runtime.ts')")
       && /if\s*\(\s*!isNativeRuntime\(\)(?:\s*&&\s*'serviceWorker' in navigator)?\s*\)/.test(mainSource)],
   ['install prompt disabled in native', installPromptSource.includes('if (isNativeRuntime())')],
-  ['canonical native HTTPS share origin', runtimeSource.includes("DEFAULT_PUBLIC_WEB_ORIGIN = 'https://go-outside-six.vercel.app'")],
+  ['canonical native share fallback is an HTTPS root origin', structurallyEligiblePublicOrigin],
   ['native durable null uses one set', preferencesSource.includes('encodeEnvelope(next.value)') && !preferencesSource.includes('preferences.remove(')],
 ];
 

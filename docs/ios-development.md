@@ -89,6 +89,16 @@ Native share links currently use `https://go-outside-six.vercel.app`. A build ca
 
 If Soleil moves to a custom domain, update the public origin, website metadata, Universal Links association, and App Store metadata as one coordinated release. Universal Links and warm or cold inbound app-link routing are not enabled in this shell because they require control of the deployed domain and Apple signing capabilities.
 
+The public route and PWA artifact paths are recorded in `config/public-url-contract.json`. Local builds verify that the manifest, service worker, public routes, static icons, Vercel rewrites, and native share paths stay aligned with that contract. This file does not select or approve a hostname.
+
+After an approved candidate is deployed to a proposed origin, run the anonymous, read-only live check:
+
+```bash
+npm run public:release:verify -- --origin https://example.com
+```
+
+The command requires a root HTTPS origin and refuses redirects, authentication gates, path changes, incorrect MIME types, non-root PWA identity or scope, missing public pages, and invalid icon artifacts. Passing it proves only the named HTTP contract. It does not change DNS, approve the hostname, validate legal policy content, or replace PWA and physical-device acceptance.
+
 ## Privacy and storage
 
 `Info.plist` contains only `NSLocationWhenInUseUsageDescription` for location. There is no Always or background-location purpose string or capability.
