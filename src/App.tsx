@@ -465,6 +465,13 @@ function App() {
     try { localStorage.removeItem(CATEGORY_FILTER_STORAGE_KEY); } catch { /* non-fatal */ }
     const config = getCityById(spot.city);
     if (config && !config.hasWeatherMode) setWeatherOverlay(false);
+    requestAnimationFrame(() => {
+      const expectedLabel = `${spot.name} sky scores`;
+      const scoreSheet = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="dialog"]'),
+      ).find((dialog) => dialog.getAttribute('aria-label') === expectedLabel);
+      scoreSheet?.focus({ preventScroll: true });
+    });
   }, []);
 
   const handleToggleWeatherOverlay = useCallback(() => {
