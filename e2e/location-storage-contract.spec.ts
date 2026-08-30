@@ -22,9 +22,18 @@ interface SavedSpotsHarnessWindow extends Window {
   __soleilSavedSpotsHarness?: {
     getSavedSpotIds: () => readonly string[];
     setSaved: (spotId: string, saved: boolean) => Promise<boolean>;
+    getUpdateConsistency: () => 'cross-context' | 'in-process';
+    rehydrate: () => Promise<void>;
+    startSync: () => void;
     unsubscribe: () => void;
   };
+  __soleilSavedSpotsLockHeld?: boolean;
+  __soleilReleaseSavedSpotsLock?: () => void;
+  __soleilSavedSpotsOperationSettled?: boolean;
 }
+
+const SAVED_SPOTS_KEY = 'soleil:saved-spots';
+const SAVED_SPOTS_LOCK = `soleil:key-value:${SAVED_SPOTS_KEY}`;
 
 const FAILURE_COPY: Readonly<Record<
   Exclude<SimulatedLocationMode, 'allowed' | 'unsupported'>,
@@ -225,8 +234,11 @@ test('labels reduced-accuracy results and all derived distances as approximate',
   await expect(oceanBeach).toContainText(/approx\..*\d+\.\d mi|\d+\.\d mi.*approx\./i);
 });
 
-async function mountSavedSpotsIntegration(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+async function mountSavedSpotsIntegration(
+  page: Page,
+  options: { subscribe?: boolean } = {},
+): Promise<void> {
+  await page.evaluate(async ({ subscribe, storageKey }) => {
     const [{ SavedSpotsController }, { browserKeyValueStore }, { KNOWN_SPOT_IDS, SPOT_ID_ALIASES }] =
       await Promise.all([
         import('/src/hooks/useSavedSpots.ts'),
@@ -239,15 +251,23 @@ async function mountSavedSpotsIntegration(page: Page): Promise<void> {
       SPOT_ID_ALIASES,
     );
     await controller.initialize();
-    const unsubscribe = browserKeyValueStore.subscribe?.('soleil:saved-spots', () => {
-      void controller.rehydrate();
-    }) ?? (() => undefined);
+    let unsubscribe = () => undefined;
+    const startSync = () => {
+      unsubscribe();
+      unsubscribe = browserKeyValueStore.subscribe?.(storageKey, () => {
+        void controller.rehydrate();
+      }) ?? (() => undefined);
+    };
+    if (subscribe) startSync();
     (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness = {
       getSavedSpotIds: () => controller.getSnapshot().savedSpotIds,
       setSaved: (spotId, saved) => controller.setSaved(spotId, saved),
-      unsubscribe,
+      getUpdateConsistency: () => browserKeyValueStore.updateConsistency,
+      rehydrate: () => controller.rehydrate(),
+      startSync,
+      unsubscribe: () => unsubscribe(),
     };
-  });
+  }, { subscribe: options.subscribe !== false, storageKey: SAVED_SPOTS_KEY });
 }
 
 async function savedSpotIds(page: Page): Promise<readonly string[]> {
@@ -277,6 +297,200 @@ test('propagates a saved-spot write to another page without reload', async ({ co
         ?.setSaved('sf-twin-peaks', true),
     );
     expect(saved).toBe(true);
+    await expect.poll(() => savedSpotIds(secondPage)).toEqual(['sf-twin-peaks']);
+  } finally {
+    await secondPage.close();
+  }
+});
+
+async function savedSpotsUpdateConsistency(
+  page: Page,
+): Promise<'cross-context' | 'in-process'> {
+  return page.evaluate(() =>
+    (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness
+      ?.getUpdateConsistency() ?? 'in-process',
+  );
+}
+
+async function durableSavedSpotIds(page: Page): Promise<string[]> {
+  return page.evaluate((key) => {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { spotIds?: unknown };
+    if (!Array.isArray(parsed.spotIds)) throw new Error('Saved-spots payload is malformed.');
+    return parsed.spotIds.filter((id): id is string => typeof id === 'string').sort();
+  }, SAVED_SPOTS_KEY);
+}
+
+function holdSavedSpotsLock(page: Page): Promise<boolean> {
+  return page.evaluate(async (lockName) => {
+    if (!navigator.locks) return false;
+    await navigator.locks.request(lockName, { mode: 'exclusive' }, async () => {
+      (window as SavedSpotsHarnessWindow).__soleilSavedSpotsLockHeld = true;
+      await new Promise<void>((resolve) => {
+        (window as SavedSpotsHarnessWindow).__soleilReleaseSavedSpotsLock = resolve;
+      });
+    });
+    return true;
+  }, SAVED_SPOTS_LOCK);
+}
+
+async function releaseSavedSpotsLock(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const harnessWindow = window as SavedSpotsHarnessWindow;
+    harnessWindow.__soleilReleaseSavedSpotsLock?.();
+    delete harnessWindow.__soleilReleaseSavedSpotsLock;
+    harnessWindow.__soleilSavedSpotsLockHeld = false;
+  });
+}
+
+async function pendingSavedSpotsLocks(page: Page): Promise<number> {
+  return page.evaluate(async (lockName) => {
+    const snapshot = await navigator.locks.query();
+    return snapshot.pending.filter((lock) => lock.name === lockName).length;
+  }, SAVED_SPOTS_LOCK);
+}
+
+async function rehydrateSavedSpots(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness?.rehydrate(),
+  );
+}
+
+async function startSavedSpotsSync(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness?.startSync();
+    window.dispatchEvent(new Event('pageshow'));
+  });
+}
+
+async function beginSavedSpotOperation(
+  page: Page,
+  spotId: string,
+  saved: boolean,
+): Promise<boolean> {
+  return page.evaluate(async ({ id, target }) => {
+    const harnessWindow = window as SavedSpotsHarnessWindow;
+    harnessWindow.__soleilSavedSpotsOperationSettled = false;
+    try {
+      return await harnessWindow.__soleilSavedSpotsHarness?.setSaved(id, target) ?? false;
+    } finally {
+      harnessWindow.__soleilSavedSpotsOperationSettled = true;
+    }
+  }, { id: spotId, target: saved });
+}
+
+async function operationSettled(page: Page): Promise<boolean> {
+  return page.evaluate(() =>
+    (window as SavedSpotsHarnessWindow).__soleilSavedSpotsOperationSettled === true,
+  );
+}
+
+async function mountUnsynchronizedPages(page: Page, secondPage: Page): Promise<void> {
+  await Promise.all([
+    mountSavedSpotsIntegration(page, { subscribe: false }),
+    mountSavedSpotsIntegration(secondPage, { subscribe: false }),
+  ]);
+  const consistencies = await Promise.all([
+    savedSpotsUpdateConsistency(page),
+    savedSpotsUpdateConsistency(secondPage),
+  ]);
+  test.skip(
+    consistencies.some((consistency) => consistency !== 'cross-context'),
+    'This browser exposes only the documented in-process fallback, not cross-page atomicity.',
+  );
+}
+
+test('preserves concurrent different-ID saves before either page can rehydrate', async ({ context, page }) => {
+  await installLocationHarness(page, 'unsupported');
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await page.evaluate((key) => window.localStorage.removeItem(key), SAVED_SPOTS_KEY);
+
+  const secondPage = await context.newPage();
+  try {
+    await installDeterministicBrowserState(secondPage);
+    await installLocationHarness(secondPage, 'unsupported');
+    await installWeatherHarness(secondPage);
+    await secondPage.goto('/');
+    await mountUnsynchronizedPages(page, secondPage);
+
+    const heldLock = holdSavedSpotsLock(page);
+    await expect.poll(() => page.evaluate(() =>
+      (window as SavedSpotsHarnessWindow).__soleilSavedSpotsLockHeld === true,
+    )).toBe(true);
+
+    const twinPeaksSave = beginSavedSpotOperation(page, 'sf-twin-peaks', true);
+    await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(1);
+    const oceanBeachSave = beginSavedSpotOperation(secondPage, 'sf-ocean-beach', true);
+    await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(2);
+    expect(await operationSettled(page)).toBe(false);
+    expect(await operationSettled(secondPage)).toBe(false);
+
+    await releaseSavedSpotsLock(page);
+    expect(await heldLock).toBe(true);
+    expect(await Promise.all([twinPeaksSave, oceanBeachSave])).toEqual([true, true]);
+
+    const expected = ['sf-ocean-beach', 'sf-twin-peaks'];
+    expect(await durableSavedSpotIds(page)).toEqual(expected);
+
+    await Promise.all([startSavedSpotsSync(page), startSavedSpotsSync(secondPage)]);
+    await expect.poll(() => savedSpotIds(page).then((ids) => [...ids].sort())).toEqual(expected);
+    await expect.poll(() => savedSpotIds(secondPage).then((ids) => [...ids].sort())).toEqual(expected);
+  } finally {
+    await secondPage.close();
+  }
+});
+
+test('uses later durable commit as the same-ID save-versus-unsave rule', async ({ context, page }) => {
+  await installLocationHarness(page, 'unsupported');
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await page.evaluate((key) => window.localStorage.removeItem(key), SAVED_SPOTS_KEY);
+
+  const secondPage = await context.newPage();
+  try {
+    await installDeterministicBrowserState(secondPage);
+    await installLocationHarness(secondPage, 'unsupported');
+    await installWeatherHarness(secondPage);
+    await secondPage.goto('/');
+    await mountUnsynchronizedPages(page, secondPage);
+
+    const runConflict = async (
+      first: { page: Page; saved: boolean },
+      second: { page: Page; saved: boolean },
+      expected: string[],
+    ) => {
+      const heldLock = holdSavedSpotsLock(page);
+      await expect.poll(() => page.evaluate(() =>
+        (window as SavedSpotsHarnessWindow).__soleilSavedSpotsLockHeld === true,
+      )).toBe(true);
+
+      const firstCommit = beginSavedSpotOperation(first.page, 'sf-twin-peaks', first.saved);
+      await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(1);
+      const secondCommit = beginSavedSpotOperation(second.page, 'sf-twin-peaks', second.saved);
+      await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(2);
+
+      await releaseSavedSpotsLock(page);
+      expect(await heldLock).toBe(true);
+      expect(await Promise.all([firstCommit, secondCommit])).toEqual([true, true]);
+      expect(await durableSavedSpotIds(page)).toEqual(expected);
+      await Promise.all([rehydrateSavedSpots(page), rehydrateSavedSpots(secondPage)]);
+    };
+
+    await runConflict(
+      { page, saved: true },
+      { page: secondPage, saved: false },
+      [],
+    );
+    await runConflict(
+      { page, saved: false },
+      { page: secondPage, saved: true },
+      ['sf-twin-peaks'],
+    );
+
+    await Promise.all([startSavedSpotsSync(page), startSavedSpotsSync(secondPage)]);
+    await expect.poll(() => savedSpotIds(page)).toEqual(['sf-twin-peaks']);
     await expect.poll(() => savedSpotIds(secondPage)).toEqual(['sf-twin-peaks']);
   } finally {
     await secondPage.close();
