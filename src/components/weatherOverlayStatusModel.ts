@@ -1,6 +1,11 @@
 import type { NeighborhoodForecastPhase } from '../hooks/useNeighborhoodForecasts';
 import type { WeatherRequestErrorKind } from '../utils/weather';
 import { formatMetricValue, RAMPS, type WeatherMetric } from '../utils/interpolate';
+import {
+  addCityCalendarDays,
+  formatCityCalendarDate,
+  parseCanonicalHourKey,
+} from '../utils/timeline';
 
 function failureCopy(kind: WeatherRequestErrorKind | null): string {
   switch (kind) {
@@ -58,17 +63,52 @@ export function getWeatherOverlayPresentation(
 }
 
 export function weatherMapSummary(
+  cityName: string,
+  timeZone: string,
   metric: WeatherMetric,
   hourKey: string,
+  now: Date,
   loaded: number,
   total: number,
   visibleAverage?: number,
 ): string {
   const range = RAMPS[metric];
+  const localTime = formatWeatherMapLocalTime(hourKey, timeZone, now);
   const average = visibleAverage !== undefined && Number.isFinite(visibleAverage)
     ? ` Visible-area average ${formatSummaryValue(metric, visibleAverage)}.`
     : '';
-  return `Weather map for ${metric} at ${hourKey}. Fixed range ${formatSummaryValue(metric, range.min)} to ${formatSummaryValue(metric, range.max)}. Usable coverage ${loaded} of ${total} areas.${average}`;
+  return `${cityName} weather map for ${metric} on ${localTime}. Fixed range ${formatSummaryValue(metric, range.min)} to ${formatSummaryValue(metric, range.max)}. Usable coverage ${loaded} of ${total} areas.${average}`;
+}
+
+export function formatWeatherMapLocalTime(
+  hourKey: string,
+  timeZone: string,
+  now: Date,
+  locale = 'en-US',
+): string {
+  const instant = parseCanonicalHourKey(hourKey);
+  if (!instant) return 'an unavailable local time';
+  const selectedDate = formatCityCalendarDate(instant, timeZone);
+  const today = formatCityCalendarDate(now, timeZone);
+  const tomorrow = addCityCalendarDays(now, timeZone, 1);
+  const date = selectedDate === today
+    ? 'Today'
+    : selectedDate === tomorrow
+      ? 'Tomorrow'
+      : new Intl.DateTimeFormat(locale, {
+        timeZone,
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(instant);
+  const time = new Intl.DateTimeFormat(locale, {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short',
+  }).format(instant);
+  return `${date} · ${time}`;
 }
 
 function formatSummaryValue(metric: WeatherMetric, value: number): string {

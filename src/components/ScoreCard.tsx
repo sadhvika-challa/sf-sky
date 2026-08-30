@@ -4,7 +4,7 @@ import { toBlob } from 'html-to-image';
 import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
-import { clampPercentage, fogDensity, type HourlyForecast, type SpotForecast } from '../utils/weather';
+import { clampPercentage, fogDensity, weatherRefreshExplanation, type HourlyForecast, type SpotForecast } from '../utils/weather';
 import type { ScoreEvidence } from '../utils/confidence';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
@@ -523,6 +523,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
     return breakdown ? breakdown.total : spot[type];
   })();
   const isForecastBacked = scoreEvidence.provenance === 'forecast';
+  const refreshExplanation = weatherRefreshExplanation(error);
 
   const spotScore = type === 'now' ? computeNowBaseScore(spot) : spot[type];
   const skyScore = (() => {
@@ -790,6 +791,11 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                   <span aria-hidden="true"> · </span>
                   {scoreEvidence.retrievalLabel}
                 </p>
+                {type === 'now' && refreshExplanation && (
+                  <p className="mt-2 font-mono text-[10px] leading-relaxed text-amber-800">
+                    {refreshExplanation}
+                  </p>
+                )}
                 {type === 'now' && error && onRetryForecast && (
                   <button
                     type="button"

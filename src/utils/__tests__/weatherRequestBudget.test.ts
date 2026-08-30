@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveOverlayCoverage,
   deriveLocalHourKeys,
+  overlayRequestMaxAge,
   OVERLAY_CONCURRENCY,
   OVERLAY_USABLE_ANCHORS,
   SELECTED_SPOT_CONCURRENCY,
@@ -47,6 +48,8 @@ describe('weather request budget contracts', () => {
     expect(OVERLAY_CONCURRENCY).toBe(3);
     expect(SELECTED_SPOT_CONCURRENCY + OVERLAY_CONCURRENCY).toBe(4);
     expect(OVERLAY_USABLE_ANCHORS).toBe(9);
+    expect(overlayRequestMaxAge(false)).toBe(WEATHER_REFRESH_INTERVAL_MS);
+    expect(overlayRequestMaxAge(true)).toBe(0);
   });
 
   it('builds the forward 24-hour scrubber locally using canonical UTC identities', () => {

@@ -6,6 +6,7 @@ import {
   mergeOpenMeteoResponses,
   isStructurallyValidSpotForecast,
   WeatherRequestError,
+  weatherRefreshExplanation,
   type HourlyForecast,
 } from '../weather';
 
@@ -43,6 +44,22 @@ function hour(overrides: Partial<HourlyForecast> = {}): HourlyForecast {
     windDir: NaN,
     ...overrides,
   };
+}
+
+function weatherResponse(epoch: number, tempF = 62): object {
+  return {
+    hourly: {
+      time: [epoch],
+      cloud_cover: [25], cloud_cover_low: [10], cloud_cover_mid: [45],
+      cloud_cover_high: [35], visibility: [18_000], relative_humidity_2m: [55],
+      temperature_2m: [tempF], precipitation_probability: [5],
+      wind_speed_10m: [7], wind_gusts_10m: [10], wind_direction_10m: [270],
+    },
+  };
+}
+
+function airQualityResponse(epoch: number, pm25 = 4): object {
+  return { hourly: { time: [epoch], pm2_5: [pm25], us_aqi: [18] } };
 }
 
 describe('getHourlyForecastCompleteness', () => {
@@ -420,5 +437,102 @@ describe('Unix-time forecast ingestion', () => {
     await expect(fetchSpotForecast(37.6101, -122.3101, 'America/Los_Angeles', {
       includeAirQuality: false,
     })).resolves.toEqual(saved);
+  });
+
+  it.each([
+    ['empty hours', { hourly: { time: [] } }],
+    ['NaN active metric', weatherResponse(Date.parse('2026-08-31T01:00:00Z') / 1000, NaN)],
+  ])('does not overwrite durable usable evidence with HTTP 200 %s', async (_label, malformed) => {
+    const storage = memoryStorage();
+    vi.stubGlobal('sessionStorage', storage);
+    const hourKey = '2026-08-31T01:00:00Z';
+    const epoch = Date.parse(hourKey) / 1000;
+    let response: object = weatherResponse(epoch);
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify(response), { status: 200 }));
+    const lat = _label === 'empty hours' ? 37.6201 : 37.6202;
+
+    const saved = await fetchSpotForecast(lat, -122.3201, 'America/Los_Angeles', {
+      includeAirQuality: false,
+      requiredMetric: 'temp',
+      requiredHourKey: hourKey,
+    });
+    const storageKey = storage.key(0)!;
+    const durableBefore = storage.getItem(storageKey);
+    response = malformed;
+
+    await expect(fetchSpotForecast(lat, -122.3201, 'America/Los_Angeles', {
+      includeAirQuality: false,
+      maxAgeMs: -1,
+      requiredMetric: 'temp',
+      requiredHourKey: hourKey,
+    })).rejects.toMatchObject({
+      kind: 'invalid-data',
+      savedForecast: saved,
+    });
+    expect(storage.getItem(storageKey)).toBe(durableBefore);
+    await expect(fetchSpotForecast(lat, -122.3201, 'America/Los_Angeles', {
+      includeAirQuality: false,
+      requiredMetric: 'temp',
+      requiredHourKey: hourKey,
+    })).resolves.toEqual(saved);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains one complete selected snapshot when only AQ refresh fails, then recovers', async () => {
+    const storage = memoryStorage();
+    vi.stubGlobal('sessionStorage', storage);
+    const hourKey = '2026-08-31T01:00:00Z';
+    const epoch = Date.parse(hourKey) / 1000;
+    let phase: 'initial' | 'aq-failure' | 'recovered' = 'initial';
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const isAir = new URL(String(input)).hostname.startsWith('air-quality');
+      if (phase === 'aq-failure' && isAir) return new Response('{}', { status: 429 });
+      const payload = isAir
+        ? airQualityResponse(epoch, phase === 'recovered' ? 7 : 4)
+        : weatherResponse(epoch, phase === 'recovered' ? 65 : 62);
+      return new Response(JSON.stringify(payload), { status: 200 });
+    });
+
+    const saved = await fetchSpotForecast(37.6301, -122.3301, 'America/Los_Angeles', {
+      requiredHourKey: hourKey,
+    });
+    expect(saved.hours[hourKey].pm25).toBe(4);
+    const storageKey = storage.key(0)!;
+    const durableBefore = storage.getItem(storageKey);
+    phase = 'aq-failure';
+
+    await expect(fetchSpotForecast(37.6301, -122.3301, 'America/Los_Angeles', {
+      maxAgeMs: -1,
+      requiredHourKey: hourKey,
+    })).rejects.toMatchObject({
+      kind: 'rate-limit',
+      evidenceGap: 'air-quality',
+      savedForecast: saved,
+      message: 'Forecast refresh was incomplete because air-quality evidence was unavailable',
+    });
+    expect(storage.getItem(storageKey)).toBe(durableBefore);
+
+    let refreshError: Error | null = null;
+    try {
+      await fetchSpotForecast(37.6301, -122.3301, 'America/Los_Angeles', {
+        maxAgeMs: -1,
+        requiredHourKey: hourKey,
+      });
+    } catch (reason) {
+      refreshError = reason instanceof Error ? reason : new Error(String(reason));
+    }
+    expect(weatherRefreshExplanation(refreshError)).toBe(
+      'Air-quality evidence was unavailable during refresh. Showing the saved forecast.',
+    );
+
+    phase = 'recovered';
+    const recovered = await fetchSpotForecast(37.6301, -122.3301, 'America/Los_Angeles', {
+      maxAgeMs: 0,
+      requiredHourKey: hourKey,
+    });
+    expect(recovered.hours[hourKey]).toMatchObject({ tempF: 65, pm25: 7 });
+    expect(storage.getItem(storageKey)).not.toBe(durableBefore);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 });

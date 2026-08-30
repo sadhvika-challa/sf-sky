@@ -6,10 +6,13 @@ type Props = Pick<NeighborhoodForecastState, 'phase' | 'loaded' | 'total' | 'err
   metric: WeatherMetric;
   hourKey: string;
   visibleAverage?: number;
+  cityName: string;
+  timeZone: string;
+  now: Date;
 };
 
 export default function WeatherOverlayStatus({
-  phase, loaded, total, errorKind, retry, metric, hourKey, visibleAverage,
+  phase, loaded, total, errorKind, retry, metric, hourKey, visibleAverage, cityName, timeZone, now,
 }: Props) {
   const presentation = getWeatherOverlayPresentation(phase, loaded, total, errorKind);
   if (!presentation) return null;
@@ -24,7 +27,9 @@ export default function WeatherOverlayStatus({
       <span
         className="sr-only"
         role="img"
-        aria-label={weatherMapSummary(metric, hourKey, loaded, total, visibleAverage)}
+        aria-label={weatherMapSummary(
+          cityName, timeZone, metric, hourKey, now, loaded, total, visibleAverage,
+        )}
       />
       {presentation.canRetry && (
         <button type="button" onClick={retry} className="ml-2 font-semibold text-[#8B5E3C] underline">

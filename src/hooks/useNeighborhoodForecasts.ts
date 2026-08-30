@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { neighborhoods, type Neighborhood } from '../data/neighborhoods';
 import {
   fetchSpotForecast,
@@ -37,6 +37,10 @@ const orderedNeighborhoods = [
   ...FIRST_WAVE_IDS.map((id) => neighborhoods.find((n) => n.id === id)!),
   ...neighborhoods.filter((n) => !FIRST_WAVE_IDS.includes(n.id)),
 ];
+
+export function overlayRequestMaxAge(forceRefresh: boolean): number {
+  return forceRefresh ? 0 : WEATHER_REFRESH_INTERVAL_MS;
+}
 
 interface InternalState {
   forecasts: NeighborhoodForecasts;
@@ -115,9 +119,21 @@ export function useNeighborhoodForecasts(
     errorKind: null, nextRefreshAt: null,
   });
   const [generation, setGeneration] = useState(0);
+  const forceGenerationRef = useRef<number | null>(null);
   const retry = useCallback(() => {
     setState((previous) => ({ ...previous, nextRefreshAt: null }));
-    setGeneration((value) => value + 1);
+    setGeneration((value) => {
+      const next = value + 1;
+      forceGenerationRef.current = next;
+      return next;
+    });
+  }, []);
+  const refreshAutomatically = useCallback(() => {
+    setGeneration((value) => {
+      const next = value + 1;
+      forceGenerationRef.current = null;
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -127,6 +143,8 @@ export function useNeighborhoodForecasts(
     let nextIndex = 0;
     let failures = 0;
     let lastError: WeatherRequestErrorKind | null = null;
+    let recoveredSavedEvidence = false;
+    const forceRefresh = forceGenerationRef.current === generation;
     const savedSamples = buildSamples(metric, hourKey, state.forecasts);
     const hadSavedForecasts = savedSamples.size >= OVERLAY_USABLE_ANCHORS
       && hasSpatialSupport(savedSamples);
@@ -149,7 +167,9 @@ export function useNeighborhoodForecasts(
         try {
           const forecast = await fetchSpotForecast(neighborhood.lat, neighborhood.lng, timeZone, {
             includeAirQuality: false,
-            maxAgeMs: WEATHER_REFRESH_INTERVAL_MS,
+            maxAgeMs: overlayRequestMaxAge(forceRefresh),
+            requiredMetric: metric,
+            requiredHourKey: hourKey,
             signal: controller.signal,
           });
           if (controller.signal.aborted) return;
@@ -174,6 +194,7 @@ export function useNeighborhoodForecasts(
         } catch (reason) {
           if (controller.signal.aborted) return;
           if (reason instanceof WeatherRequestError && reason.savedForecast) {
+            recoveredSavedEvidence = true;
             setState((previous) => {
               const forecasts = new Map(previous.forecasts);
               forecasts.set(neighborhood.id, reason.savedForecast!);
@@ -192,12 +213,13 @@ export function useNeighborhoodForecasts(
         return {
           ...previous,
           loading: false,
-          hadSavedAtStart: hadSavedForecasts,
+          hadSavedAtStart: hadSavedForecasts || recoveredSavedEvidence,
           errorKind: failures > 0 ? (lastError ?? 'network') : null,
           // Anchor the next generation to actual completion, not hook mount.
           nextRefreshAt: nextWeatherRefreshAt(null),
         };
       });
+      if (forceGenerationRef.current === generation) forceGenerationRef.current = null;
     });
 
     return () => controller.abort();
@@ -210,9 +232,9 @@ export function useNeighborhoodForecasts(
   useEffect(() => {
     if (!enabled || state.loading || state.nextRefreshAt === null) return;
     const delay = Math.max(0, state.nextRefreshAt - Date.now());
-    const timeout = setTimeout(retry, delay);
+    const timeout = setTimeout(refreshAutomatically, delay);
     return () => clearTimeout(timeout);
-  }, [enabled, retry, state.loading, state.nextRefreshAt]);
+  }, [enabled, refreshAutomatically, state.loading, state.nextRefreshAt]);
 
   const hourKeys = useMemo(() => deriveLocalHourKeys(now), [now]);
   const coverage = deriveOverlayCoverage(

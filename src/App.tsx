@@ -732,6 +732,9 @@ function App() {
           metric={weatherMetric}
           hourKey={activeWeatherHourKey}
           visibleAverage={visibleMetricAvg}
+          cityName={activeCityConfig.name}
+          timeZone={activeCityConfig.timeZone}
+          now={now}
         />
       )}
 

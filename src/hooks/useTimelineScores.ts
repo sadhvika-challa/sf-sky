@@ -228,6 +228,7 @@ export function useTimelineScores(
     dueAt: number;
   } | null>(null);
   const requestedScope = `${timeZone}:${requestedSpotIds.join(',')}`;
+  const requestHourKey = formatCanonicalHourKey(now);
   const bumpRefresh = useCallback((force: boolean) => {
     setRefreshRequest((previous) => ({ generation: previous.generation + 1, force }));
   }, []);
@@ -279,6 +280,7 @@ export function useTimelineScores(
       if (!requested.has(spot.id)) continue;
       fetchSpotForecast(spot.lat, spot.lng, timeZone, {
         maxAgeMs: refreshRequest.force ? 0 : WEATHER_REFRESH_INTERVAL_MS,
+        requiredHourKey: requestHourKey,
         signal: controller.signal,
       })
         .then((forecast) => {
@@ -328,7 +330,7 @@ export function useTimelineScores(
         });
     }
     return () => controller.abort();
-  }, [requestedScope, requestedSpotIds, spots, refreshRequest, timeZone]);
+  }, [requestHourKey, requestedScope, requestedSpotIds, spots, refreshRequest, timeZone]);
 
   const requestedSet = useMemo(() => new Set(requestedSpotIds), [requestedSpotIds]);
 

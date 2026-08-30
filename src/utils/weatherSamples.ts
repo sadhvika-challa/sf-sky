@@ -8,6 +8,7 @@
 import { neighborhoods } from '../data/neighborhoods';
 import {
   fogDensity,
+  isUsableWeatherMetricHour,
   type HourlyForecast,
   type SpotForecast,
 } from './weather';
@@ -36,7 +37,7 @@ export function buildSamples(
     if (!forecast || !forecast.hours || typeof forecast.hours !== 'object') continue;
     const hourly = forecast.hours[hourKey];
     if (!hourly) continue;
-    if (!isUsableMetricHour(metric, hourly)) continue;
+    if (!isUsableWeatherMetricHour(metric, hourly)) continue;
     const value = pickMetric(metric, hourly);
     if (!Number.isFinite(value)) continue;
     out.set(n.id, { lat: n.lat, lng: n.lng, value });
@@ -93,31 +94,7 @@ export function buildWindDirs(
 }
 
 /** Validate the actual fields that drive a metric before treating an anchor as coverage. */
-export function isUsableMetricHour(metric: WeatherMetric, hourly: HourlyForecast): boolean {
-  if (!hourly || typeof hourly !== 'object') return false;
-  switch (metric) {
-    case 'temp':
-      return Number.isFinite(hourly.tempF) && hourly.tempF >= -150 && hourly.tempF <= 150;
-    case 'clouds':
-      return isPercent(hourly.cloud);
-    case 'precip':
-      return isPercent(hourly.precipProb);
-    case 'wind':
-      return Number.isFinite(hourly.windMph) && hourly.windMph >= 0 && hourly.windMph <= 300;
-    case 'fog':
-      return Number.isFinite(hourly.visibilityKm) && hourly.visibilityKm >= 0
-        && isPercent(hourly.cloudLow)
-        && isPercent(hourly.humidity);
-    default: {
-      const _exhaustive: never = metric;
-      return _exhaustive;
-    }
-  }
-}
-
-function isPercent(value: number): boolean {
-  return Number.isFinite(value) && value >= 0 && value <= 100;
-}
+export const isUsableMetricHour = isUsableWeatherMetricHour;
 
 export function pickMetric(metric: WeatherMetric, h: HourlyForecast): number {
   switch (metric) {

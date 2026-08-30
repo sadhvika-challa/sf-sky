@@ -1,4 +1,5 @@
 import { formatCanonicalHourKey, isCanonicalHourKey, parseCanonicalHourKey } from './timeline';
+import type { WeatherMetric } from './interpolate';
 
 // Open-Meteo client for SF Sky.
 // Fetches an hourly weather + air-quality forecast for a given lat/lng and
@@ -150,6 +151,7 @@ export class WeatherRequestError extends Error {
   readonly kind: WeatherRequestErrorKind;
   readonly status?: number;
   readonly savedForecast?: SpotForecast;
+  readonly evidenceGap?: 'air-quality';
 
   constructor(
     kind: WeatherRequestErrorKind,
@@ -157,13 +159,21 @@ export class WeatherRequestError extends Error {
     status?: number,
     options?: ErrorOptions,
     savedForecast?: SpotForecast,
+    evidenceGap?: 'air-quality',
   ) {
     super(message, options);
     this.name = 'WeatherRequestError';
     this.kind = kind;
     this.status = status;
     this.savedForecast = savedForecast;
+    this.evidenceGap = evidenceGap;
   }
+}
+
+export function weatherRefreshExplanation(error: Error | null): string | null {
+  return error instanceof WeatherRequestError && error.evidenceGap === 'air-quality'
+    ? 'Air-quality evidence was unavailable during refresh. Showing the saved forecast.'
+    : null;
 }
 
 export interface FetchSpotForecastOptions {
@@ -172,6 +182,9 @@ export interface FetchSpotForecastOptions {
   timeoutMs?: number;
   /** Selected spots need AQ evidence. Regional overlay anchors need weather only. */
   includeAirQuality?: boolean;
+  /** Optional overlay contract. Invalid active-hour metric data is rejected. */
+  requiredMetric?: WeatherMetric;
+  requiredHourKey?: string;
 }
 
 interface InflightEntry {
@@ -527,7 +540,10 @@ export async function fetchSpotForecast(
   const includeAirQuality = options.includeAirQuality !== false;
   const key = cacheKey(lat, lng, timeZone, includeAirQuality);
 
-  const cached = readCache(key, timeZone);
+  let cached = readCache(key, timeZone);
+  if (cached && !isForecastUsableForRequest(cached, options)) {
+    cached = null;
+  }
   let staleCandidate: SpotForecast | null = null;
   if (cached) {
     if (options.maxAgeMs !== undefined && cached.fetchedAt + options.maxAgeMs <= Date.now()) {
@@ -558,6 +574,7 @@ export async function fetchSpotForecast(
     const promise = (async () => {
       try {
         const endpointKey = capabilityKey(lat, lng, timeZone);
+        let airFailure: unknown = null;
         const [weatherResult, airResult] = await Promise.all([
           fetchCapability(
             endpointKey,
@@ -579,6 +596,7 @@ export async function fetchSpotForecast(
             )
             : Promise.resolve(null)).catch((reason) => {
               if (controller.signal.aborted) throw reason;
+              airFailure = reason;
               return null;
             }),
         ]);
@@ -593,6 +611,31 @@ export async function fetchSpotForecast(
           fetchedAt,
           Date.now(),
         );
+        if (!isForecastUsableForRequest(merged, options)) {
+          throw new WeatherRequestError(
+            'invalid-data',
+            'Weather service returned incomplete data for this view',
+            undefined,
+            undefined,
+            staleCandidate ?? undefined,
+          );
+        }
+        if (
+          includeAirQuality &&
+          staleCandidate &&
+          hasAirQualityEvidence(staleCandidate, options.requiredHourKey) &&
+          !hasAirQualityEvidence(merged, options.requiredHourKey)
+        ) {
+          const source = airFailure instanceof WeatherRequestError ? airFailure : null;
+          throw new WeatherRequestError(
+            source?.kind ?? 'invalid-data',
+            'Forecast refresh was incomplete because air-quality evidence was unavailable',
+            source?.status,
+            airFailure ? { cause: airFailure } : undefined,
+            staleCandidate,
+            'air-quality',
+          );
+        }
         writeCache(key, merged);
         return merged;
       } catch (reason) {
@@ -612,6 +655,7 @@ export async function fetchSpotForecast(
             reason.status,
             { cause: reason },
             staleCandidate,
+            reason.evidenceGap,
           );
         }
         throw reason;
@@ -628,6 +672,51 @@ export async function fetchSpotForecast(
   }
 
   return subscribeToInflight(entry, options.signal);
+}
+
+function isForecastUsableForRequest(
+  forecast: SpotForecast,
+  options: FetchSpotForecastOptions,
+): boolean {
+  if (Object.keys(forecast.hours).length === 0) return false;
+  if (!options.requiredMetric || !options.requiredHourKey) return true;
+  const hourly = forecast.hours[options.requiredHourKey];
+  return !!hourly && isUsableWeatherMetricHour(options.requiredMetric, hourly);
+}
+
+function hasAirQualityEvidence(forecast: SpotForecast, requiredHourKey?: string): boolean {
+  if (requiredHourKey) return Number.isFinite(forecast.hours[requiredHourKey]?.pm25);
+  return Object.values(forecast.hours).some((hourly) => Number.isFinite(hourly.pm25));
+}
+
+/** Metric-domain validation shared by durable request and overlay rendering. */
+export function isUsableWeatherMetricHour(
+  metric: WeatherMetric,
+  hourly: HourlyForecast,
+): boolean {
+  if (!hourly || typeof hourly !== 'object') return false;
+  switch (metric) {
+    case 'temp':
+      return Number.isFinite(hourly.tempF) && hourly.tempF >= -150 && hourly.tempF <= 150;
+    case 'clouds':
+      return isPercentage(hourly.cloud);
+    case 'precip':
+      return isPercentage(hourly.precipProb);
+    case 'wind':
+      return Number.isFinite(hourly.windMph) && hourly.windMph >= 0 && hourly.windMph <= 300;
+    case 'fog':
+      return Number.isFinite(hourly.visibilityKm) && hourly.visibilityKm >= 0
+        && isPercentage(hourly.cloudLow)
+        && isPercentage(hourly.humidity);
+    default: {
+      const _exhaustive: never = metric;
+      return _exhaustive;
+    }
+  }
+}
+
+function isPercentage(value: number): boolean {
+  return Number.isFinite(value) && value >= 0 && value <= 100;
 }
 
 function subscribeToInflight(entry: InflightEntry, signal?: AbortSignal): Promise<SpotForecast> {
