@@ -123,13 +123,20 @@ test('shows retrieval while the selected spot forecast is loading', async ({ pag
   reportRequests(harness, 'loading');
 });
 
-test('uses a curated estimate when the selected future hour is absent', async ({ page }, testInfo) => {
+test('uses a curated estimate when a newly selected spot lacks the active hour', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'State contract is exercised once in Chromium');
   const harness = await installWeatherHarness(page);
   harness.missingHourKeysByCoordinates.set(OCEAN_BEACH_COORDINATES, new Set([FIRST_FUTURE_HOUR_KEY]));
-  await page.goto('/');
-  const futureHour = page.getByRole('group', { name: 'Forecast hours' }).getByRole('button').nth(1);
-  await futureHour.click();
+  await page.goto('/?spot=sf-twin-peaks&view=now');
+  const firstSpot = page.getByRole('dialog', { name: 'Twin Peaks sky scores' });
+  const slider = firstSpot.locator('[data-card-type="now"]')
+    .getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  await slider.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(firstSpot).toBeHidden();
   await selectOceanFromSearch(page);
 
   const nowCard = await oceanCard(page);

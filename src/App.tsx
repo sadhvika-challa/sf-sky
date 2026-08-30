@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { type Spot, type SpotCategory, type City } from './data/spots';
 import { type CuratedEvent } from './data/events';
 import { allSpots } from './data/all-spots';
@@ -19,18 +19,22 @@ import BugReportOverlay from './components/BugReportOverlay';
 import WeatherControls from './components/WeatherControls';
 import WeatherMetricToggle from './components/WeatherMetricToggle';
 import WeatherOverlayStatus from './components/WeatherOverlayStatus';
-import WelcomeCard from './components/WelcomeCard';
 import OnboardingHint from './components/OnboardingHint';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
 import MapErrorBoundary from './components/MapErrorBoundary';
-import LocationControl from './components/LocationControl';
+import HomeSheet, { type HomeSheetScopeNotice } from './components/HomeSheet';
+import BestNearbyCard, {
+  type BestNearbyCandidate as BestNearbyCardCandidate,
+  type BestNearbyCardProps,
+} from './components/BestNearbyCard';
 import SavedSpotsSheet from './components/SavedSpotsSheet';
 import { useSavedSpots } from './hooks/useSavedSpots';
-import type { ScoreTier, ViewMode } from './utils/scoring';
+import { type ScoreTier, type ViewMode } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
   formatCanonicalHourKey,
+  formatCanonicalHourLabel,
   isCanonicalHourKey,
   resolveLegacyWallClockHour,
   viewModeForHourKey,
@@ -40,6 +44,15 @@ import {
   isOnboardingDone,
   markOnboardingDone,
 } from './utils/onboarding';
+import {
+  buildBestNearbyResult,
+  buildManualCityBestResult,
+  resolveBestNearbyCoverage,
+  selectBestNearbyCandidates,
+  selectManualCityCandidates,
+  type BestNearbyRankedCandidate,
+  type RankedManualCityCandidate,
+} from './utils/bestNearby';
 import './App.css';
 
 // Per-event tier filter. Empty array = no constraint (show everything for
@@ -73,6 +86,37 @@ type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 const FILTERS_KEY = 'sf-sky:filters';
 const HOME_CITY_KEY = 'sky:homeCity';
 const ACTIVE_CITY_KEY = 'sky:activeCity';
+
+function formatDistanceMiles(distanceMiles: number): string {
+  if (!Number.isFinite(distanceMiles)) return '';
+  if (distanceMiles < 10) return `${distanceMiles.toFixed(1)} mi`;
+  return `${Math.round(distanceMiles)} mi`;
+}
+
+function capitalize(value: string): string {
+  return value.length === 0 ? value : `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+function toBestNearbyCardCandidate(
+  candidate: BestNearbyRankedCandidate | RankedManualCityCandidate,
+  approximateDistance: boolean,
+): BestNearbyCardCandidate {
+  const evidence = candidate.evidence;
+  const distanceMiles = 'distanceMiles' in candidate ? candidate.distanceMiles : null;
+  return {
+    id: candidate.spot.id,
+    name: candidate.spot.name,
+    score: candidate.nowScore,
+    confidence: capitalize(evidence?.confidence ?? 'low'),
+    lastUpdatedLabel: evidence?.retrievalLabel ?? 'Forecast not retrieved',
+    forecastBacked: evidence?.provenance === 'forecast',
+    comparable: candidate.comparable,
+    distance: distanceMiles === null ? undefined : formatDistanceMiles(distanceMiles),
+    approximateDistance: distanceMiles === null ? false : approximateDistance,
+    fartherFallback: 'distanceBand' in candidate && candidate.distanceBand === 'farther-fallback',
+    accessWarning: candidate.spot.accessAlert?.message,
+  };
+}
 
 function readStoredHomeCity(): City {
   if (typeof window === 'undefined') return 'sf';
@@ -206,6 +250,10 @@ function App() {
   const [activeCityId, setActiveCityIdRaw] = useState<City>(() =>
     initialDeepLink.spot?.city ?? readStoredActiveCity(readStoredHomeCity()),
   );
+  // An explicit city choice preserves agency even when location is available.
+  // Nearby mode resumes only after the person asks to use their location or
+  // accepts the detected coverage city.
+  const [manualCityMode, setManualCityMode] = useState(false);
   const [citySheetOpen, setCitySheetOpen] = useState(false);
   const [savedSpotsSheetOpen, setSavedSpotsSheetOpen] = useState(false);
   const savedSpots = useSavedSpots();
@@ -236,9 +284,6 @@ function App() {
   // question. Order mirrors the natural usage path:
   //   welcome → tap-spot → scroll-cards → scrub-timeline →
   //   weather-overlay → metrics → complete
-  const [showWelcome, setShowWelcome] = useState(
-    () => !isOnboardingDone(ONBOARDING_KEYS.welcome),
-  );
   const [showTapSpotHint, setShowTapSpotHint] = useState(false);
   // Pixel position of the pin we anchor the tap-spot hint to. Driven
   // by MapView's `TapSpotAnchorTracker` so the hint follows the chosen
@@ -254,12 +299,48 @@ function App() {
     [activeCityId],
   );
   const location = useLocation();
+  const requestLocation = location.request;
+  const clearLocation = location.clear;
   const userLocation = location.state.status === 'allowed'
     ? location.state.location
     : null;
+  const bestNearbyCoverage = useMemo(
+    () => userLocation ? resolveBestNearbyCoverage(allSpots, userLocation) : null,
+    [userLocation],
+  );
+  const locationFallbackActive = location.state.status === 'denied' ||
+    location.state.status === 'timeout' ||
+    location.state.status === 'unavailable' ||
+    location.state.status === 'unsupported';
+  const manualRecommendationActive = location.state.status !== 'requesting' &&
+    (manualCityMode || locationFallbackActive);
+  const nearbyRecommendationActive = !manualRecommendationActive &&
+    bestNearbyCoverage?.status === 'inside-configured-city' &&
+    bestNearbyCoverage.city === activeCityId;
+  const landingRecommendationEnabled = !weatherOverlay && !selectedEvent && !timelineHourKey;
+  const nearbyTargets = useMemo(
+    () => nearbyRecommendationActive && userLocation && landingRecommendationEnabled
+      ? selectBestNearbyCandidates(allSpots, userLocation, activeCityId).candidates
+      : [],
+    [activeCityId, landingRecommendationEnabled, nearbyRecommendationActive, userLocation],
+  );
+  const manualTargets = useMemo(
+    () => manualRecommendationActive && landingRecommendationEnabled
+      ? selectManualCityCandidates(activeSpots, activeCityId)
+      : [],
+    [activeCityId, activeSpots, landingRecommendationEnabled, manualRecommendationActive],
+  );
+  const recommendationTargetSpots = useMemo(
+    () => nearbyRecommendationActive
+      ? nearbyTargets.map((candidate) => candidate.spot)
+      : manualTargets.map((candidate) => candidate.spot),
+    [manualTargets, nearbyRecommendationActive, nearbyTargets],
+  );
   const requestedSpotIds = useMemo(
-    () => selectedSpot ? [selectedSpot.id] : [],
-    [selectedSpot],
+    () => selectedSpot
+      ? [selectedSpot.id]
+      : recommendationTargetSpots.map((spot) => spot.id),
+    [recommendationTargetSpots, selectedSpot],
   );
   const timelineScores = useTimelineScores(
     activeSpots,
@@ -270,6 +351,43 @@ function App() {
     requestedSpotIds,
   );
   const liveScores = timelineScores.scores;
+  const recommendationForecastsLoading = timelineScores.forecastRetrying ||
+    recommendationTargetSpots.some(
+      (spot) => !timelineScores.forecasts.has(spot.id) && !timelineScores.forecastErrors.has(spot.id),
+    );
+  const nearbyRecommendationResult = useMemo(
+    () => nearbyRecommendationActive && userLocation
+      ? buildBestNearbyResult({
+          spots: allSpots,
+          userLocation,
+          liveScores,
+          forecastsLoading: recommendationForecastsLoading,
+        })
+      : null,
+    [
+      liveScores,
+      nearbyRecommendationActive,
+      recommendationForecastsLoading,
+      userLocation,
+    ],
+  );
+  const manualRecommendationResult = useMemo(
+    () => manualRecommendationActive
+      ? buildManualCityBestResult(
+          activeSpots,
+          activeCityId,
+          liveScores,
+          recommendationForecastsLoading,
+        )
+      : null,
+    [
+      activeCityId,
+      activeSpots,
+      liveScores,
+      manualRecommendationActive,
+      recommendationForecastsLoading,
+    ],
+  );
   const activeWeatherHourKey = timelineHourKey || formatCanonicalHourKey(now);
   const neighborhoodForecastState = useNeighborhoodForecasts(
     weatherOverlay && activeCityConfig.hasWeatherMode,
@@ -407,7 +525,7 @@ function App() {
     } catch { /* non-fatal */ }
   }, [activeCityId]);
 
-  const setActiveCity = useCallback((city: City) => {
+  const applyActiveCity = useCallback((city: City) => {
     setActiveCityIdRaw(city);
     setTimelineHourKey('');
     setSelectedSpot(null);
@@ -425,10 +543,32 @@ function App() {
     }
   }, []);
 
+  const setActiveCity = useCallback((city: City) => {
+    setManualCityMode(true);
+    applyActiveCity(city);
+  }, [applyActiveCity]);
+
+  const activateLocatedCity = useCallback((city: City) => {
+    setManualCityMode(false);
+    applyActiveCity(city);
+  }, [applyActiveCity]);
+
   const setHomeCity = useCallback((city: City) => {
     setHomeCityIdRaw(city);
     setActiveCity(city);
   }, [setActiveCity]);
+
+  const handleRequestLocation = useCallback(async () => {
+    const nextState = await requestLocation();
+    if (nextState.status === 'allowed') setManualCityMode(false);
+    return nextState;
+  }, [requestLocation]);
+
+  const handleUseCityInstead = useCallback(() => {
+    clearLocation();
+    setManualCityMode(true);
+    setTimelineHourKey('');
+  }, [clearLocation]);
 
   const handleOpenSavedSpots = useCallback(() => {
     setMenuOpen(false);
@@ -450,6 +590,7 @@ function App() {
   // city therefore opens with its city already active, without briefly clearing
   // the selection or showing the prior city's map state.
   const handleSelectSavedSpot = useCallback((spot: Spot) => {
+    setManualCityMode(true);
     setActiveCityIdRaw(spot.city);
     setTimelineHourKey('');
     setSelectedSpot(spot);
@@ -502,16 +643,8 @@ function App() {
     window.history.replaceState({}, '', cleanUrl);
   }, [initialDeepLink.spot]);
 
-  // Latest-selected spot, mirrored into a ref so `handleSelectSpot` (which
-  // intentionally has no deps) can branch on the prior selection without
-  // capturing a stale closure or doing a setState-from-updater.
-  const selectedSpotRef = useRef<Spot | null>(null);
-  useEffect(() => {
-    selectedSpotRef.current = selectedSpot;
-  }, [selectedSpot]);
-
   const handleSelectSpot = useCallback((spot: Spot | null) => {
-    const prev = selectedSpotRef.current;
+    const prev = selectedSpot;
     // Card is being dismissed (spot is null) and there *was* something
     // selected — remember it so the map can recenter + pulse the pin the
     // user was just reading about. Without this hand-off, the pin
@@ -546,7 +679,12 @@ function App() {
     }
     setSelectedSpot(spot);
     setInitialCardType(undefined);
-  }, []);
+  }, [selectedSpot]);
+
+  const handleSelectRecommendation = useCallback((spotId: string) => {
+    const spot = recommendationTargetSpots.find((candidate) => candidate.id === spotId);
+    if (spot) handleSelectSpot(spot);
+  }, [handleSelectSpot, recommendationTargetSpots]);
 
   // Selecting an event opens its editorial sheet and closes any open spot
   // ScorePanel — the two bottom sheets are mutually exclusive (Part 4).
@@ -590,17 +728,6 @@ function App() {
 
   // Onboarding dismissal handlers. Each writes the corresponding flag
   // so the prompt never reappears across sessions.
-  const handleDismissWelcome = useCallback(() => {
-    markOnboardingDone(ONBOARDING_KEYS.welcome);
-    setShowWelcome(false);
-    // Hand off to the tap-spot hint immediately, but only when this is a
-    // genuine first-visit chain — if the user has already tapped a pin
-    // in some prior session, skip it entirely.
-    if (!isOnboardingDone(ONBOARDING_KEYS.tapSpot)) {
-      setShowTapSpotHint(true);
-    }
-  }, []);
-
   const handleDismissTapSpotHint = useCallback(() => {
     markOnboardingDone(ONBOARDING_KEYS.tapSpot);
     setShowTapSpotHint(false);
@@ -672,6 +799,79 @@ function App() {
       }
     }
   }, [weatherOverlayAvailable]);
+
+  let homeScopeNotice: HomeSheetScopeNotice | null = null;
+  if (
+    landingRecommendationEnabled &&
+    !manualCityMode &&
+    userLocation &&
+    bestNearbyCoverage?.status === 'inside-configured-city' &&
+    bestNearbyCoverage.city !== activeCityId
+  ) {
+    const suggestedCity = getCityById(bestNearbyCoverage.city);
+    if (suggestedCity) {
+      homeScopeNotice = {
+        kind: 'city-mismatch',
+        activeCityName: activeCityConfig.name,
+        suggestedCityName: suggestedCity.name,
+        onUseSuggestedCity: () => activateLocatedCity(suggestedCity.id),
+        onKeepCurrentCity: () => setManualCityMode(true),
+      };
+    }
+  } else if (
+    landingRecommendationEnabled &&
+    !manualCityMode &&
+    userLocation &&
+    bestNearbyCoverage?.status === 'outside-coverage'
+  ) {
+    const suggestedCity = bestNearbyCoverage.suggestedCity
+      ? getCityById(bestNearbyCoverage.suggestedCity)
+      : null;
+    homeScopeNotice = {
+      kind: 'outside-coverage',
+      suggestedCityName: suggestedCity?.name ?? null,
+      suggestionDistance: bestNearbyCoverage.suggestionDistanceMiles === null
+        ? null
+        : formatDistanceMiles(bestNearbyCoverage.suggestionDistanceMiles),
+      onUseSuggestedCity: suggestedCity
+        ? () => setActiveCity(suggestedCity.id)
+        : undefined,
+    };
+  }
+
+  const activeRecommendation = nearbyRecommendationResult ?? manualRecommendationResult;
+  let recommendationCardProps: BestNearbyCardProps | null = null;
+  if (landingRecommendationEnabled && activeRecommendation) {
+    const claimKind: BestNearbyCardProps['claimKind'] = nearbyRecommendationResult
+      ? 'best-nearby-now'
+      : 'best-of-checked';
+    const approximateDistance = nearbyRecommendationResult !== null &&
+      userLocation?.precision !== 'precise';
+    const candidates = activeRecommendation.candidates.map((candidate) =>
+      toBestNearbyCardCandidate(candidate, approximateDistance),
+    );
+    const winner = activeRecommendation.best
+      ? candidates.find((candidate) => candidate.id === activeRecommendation.best?.spot.id)
+      : undefined;
+    const cardState = activeRecommendation.state === 'ready-comparison' && winner
+      ? 'ready'
+      : activeRecommendation.state === 'loading-forecasts'
+        ? 'loading'
+        : activeRecommendation.state === 'no-supported-spots'
+          ? 'no-supported-spots'
+          : 'insufficient-evidence';
+    const baseProps = {
+      claimKind,
+      cityName: activeCityConfig.name,
+      comparedCount: activeRecommendation.comparableCandidates.length,
+      candidates,
+      onSelectSpot: handleSelectRecommendation,
+      onRetry: candidates.length > 0 ? timelineScores.retryForecast : undefined,
+    };
+    recommendationCardProps = cardState === 'ready' && winner
+      ? { ...baseProps, state: 'ready', winner }
+      : { ...baseProps, state: cardState === 'ready' ? 'insufficient-evidence' : cardState };
+  }
 
   return (
     <div className="h-dvh min-h-dvh w-screen relative bg-cream font-mono overflow-hidden">
@@ -790,26 +990,64 @@ function App() {
         />
       )}
 
-      {!selectedSpot && (
-        <div
-          className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 bg-white/95 backdrop-blur-sm rounded-t-xl shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
-        >
-          <LocationControl
-            state={location.state}
-            onRequest={location.request}
-          />
-          <WeatherControls
-            hourKeys={weatherHourKeys}
-            hourKey={timelineHourKey || resolvedNowKey}
-            onHourChange={(key) =>
-              handleTimelineHourChange(key === resolvedNowKey ? '' : key)
-            }
-            nowIndex={nowIndex}
-            timeZone={activeCityConfig.timeZone}
-            center={activeCityConfig.center}
-            now={now}
-          />
-        </div>
+      {!selectedSpot && !selectedEvent && (
+        <HomeSheet
+          locationState={location.state}
+          onRequestLocation={handleRequestLocation}
+          onChooseCity={() => setCitySheetOpen(true)}
+          onUseCityInstead={handleUseCityInstead}
+          scopeNotice={homeScopeNotice}
+          recommendation={timelineHourKey && !weatherOverlay ? (
+            <section
+              aria-label="Selected forecast hour"
+              className="rounded-2xl border border-black/[0.08] bg-[rgba(250,250,248,0.96)] p-3 shadow-sm"
+            >
+              <h2 className="font-serif text-[17px] font-semibold text-[#1a1a18]">
+                Viewing selected hour
+              </h2>
+              <p className="mt-1 text-[12px] leading-relaxed text-gray-600">
+                The map is showing {formatCanonicalHourLabel(
+                  timelineHourKey,
+                  activeCityConfig.timeZone,
+                  { includeZone: true },
+                )}. Best Nearby Now returns when you return to the current hour.
+              </p>
+              <button
+                type="button"
+                onClick={() => setTimelineHourKey('')}
+                className="mt-1 min-h-11 rounded-md px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8B5E3C] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800"
+              >
+                Return to Now
+              </button>
+            </section>
+          ) : recommendationCardProps ? (
+            <div>
+              <BestNearbyCard {...recommendationCardProps} />
+              {manualCityMode && userLocation && (
+                <button
+                  type="button"
+                  onClick={() => setManualCityMode(false)}
+                  className="mt-1 min-h-11 rounded-md px-2 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-600 underline decoration-gray-400 underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800"
+                >
+                  Use nearby results instead
+                </button>
+              )}
+            </div>
+          ) : undefined}
+          timeline={weatherOverlay ? (
+            <WeatherControls
+              hourKeys={weatherHourKeys}
+              hourKey={timelineHourKey || resolvedNowKey}
+              onHourChange={(key) =>
+                handleTimelineHourChange(key === resolvedNowKey ? '' : key)
+              }
+              nowIndex={nowIndex}
+              timeZone={activeCityConfig.timeZone}
+              center={activeCityConfig.center}
+              now={now}
+            />
+          ) : undefined}
+        />
       )}
 
       <FilterMenu
@@ -993,10 +1231,6 @@ function App() {
         onUnsave={savedSpots.unsave}
         onRetry={savedSpots.rehydrate}
       />
-
-      {/* Welcome card — first-ever load only. Rendered last so its
-          backdrop sits above all other floating UI. */}
-      {showWelcome && <WelcomeCard onDismiss={handleDismissWelcome} />}
 
       <PWAInstallPrompt spotInteracted={!!selectedSpot} />
     </div>

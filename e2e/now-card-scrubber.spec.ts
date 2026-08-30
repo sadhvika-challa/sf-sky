@@ -192,16 +192,17 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
 test('keeps recovery available when the selected spot forecast fails', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   harness.failCoordinates.add(OCEAN_BEACH_COORDINATES);
-  await page.goto('/');
+  await page.goto('/?spot=sf-twin-peaks&view=now');
 
-  // Select a public forecast hour before opening the failed spot. This gives
-  // the Now card a real stale selection to recover from without reaching into
-  // React state or relying on a test-only application hook.
-  const globalTimeline = page.getByRole('group', { name: 'Forecast hours' });
-  const futureHour = globalTimeline.getByRole('button').nth(1);
-  await expect(futureHour).toBeVisible();
-  await futureHour.click();
-  await expect(futureHour).toHaveAttribute('aria-pressed', 'true');
+  const firstSpot = page.getByRole('dialog', { name: 'Twin Peaks sky scores' });
+  const firstSlider = firstSpot.locator('[data-card-type="now"]')
+    .getByRole('slider', { name: 'Forecast hour' });
+  await expect(firstSlider).toHaveAttribute('aria-disabled', 'false');
+  await firstSlider.press('ArrowRight');
+  await expect(firstSlider).toHaveAttribute('aria-valuenow', '1');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(firstSpot).toBeHidden();
 
   await page.getByRole('button', { name: 'Search spots' }).click();
   const searchDialog = page.getByRole('dialog', { name: 'Search spots' });
@@ -213,6 +214,9 @@ test('keeps recovery available when the selected spot forecast fails', async ({ 
   await expect(errorDialog).toBeVisible();
   await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
   await expect(nowCard.getByText('Curated estimate · Forecast not retrieved', { exact: true })).toBeVisible();
+  const requestsBeforeReturn = harness.requests.forecast.filter(
+    (value) => value === OCEAN_BEACH_COORDINATES,
+  ).length;
   const returnButton = nowCard.getByRole('button', { name: 'Return to Now' });
   await expect(returnButton).toBeVisible();
   await returnButton.click();
@@ -221,7 +225,9 @@ test('keeps recovery available when the selected spot forecast fails', async ({ 
   await expect(returnButton).toBeHidden();
   await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
   await expect(cardOrder(errorDialog)).resolves.toEqual(CARD_ORDER);
-  expect(harness.requests.forecast.filter((value) => value === OCEAN_BEACH_COORDINATES)).toHaveLength(1);
+  expect(harness.requests.forecast.filter(
+    (value) => value === OCEAN_BEACH_COORDINATES,
+  )).toHaveLength(requestsBeforeReturn);
   assertNoLiveOpenMeteoTraffic(harness.requests);
 });
 
@@ -353,6 +359,7 @@ test('pages horizontally when the gesture starts over scrollable card content', 
   const cardScroll = nowPage.locator('[data-card-scroll]');
   const sunriseTab = dialog.getByRole('tab', { name: 'Show Sunrise card' });
   await expect(nowPage).toBeVisible();
+  await waitForStableGeometry(dialog);
 
   const cardOverflow = await nowPage.evaluate((element) => {
     const inner = element.querySelector<HTMLElement>('[data-card-scroll]');

@@ -91,6 +91,27 @@ describe('useLocation privacy contract', () => {
     });
   });
 
+  it('clears an allowed coordinate from memory without invoking the provider again', async () => {
+    const provider: LocationProvider = {
+      isSupported: () => true,
+      request: vi.fn(async () => ({
+        lat: 37.75,
+        lng: -122.44,
+        accuracyMeters: 20,
+        precision: 'precise' as const,
+        capturedAt: 1,
+      })),
+    };
+    const controller = new LocationController(provider);
+
+    await controller.request();
+    expect(controller.getSnapshot().status).toBe('allowed');
+    controller.clear();
+
+    expect(controller.getSnapshot()).toEqual({ status: 'not-requested' });
+    expect(provider.request).toHaveBeenCalledTimes(1);
+  });
+
   it('coalesces repeated activation while a location request is pending', async () => {
     let resolveLocation: ((location: Awaited<ReturnType<LocationProvider['request']>>) => void) | undefined;
     const provider: LocationProvider = {

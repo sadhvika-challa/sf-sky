@@ -78,6 +78,7 @@ async function expectPromptTermination(
   harness: WeatherHarness,
   requests: WeatherRequestLifecycle[],
   actionAt: number,
+  expectGlobalIdle = true,
 ): Promise<void> {
   await expect.poll(() => requests.every((request) => request.terminal !== null)).toBe(true);
   const latestTerminalAt = Math.max(...requests.map((request) => request.terminalAt ?? Infinity));
@@ -86,7 +87,7 @@ async function expectPromptTermination(
     `Active requests must terminate within 1.5 seconds: ${JSON.stringify(requests)}`,
   ).toBeLessThanOrEqual(1_500);
   expect(requests.every((request) => request.terminal === 'aborted')).toBe(true);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  if (expectGlobalIdle) await expect.poll(() => harness.requests.active).toBe(0);
 }
 
 function generationForecasts(
@@ -271,12 +272,27 @@ test('cancels queued overlay work when the user switches cities', async ({ page 
   );
   const actionAt = await switchCity(page, 'Chicago');
   await expect(page.getByRole('button', { name: 'Toggle weather overlay' })).toHaveCount(0);
-  await expectPromptTermination(harness, activeBeforeCityChange, actionAt);
-  await expect.poll(() => harness.requests.forecast.length).toBe(startedBeforeCityChange);
+  await expectPromptTermination(harness, activeBeforeCityChange, actionAt, false);
+  // The explicit city choice starts the new Best of the spots checked
+  // journey. Its first wave remains bounded to two coordinate jobs while the
+  // prior overlay generation is already cancelled.
+  await expect.poll(() => harness.requests.forecast.length).toBe(startedBeforeCityChange + 2);
+  const activeManualCoordinates = new Set(
+    harness.requests.lifecycle
+      .filter((request) => request.terminal === null)
+      .map((request) => request.coordinateKey),
+  );
+  expect(activeManualCoordinates.size).toBeLessThanOrEqual(2);
 
   harness.responseDelayMs = 0;
+  const activeChicagoComparison = harness.requests.lifecycle.filter(
+    (request) => request.terminal === null,
+  );
+  const returnActionAt = await switchCity(page, 'San Francisco');
+  await expectPromptTermination(harness, activeChicagoComparison, returnActionAt, false);
+  await expect(page.getByText('Best of the spots checked', { exact: true })).toBeVisible();
+  await expect.poll(() => harness.requests.active).toBe(0);
   const secondGenerationId = harness.requests.lifecycle.length + 1;
-  await switchCity(page, 'San Francisco');
   await openWeatherOverlay(page);
   await expect.poll(() => generationForecasts(harness, secondGenerationId).length).toBe(OVERLAY_TOTAL);
   await expect.poll(() => harness.requests.active).toBe(0);
