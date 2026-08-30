@@ -504,6 +504,28 @@ test('moves focus into the selected saved spot sheet', async ({ page }) => {
   await expect(spotSheet).toBeFocused();
 });
 
+test('restores focus into an existing collapsed sheet when reselecting the same saved spot', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await resetSavedSpots(page);
+  await seedSavedSpots(page, [OCEAN_BEACH.id]);
+  await page.reload();
+
+  const spotSheet = await selectSpotFromSearch(page, OCEAN_BEACH.name);
+  await page.keyboard.press('Escape');
+  await expect(spotSheet).toHaveAttribute('aria-modal', 'false');
+
+  const saved = await openSavedSpots(page);
+  const openSameSpot = saved.getByRole('button', { name: `Open ${OCEAN_BEACH.name}` });
+  await openSameSpot.focus();
+  await page.keyboard.press('Enter');
+
+  await expect(saved).toBeHidden();
+  await expect(spotSheet).toBeVisible();
+  await expect(spotSheet).toHaveAttribute('aria-modal', 'false');
+  await expect(spotSheet).toBeFocused();
+});
+
 test('does not offer rehydrate Retry after a failed save write', async ({ page }) => {
   await installWeatherHarness(page);
   await page.goto('/');
