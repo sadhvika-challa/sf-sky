@@ -288,6 +288,9 @@ interface ScorePanelProps {
   onRetryForecast: () => void;
   forecastRetrying: boolean;
   now: Date;
+  saved: boolean;
+  savedSpotsStatus: 'loading' | 'ready' | 'error' | 'protected';
+  onSetSaved: (saved: boolean) => Promise<boolean>;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -316,8 +319,10 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
+  const [savePending, setSavePending] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
     : null;
@@ -336,6 +341,19 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const handleStreetView = () => {
     const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${spot.lat},${spot.lng}`;
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSavedChange = async () => {
+    const target = !saved;
+    setSavePending(true);
+    setSaveFeedback(target ? `Saving ${spot.name}…` : `Removing ${spot.name}…`);
+    const succeeded = await onSetSaved(target);
+    setSavePending(false);
+    setSaveFeedback(
+      succeeded
+        ? (target ? `${spot.name} saved on this device.` : `${spot.name} removed from saved spots.`)
+        : `${spot.name} was not ${target ? 'saved' : 'removed'}. Try again.`,
+    );
   };
 
   const cards = getNextEvents(spot, timelineHourKey, now);
@@ -596,7 +614,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             onPointerMove={handleHandlePointerMove}
             onPointerUp={handleHandlePointerEnd}
             onPointerCancel={handleHandlePointerEnd}
-            className="relative z-20 w-full min-h-11 -mb-7 flex flex-col items-center pt-2 flex-shrink-0 group touch-none"
+            className="relative z-20 w-24 min-h-11 self-center -mb-7 flex flex-col items-center pt-2 flex-shrink-0 group touch-none"
             aria-label="Swipe down to dismiss, or tap to collapse"
             aria-expanded={expanded}
             style={{ touchAction: 'none' }}
@@ -615,10 +633,25 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             {/* Header — spot identity + travel context. Pure spot info,
                 so the swipeable weather cards below can stay forecast-only. */}
             <div className="px-4 pt-1 pb-2 flex-shrink-0">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-2">
                 <h2 className="font-serif text-lg font-semibold text-gray-800 truncate min-w-0">
                   {spot.name}
                 </h2>
+                <button
+                  type="button"
+                  onClick={() => void handleSavedChange()}
+                  disabled={savePending || savedSpotsStatus === 'loading' || savedSpotsStatus === 'protected'}
+                  aria-pressed={saved}
+                  aria-label={saved ? `Remove ${spot.name} from saved spots` : `Save ${spot.name}`}
+                  title={saved ? 'Remove from saved spots' : 'Save spot'}
+                  className={`relative z-30 w-11 h-11 -mt-2 flex-shrink-0 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 ${
+                    saved ? 'text-amber-700 bg-amber-50' : 'text-gray-400 active:bg-cream-dark/50'
+                  }`}
+                >
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill={saved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 3h12v18l-6-4-6 4V3z" />
+                  </svg>
+                </button>
                 <span
                   className="font-serif text-3xl font-light leading-none flex-shrink-0 tabular-nums"
                   style={{ color: getScoreColor(getScoreFor(activeCardType)) }}
@@ -632,6 +665,19 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                   {getScoreFor(activeCardType)}
                 </span>
               </div>
+
+              {saveFeedback && (
+                <p
+                  className={`mt-1 font-mono text-[10px] leading-4 ${
+                    saveFeedback.includes('Try again') ? 'text-red-700' : 'text-gray-500'
+                  }`}
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  {saveFeedback}
+                </p>
+              )}
 
               {/* Travel row: pill toggle + plain ETA text + right-justified
                   icon pair (directions, street-view) that visually echoes

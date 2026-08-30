@@ -18,6 +18,8 @@ interface FilterMenuProps {
   city: City;
   homeCityId: City;
   onOpenCitySheet: () => void;
+  savedSpotsCount: number;
+  onOpenSavedSpots: () => void;
 }
 
 const CATEGORY_OPTIONS: ReadonlyArray<{ value: SpotCategory; label: string }> = [
@@ -101,6 +103,8 @@ function FilterContent({
   city,
   homeCityId,
   onOpenCitySheet,
+  savedSpotsCount,
+  onOpenSavedSpots,
 }: Omit<FilterMenuProps, 'open'>) {
   const title = useMemo(() => contextualTitle(), []);
 
@@ -146,6 +150,29 @@ function FilterContent({
       )}
 
       <div className="mt-4 pt-3 border-t border-cream-dark flex flex-col">
+        <button
+          type="button"
+          onClick={onOpenSavedSpots}
+          className="w-full min-h-11 flex items-center justify-between px-3 py-3.5 rounded-lg bg-transparent active:bg-cream-dark/40 transition-colors border-b border-cream-dark"
+          aria-label={`Saved spots, ${savedSpotsCount}`}
+        >
+          <span className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0" aria-hidden="true">
+              <path d="M6 3h12v18l-6-4-6 4V3z" />
+            </svg>
+            <span className="font-mono text-[12px] tracking-[1px] text-gray-600">
+              Saved spots
+            </span>
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="min-w-6 h-6 px-1.5 rounded-full bg-cream-dark flex items-center justify-center font-mono text-[10px] text-gray-600 tabular-nums" aria-hidden="true">
+              {savedSpotsCount}
+            </span>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-gray-300 shrink-0" aria-hidden="true">
+              <path d="M5 3l4 4-4 4" />
+            </svg>
+          </span>
+        </button>
         <button
           type="button"
           onClick={onSuggestSpot}
@@ -201,6 +228,8 @@ export default function FilterMenu({
   city,
   homeCityId,
   onOpenCitySheet,
+  savedSpotsCount,
+  onOpenSavedSpots,
 }: FilterMenuProps) {
   useEffect(() => {
     if (!open) return;
@@ -223,6 +252,8 @@ export default function FilterMenu({
     city,
     homeCityId,
     onOpenCitySheet,
+    savedSpotsCount,
+    onOpenSavedSpots,
   };
 
   return (

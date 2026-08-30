@@ -25,6 +25,8 @@ import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
 import MapErrorBoundary from './components/MapErrorBoundary';
 import LocationControl from './components/LocationControl';
+import SavedSpotsSheet from './components/SavedSpotsSheet';
+import { useSavedSpots } from './hooks/useSavedSpots';
 import type { ScoreTier, ViewMode } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
@@ -205,6 +207,8 @@ function App() {
     initialDeepLink.spot?.city ?? readStoredActiveCity(readStoredHomeCity()),
   );
   const [citySheetOpen, setCitySheetOpen] = useState(false);
+  const [savedSpotsSheetOpen, setSavedSpotsSheetOpen] = useState(false);
+  const savedSpots = useSavedSpots();
   const activeCityConfig = getCityById(activeCityId) ?? getCityById('sf')!;
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [timelineHourKey, setTimelineHourKey] = useState<string>(initialDeepLink.hourKey ?? '');
@@ -425,6 +429,39 @@ function App() {
     setHomeCityIdRaw(city);
     setActiveCity(city);
   }, [setActiveCity]);
+
+  const handleOpenSavedSpots = useCallback(() => {
+    setMenuOpen(false);
+    setSavedSpotsSheetOpen(true);
+  }, []);
+
+  const handleCloseSavedSpots = useCallback(() => {
+    setSavedSpotsSheetOpen(false);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')?.focus();
+    });
+  }, []);
+
+  // React batches these state updates into one render. A saved spot in another
+  // city therefore opens with its city already active, without briefly clearing
+  // the selection or showing the prior city's map state.
+  const handleSelectSavedSpot = useCallback((spot: Spot) => {
+    setActiveCityIdRaw(spot.city);
+    setTimelineHourKey('');
+    setSelectedSpot(spot);
+    setHighlightedSpot(null);
+    setSelectedEvent(null);
+    setInitialCardType(undefined);
+    setMenuOpen(false);
+    setSearchOpen(false);
+    setCitySheetOpen(false);
+    setSavedSpotsSheetOpen(false);
+    setFilters(defaultFilters);
+    try { localStorage.removeItem(FILTERS_KEY); } catch { /* non-fatal */ }
+    try { localStorage.removeItem(CATEGORY_FILTER_STORAGE_KEY); } catch { /* non-fatal */ }
+    const config = getCityById(spot.city);
+    if (config && !config.hasWeatherMode) setWeatherOverlay(false);
+  }, []);
 
   const handleToggleWeatherOverlay = useCallback(() => {
     setCloudPulseKey((k) => k + 1);
@@ -777,6 +814,8 @@ function App() {
         city={activeCityId}
         homeCityId={homeCityId}
         onOpenCitySheet={() => setCitySheetOpen(true)}
+        savedSpotsCount={savedSpots.savedSpotIds.length}
+        onOpenSavedSpots={handleOpenSavedSpots}
       />
 
 
@@ -831,6 +870,11 @@ function App() {
           onRetryForecast={timelineScores.retryForecast}
           forecastRetrying={timelineScores.forecastRetrying}
           now={now}
+          saved={savedSpots.isSaved(selectedSpot.id)}
+          savedSpotsStatus={savedSpots.status}
+          onSetSaved={(nextSaved) => nextSaved
+            ? savedSpots.save(selectedSpot.id)
+            : savedSpots.unsave(selectedSpot.id)}
         />
       )}
 
@@ -925,6 +969,18 @@ function App() {
         homeCityId={homeCityId}
         onSelectCity={setActiveCity}
         onSetHomeCity={setHomeCity}
+      />
+
+      <SavedSpotsSheet
+        open={savedSpotsSheetOpen}
+        onClose={handleCloseSavedSpots}
+        spots={allSpots}
+        savedSpotIds={savedSpots.savedSpotIds}
+        status={savedSpots.status}
+        error={savedSpots.error}
+        onSelectSpot={handleSelectSavedSpot}
+        onUnsave={savedSpots.unsave}
+        onRetry={savedSpots.rehydrate}
       />
 
       {/* Welcome card — first-ever load only. Rendered last so its
