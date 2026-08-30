@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type UIEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
@@ -397,6 +397,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
+  const cardTabRefs = useRef<Partial<Record<CardType, HTMLButtonElement | null>>>({});
 
   // Drive the entrance animation via inline transform (rather than a CSS
   // keyframe with `animation-fill-mode: forwards`), because a forwards-mode
@@ -493,6 +494,39 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     setExpanded(!expanded);
   };
 
+  const handleCardWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    event.preventDefault();
+    scroller.scrollLeft += event.deltaX;
+  };
+
+  const handleCardScroll = (event: UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2;
+    const cardEls = Array.from(
+      scroller.querySelectorAll<HTMLElement>('[data-card-type]'),
+    );
+    let closestType: CardType | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    for (const cardEl of cardEls) {
+      const cardCenter = cardEl.offsetLeft + cardEl.offsetWidth / 2;
+      const distance = Math.abs(cardCenter - viewportCenter);
+      const type = cardEl.dataset.cardType;
+      if (
+        distance < closestDistance &&
+        (type === 'now' || type === 'sunrise' || type === 'sunset' || type === 'stargazing')
+      ) {
+        closestDistance = distance;
+        closestType = type;
+      }
+    }
+
+    if (closestType) setActiveCardType(closestType);
+  };
+
   useEffect(() => {
     const scrollTarget = initialCardType ?? 'now';
     if (!scrollTarget || !expanded) return;
@@ -550,6 +584,21 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     if (!target) return;
     scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
     setActiveCardType(type);
+  };
+
+  const handleCardTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, type: CardType) => {
+    const currentIndex = SCORE_CARD_ORDER.indexOf(type);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % SCORE_CARD_ORDER.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + SCORE_CARD_ORDER.length) % SCORE_CARD_ORDER.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = SCORE_CARD_ORDER.length - 1;
+    else return;
+
+    event.preventDefault();
+    const nextType = SCORE_CARD_ORDER[nextIndex];
+    handleDotClick(nextType);
+    cardTabRefs.current[nextType]?.focus({ preventScroll: true });
   };
 
   useEffect(() => {
@@ -812,51 +861,61 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             {/* Cards — swipeable, one card per page, snaps cleanly */}
             <div
               ref={scrollerRef}
+              onScroll={handleCardScroll}
               className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
               style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
             >
-              {cards.map((card) => (
-                <div
-                  key={card.type}
-                  data-card-type={card.type}
-                  className="w-full min-h-0 flex-shrink-0 snap-center"
-                  style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
-                >
+              {cards.map((card) => {
+                const isActive = card.type === activeCardType;
+                return (
                   <div
-                    data-card-scroll
-                    className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                    key={card.type}
+                    id={`score-card-panel-${card.type}`}
+                    role="tabpanel"
+                    aria-labelledby={`score-card-tab-${card.type}`}
+                    aria-hidden={!isActive}
+                    inert={!isActive}
+                    data-card-type={card.type}
+                    className="w-full min-h-0 flex-shrink-0 snap-center"
                     style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                   >
-                    <ScoreCard
-                      spot={spot}
-                      type={card.type}
-                      eventInstant={card.eventTime}
-                      city={city}
-                      scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
-                      scrubViewMode={card.type === 'now' ? viewMode : undefined}
-                      activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
-                      canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
-                      scoreEvidence={card.type === 'now'
-                        ? live!.activeEvidence
-                        : live!.evidence[card.type]}
-                      onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
-                      timeZone={timeZone}
-                      forecast={forecast}
-                      forecastLoading={forecastLoading}
-                      forecastError={forecastError}
-                      onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
-                      forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
-                      now={now}
-                    />
+                    <div
+                      data-card-scroll
+                      onWheel={handleCardWheel}
+                      className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                      style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+                    >
+                      <ScoreCard
+                        spot={spot}
+                        type={card.type}
+                        eventInstant={card.eventTime}
+                        city={city}
+                        scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
+                        scrubViewMode={card.type === 'now' ? viewMode : undefined}
+                        activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
+                        canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
+                        scoreEvidence={card.type === 'now'
+                          ? live!.activeEvidence
+                          : live!.evidence[card.type]}
+                        onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
+                        timeZone={timeZone}
+                        forecast={forecast}
+                        forecastLoading={forecastLoading}
+                        forecastError={forecastError}
+                        onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
+                        forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
+                        now={now}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            {/* Page indicator dots — active dot tracks the currently visible
-                card, and tapping a dot jumps the scroller to that card. */}
+            {/* Page tabs keep a compact visual dot inside a full-size target.
+                The active tab follows swipes, and tab activation pages the cards. */}
             <div
-              className="flex items-center justify-center gap-1.5 pb-2 flex-shrink-0"
+              className="flex items-center justify-center pb-2 flex-shrink-0"
               role="tablist"
               aria-label="Card pages"
             >
@@ -865,17 +924,29 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 return (
                   <button
                     key={card.type}
+                    id={`score-card-tab-${card.type}`}
                     type="button"
                     role="tab"
+                    ref={(element) => {
+                      cardTabRefs.current[card.type] = element;
+                    }}
                     aria-selected={isActive}
+                    aria-controls={`score-card-panel-${card.type}`}
                     aria-label={`Show ${typeLabel[card.type]} card`}
+                    tabIndex={isActive ? 0 : -1}
                     onClick={() => handleDotClick(card.type)}
-                    className={`rounded-full transition-all duration-200 ${
-                      isActive
-                        ? 'w-3 h-1.5 bg-gray-700'
-                        : 'w-1.5 h-1.5 bg-gray-300 hover:bg-gray-400'
-                    }`}
-                  />
+                    onKeyDown={(event) => handleCardTabKeyDown(event, card.type)}
+                    className="group w-11 h-11 flex items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-gray-700"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`block rounded-full transition-all duration-200 ${
+                        isActive
+                          ? 'w-3 h-1.5 bg-gray-700'
+                          : 'w-1.5 h-1.5 bg-gray-300 group-hover:bg-gray-400'
+                      }`}
+                    />
+                  </button>
                 );
               })}
             </div>

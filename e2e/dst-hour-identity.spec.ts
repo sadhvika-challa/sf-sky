@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import {
   expectWeatherRequestBudget,
   installDeterministicBrowserState,
@@ -56,6 +56,15 @@ async function installShareCapture(page: import('@playwright/test').Page): Promi
   });
 }
 
+async function expectForecastSliderReady(nowCard: Locator): Promise<Locator> {
+  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  await expect(
+    nowCard.getByText('Current forecast · high confidence', { exact: true }),
+  ).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  return slider;
+}
+
 test('keeps both fall-back 1 AM hours distinct and restores the shared occurrence', async ({ page }) => {
   await installDeterministicBrowserState(page, new Date('2026-11-01T00:15:00-05:00'));
   await installShareCapture(page);
@@ -71,10 +80,9 @@ test('keeps both fall-back 1 AM hours distinct and restores the shared occurrenc
 
   const dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   const nowCard = dialog.locator('[data-card-type="now"]');
-  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
   await expect(dialog).toBeVisible();
 
-  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  const slider = await expectForecastSliderReady(nowCard);
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
@@ -116,8 +124,8 @@ test('does not synthesize a spring-forward 2 AM hour', async ({ page }) => {
   await page.goto(CHICAGO_SPOT_URL);
 
   const dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
-  const slider = dialog.getByRole('slider', { name: 'Forecast hour' });
-  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  const nowCard = dialog.locator('[data-card-type="now"]');
+  const slider = await expectForecastSliderReady(nowCard);
   await expect(dialog).toBeFocused();
   await slider.focus();
   await expect(slider).toBeFocused();
@@ -146,12 +154,10 @@ test('keeps the first repeated 1 AM live while identifying the second as CST', a
   const nowCard = page
     .getByRole('dialog', { name: 'North Avenue Beach sky scores' })
     .locator('[data-card-type="now"]');
-  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  const slider = await expectForecastSliderReady(nowCard);
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Now · 1:15 AM CDT');
   await expect(nowCard.getByText('61°', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
-
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
@@ -254,7 +260,7 @@ test('preserves repeated Pacific hours for an SF spot', async ({ page }, testInf
   await page.goto(OCEAN_BEACH_URL);
 
   const card = page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).locator('[data-card-type="now"]');
-  const slider = card.getByRole('slider', { name: 'Forecast hour' });
+  const slider = await expectForecastSliderReady(card);
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PDT');
   await expect(card.getByText('64°', { exact: true })).toBeVisible();
@@ -289,9 +295,7 @@ test('preserves repeated Central hours for an Austin spot', async ({ page }, tes
   const card = page
     .getByRole('dialog', { name: 'Mount Bonnell (Covert Park) sky scores' })
     .locator('[data-card-type="now"]');
-  const slider = card.getByRole('slider', { name: 'Forecast hour' });
-  await expect(card.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
-  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  const slider = await expectForecastSliderReady(card);
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
   await expect(card.getByText('72°', { exact: true })).toBeVisible();

@@ -90,6 +90,8 @@ describe('SavedSpotsSheet', () => {
     expect(html).toContain('Austin');
     expect(html).toContain('aria-label="Open Ocean Beach"');
     expect(html).toContain('aria-label="Remove Mount Bonnell from saved spots"');
+    expect(html).toContain('uppercase text-gray-600');
+    expect(html).toContain('justify-center text-gray-600');
     expect(html).not.toMatch(/score|ranking/i);
   });
 

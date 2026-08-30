@@ -4,7 +4,7 @@ import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
 import { getKarlComment } from '../utils/karl-copy';
-import { getSpectrumColor, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
+import { computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
 import { formatActiveTimelineLabel } from '../utils/timeline';
 import { describeScoreEvidenceSet, type ScoreEvidence } from '../utils/confidence';
 
@@ -231,7 +231,7 @@ export default function SearchOverlay({
           <p className="font-mono text-[10px] tracking-[2px] uppercase text-gray-500">
             Scores for {activeTimelineLabel}
           </p>
-          <p className="mt-1 font-mono text-[10px] text-gray-400" role="status">
+          <p className="mt-1 font-mono text-[10px] text-gray-500" role="status">
             {activeForecastTrust}
           </p>
         </div>
@@ -289,13 +289,12 @@ export default function SearchOverlay({
                         {r.nextTime ? ` · ${formatEventTime(r.nextTime)}` : ''}
                         {distance}
                       </p>
-                      <p className="font-mono text-[10px] text-gray-400 mt-1">
+                      <p className="font-mono text-[10px] text-gray-500 mt-1">
                         {r.evidence?.statusLabel ?? 'Curated estimate'}
                       </p>
                     </div>
                     <span
-                      className="font-serif text-2xl font-light leading-none tabular-nums flex-shrink-0 mt-0.5"
-                      style={{ color: getSpectrumColor(r.score) }}
+                      className="font-serif text-2xl font-light leading-none tabular-nums flex-shrink-0 mt-0.5 text-gray-800"
                     >
                       {r.score}
                     </span>

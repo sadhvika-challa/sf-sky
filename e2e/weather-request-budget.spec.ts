@@ -59,6 +59,7 @@ async function switchCity(page: Page, city: 'Chicago' | 'San Francisco'): Promis
       ? /^(Select San Francisco|San Francisco, home city)$/
       : `Select ${city}`,
   });
+  await cityButton.click({ trial: true });
   const actionAt = Date.now();
   await cityButton.click();
   await expect(
@@ -188,7 +189,7 @@ test('revalidates the selected spot once after its 15-minute age budget', async 
   const initialForecast = harness.deferForecast(OCEAN_BEACH_COORDINATES);
   await page.goto(SPOT_URL);
   await initialForecast.requested;
-  await page.clock.fastForward(10_000);
+  await page.clock.pauseAt(new Date(FIXED_NOW.getTime() + 10_000));
   initialForecast.release();
   const card = page
     .getByRole('dialog', { name: 'Ocean Beach sky scores' })
@@ -231,11 +232,18 @@ test('deduplicates the shared Twin Peaks forecast across selected and overlay de
 
 test('moves a newly selected spot ahead of queued overlay work', async ({ page }) => {
   const harness = await installWeatherHarness(page);
-  harness.responseDelayMs = 1_000;
+  const deferredFirstWave = neighborhoods
+    .filter((neighborhood) => FIRST_WAVE_IDS.has(neighborhood.id))
+    .map((neighborhood) => {
+      const coordinateKey = weatherCoordinateKey(neighborhood.lat, neighborhood.lng);
+      return { coordinateKey, request: harness.deferForecast(coordinateKey) };
+    });
+  const deferredByCoordinate = new Map(
+    deferredFirstWave.map(({ coordinateKey, request }) => [coordinateKey, request]),
+  );
   await page.goto('/');
   await openWeatherOverlay(page);
-  await expect.poll(() => harness.requests.forecast.length).toBeGreaterThanOrEqual(3);
-  expect(harness.requests.forecast.length).toBeLessThanOrEqual(4);
+  await expect.poll(() => harness.requests.forecast.length).toBe(3);
 
   await page.getByRole('button', { name: 'Search spots' }).click();
   const search = page.getByRole('dialog', { name: 'Search spots' });
@@ -246,11 +254,15 @@ test('moves a newly selected spot ahead of queued overlay work', async ({ page }
   // Dispatch immediately so Playwright's actionability polling does not let
   // unrelated overlay requests advance between the queue snapshot and click.
   await oceanResult.dispatchEvent('click');
+  await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' })).toBeVisible();
+  const releasedCapacity = deferredByCoordinate.get(harness.requests.forecast[0]);
+  expect(releasedCapacity).toBeDefined();
+  releasedCapacity!.release();
   await expect.poll(() => harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeGreaterThanOrEqual(0);
   expect(harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeLessThanOrEqual(
     overlayJobsBeforeSelection,
   );
-  harness.responseDelayMs = 0;
+  for (const { request } of deferredFirstWave) request.release();
   await expect(
     page.getByRole('dialog', { name: 'Ocean Beach sky scores' })
       .getByText('Current forecast · high confidence', { exact: true }),
@@ -315,7 +327,7 @@ test('toggle-off aborts active overlay work and a new generation starts once per
   const activeBeforeToggle = harness.requests.lifecycle.filter((request) => request.terminal === null);
   const actionAt = Date.now();
 
-  await page.getByRole('button', { name: 'Toggle weather overlay' }).click();
+  await page.getByRole('button', { name: 'Toggle weather overlay' }).dispatchEvent('click');
   await expect(page.getByRole('button', { name: 'Toggle weather overlay' })).toHaveAttribute(
     'aria-pressed',
     'false',

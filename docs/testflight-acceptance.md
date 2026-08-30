@@ -121,7 +121,7 @@ For at least one spot in each city:
 ## Saved Spots
 
 - [ ] Save one spot from each supported city.
-- [ ] Open Saved Spots and confirm all three appear once, with correct city and spot labels.
+- [ ] Open Saved Spots and confirm all four appear once, with correct city and spot labels.
 - [ ] Force-quit and relaunch. Confirm saved spots persist.
 - [ ] Open a saved spot while offline. Confirm the bundled spot can open and live-data limitations are explicit.
 - [ ] Remove one spot and confirm it disappears from both the detail state and Saved Spots.

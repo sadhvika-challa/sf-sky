@@ -1,7 +1,7 @@
 import { MapContainer, Marker, Tooltip, useMap } from 'react-leaflet';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
-import { type Spot, type SpotCategory } from '../data/spots';
+import { type City, type Spot, type SpotCategory } from '../data/spots';
 import { type CuratedEvent, getEventsAtHour } from '../data/events';
 import { type CityConfig } from '../data/cities';
 import { type UserLocation } from '../hooks/useGeolocation';
@@ -515,16 +515,18 @@ function SpotClusterLayer({
  */
 function EventMarkerLayer({
   hourKey,
+  city,
   onSelectEvent,
 }: {
   /** Scrubbed timeline hour as a canonical UTC ISO key. */
   hourKey: string;
+  city: City;
   onSelectEvent: (event: CuratedEvent) => void;
 }) {
   const events = useMemo(() => {
     const at = hourKey ? (parseCanonicalHourKey(hourKey) ?? new Date()) : new Date();
-    return getEventsAtHour(at);
-  }, [hourKey]);
+    return getEventsAtHour(at, city);
+  }, [city, hourKey]);
 
   if (events.length === 0) return null;
 
@@ -712,7 +714,13 @@ export default function MapView({
         {/* Curated events surface only in Explore mode. They never appear over
             the weather heatmap, where the violet diamonds would compete with
             the gradient. */}
-        {!isWeather && <EventMarkerLayer hourKey={weatherHourKey} onSelectEvent={onSelectEvent} />}
+        {!isWeather && (
+          <EventMarkerLayer
+            hourKey={weatherHourKey}
+            city={cityConfig.id}
+            onSelectEvent={onSelectEvent}
+          />
+        )}
         <MapController selectedSpot={selectedSpot} />
         <HighlightController highlightedSpot={highlightedSpot} />
         <MapClickHandler onDeselect={onDeselectSpot} />

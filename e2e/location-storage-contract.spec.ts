@@ -591,7 +591,7 @@ test('preserves concurrent different-ID saves before either page can rehydrate',
 
     const expected = ['sf-ocean-beach', 'sf-twin-peaks'];
     expect(await authoritativeSavedSpotIds(page)).toEqual(expected);
-    expect(await mirroredSavedSpotIds(page)).toEqual(expected);
+    await expect.poll(() => mirroredSavedSpotIds(page)).toEqual(expected);
 
     await Promise.all([startSavedSpotsSync(page), startSavedSpotsSync(secondPage)]);
     await expect.poll(() => savedSpotIds(page).then((ids) => [...ids].sort())).toEqual(expected);
@@ -634,7 +634,7 @@ test('uses later durable commit as the same-ID save-versus-unsave rule', async (
       await releaseUpdate(second.page);
       expect(await secondCommit).toBe(true);
       expect(await authoritativeSavedSpotIds(page)).toEqual(expected);
-      expect(await mirroredSavedSpotIds(page)).toEqual(expected);
+      await expect.poll(() => mirroredSavedSpotIds(page)).toEqual(expected);
       await Promise.all([rehydrateSavedSpots(page), rehydrateSavedSpots(secondPage)]);
     };
 

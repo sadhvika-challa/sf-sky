@@ -111,9 +111,19 @@ test('keyboard users can skip repeated navigation and focus the main document', 
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Chromium provides deterministic link tabbing in CI')
 
   await page.goto('/soleil/privacy')
+  await expect(page.getByRole('heading', { level: 1, name: 'Your sky plans should stay yours.' })).toBeVisible()
+  await page.evaluate(async () => {
+    await document.fonts.ready
+  })
+  await page.evaluate(() => {
+    document.body.tabIndex = -1
+    document.body.focus()
+  })
+  await expect.poll(() => page.evaluate(() => document.activeElement === document.body)).toBe(true)
   await page.keyboard.press('Tab')
   const skipLink = page.getByRole('link', { name: 'Skip to main content' })
   await expect(skipLink).toBeFocused()
+  await page.evaluate(() => document.body.removeAttribute('tabindex'))
   await expect(skipLink).toBeVisible()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('main')).toBeFocused()

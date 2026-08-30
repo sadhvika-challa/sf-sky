@@ -120,7 +120,7 @@ function CandidateRow({
           <span className="text-[18px] font-semibold tabular-nums">
             {candidate.score === null ? '—' : candidate.score}
           </span>
-          {candidate.score !== null && <span className="text-[9px] text-gray-500">/100</span>}
+          {candidate.score !== null && <span className="text-[9px] text-gray-600">/100</span>}
         </span>
       </button>
       {candidate.accessWarning && (
@@ -189,7 +189,7 @@ export default function BestNearbyCard(props: BestNearbyCardProps) {
 
   return (
     <section
-      className="w-full rounded-2xl border border-black/[0.08] bg-[rgba(250,250,248,0.96)] p-3 shadow-sm"
+      className="w-full rounded-2xl border border-black/[0.08] bg-[#FAFAF8] p-3 shadow-sm"
       aria-label={isNearby ? 'Nearby spot recommendation' : `Spot recommendation for ${props.cityName}`}
     >
       {props.state === 'loading' ? (

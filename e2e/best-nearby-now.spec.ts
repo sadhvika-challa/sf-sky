@@ -38,13 +38,24 @@ async function captureAndAudit(page: Page, testInfo: TestInfo): Promise<void> {
   const path = testInfo.outputPath(`best-nearby-${testInfo.project.name}.png`);
   await page.screenshot({ path, fullPage: true });
   await testInfo.attach('best-nearby-ready', { path, contentType: 'image/png' });
-  const results = await new AxeBuilder({ page }).include('[aria-label="Sky outlook"]').analyze();
-  const seriousOrCritical = results.violations.filter(
-    (violation) =>
-      (violation.impact === 'serious' || violation.impact === 'critical') &&
-      violation.id !== 'color-contrast',
-  );
-  expect(seriousOrCritical).toEqual([]);
+  const recommendation = '[aria-label="Nearby spot recommendation"]';
+  const auditRecommendation = async () => {
+    const results = await new AxeBuilder({ page }).include(recommendation).analyze();
+    const seriousOrCritical = results.violations.filter(
+      (violation) => violation.impact === 'serious' || violation.impact === 'critical',
+    );
+    const unresolvedContrast = results.incomplete.filter(
+      (result) => result.id === 'color-contrast',
+    );
+    expect(seriousOrCritical).toEqual([]);
+    expect(unresolvedContrast).toEqual([]);
+  };
+
+  await auditRecommendation();
+  if (testInfo.project.name !== 'mobile-webkit') {
+    await page.locator(`${recommendation} button[aria-label^="Open "]`).first().hover();
+    await auditRecommendation();
+  }
 }
 
 async function installLocationHarness(

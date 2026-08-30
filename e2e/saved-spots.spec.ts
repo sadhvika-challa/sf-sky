@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import {
   assertNoLiveOpenMeteoTraffic,
@@ -19,6 +20,11 @@ const WEST_CLIFF = {
   id: 'sc-west-cliff',
   name: 'West Cliff Drive (Lighthouse Point)',
   city: 'Santa Cruz',
+};
+const NORTH_AVENUE_BEACH = {
+  id: 'chi-north-ave-beach',
+  name: 'North Avenue Beach',
+  city: 'Chicago',
 };
 
 interface SavedPayload {
@@ -229,16 +235,23 @@ test('shows one all-city collection and opens a cross-city saved spot without du
   const harness = await installWeatherHarness(page);
   await page.goto('/');
   await resetSavedSpots(page);
-  await seedSavedSpots(page, [OCEAN_BEACH.id, MOUNT_BONNELL.id, WEST_CLIFF.id]);
+  await seedSavedSpots(page, [
+    OCEAN_BEACH.id,
+    MOUNT_BONNELL.id,
+    WEST_CLIFF.id,
+    NORTH_AVENUE_BEACH.id,
+  ]);
   await page.reload();
 
   const saved = await openSavedSpots(page);
   await expect(saved.getByText(OCEAN_BEACH.name, { exact: true })).toBeVisible();
   await expect(saved.getByText(MOUNT_BONNELL.name, { exact: true })).toBeVisible();
   await expect(saved.getByText(WEST_CLIFF.name, { exact: true })).toBeVisible();
+  await expect(saved.getByText(NORTH_AVENUE_BEACH.name, { exact: true })).toBeVisible();
   await expect(saved).toContainText('San Francisco');
   await expect(saved).toContainText('Austin');
   await expect(saved).toContainText('Santa Cruz');
+  await expect(saved).toContainText('Chicago');
 
   const beforeForecast = harness.requests.forecast.length;
   const beforeAirQuality = harness.requests.airQuality.length;
@@ -424,6 +437,36 @@ test('provides keyboard-operable controls and stable accessible names', async ({
   await remove.press('Enter');
   await expect(sheet.getByRole('button', { name: `Save ${OCEAN_BEACH.name}` }))
     .toHaveAttribute('aria-pressed', 'false');
+});
+
+test('passes a modal-scoped accessibility audit for a populated saved list', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await resetSavedSpots(page);
+  await seedSavedSpots(page, [OCEAN_BEACH.id]);
+  await page.reload();
+
+  const saved = await openSavedSpots(page);
+  await expect(saved.getByRole('button', { name: `Open ${OCEAN_BEACH.name}` })).toBeVisible();
+  const accessibility = await new AxeBuilder({ page })
+    .include('[role="dialog"][aria-label="Saved spots"], [role="dialog"][aria-labelledby="saved-spots-title"]')
+    .analyze();
+  const seriousOrCritical = accessibility.violations.filter(
+    (violation) => violation.impact === 'serious' || violation.impact === 'critical',
+  );
+  const savedSpotContrast = await new AxeBuilder({ page })
+    .include('[data-contrast-audit]')
+    .withRules(['color-contrast'])
+    .analyze();
+  const unresolvedContrast = savedSpotContrast.incomplete.filter(
+    (result) => result.id === 'color-contrast',
+  );
+  const contrastViolations = savedSpotContrast.violations.filter(
+    (result) => result.id === 'color-contrast',
+  );
+  expect(seriousOrCritical).toEqual([]);
+  expect(contrastViolations).toEqual([]);
+  expect(unresolvedContrast).toEqual([]);
 });
 
 test('Escape closes only saved spots and preserves the collapsed spot sheet state', async ({ page }) => {
