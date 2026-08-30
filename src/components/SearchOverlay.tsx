@@ -87,20 +87,29 @@ export default function SearchOverlay({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let mountFrame: number | undefined;
+    let visibleFrame: number | undefined;
+    let exitTimer: number | undefined;
     if (open) {
-      setMounted(true);
       // Defer the visible flip so the initial transform applies before
       // transitioning — without it the slide-up animation is skipped.
-      requestAnimationFrame(() => setVisible(true));
-    } else if (mounted) {
-      setVisible(false);
-      const t = window.setTimeout(() => {
+      mountFrame = requestAnimationFrame(() => {
+        setMounted(true);
+        visibleFrame = requestAnimationFrame(() => setVisible(true));
+      });
+    } else {
+      mountFrame = requestAnimationFrame(() => setVisible(false));
+      exitTimer = window.setTimeout(() => {
         setMounted(false);
         setQuery('');
       }, 200);
-      return () => window.clearTimeout(t);
     }
-  }, [open, mounted]);
+    return () => {
+      if (mountFrame !== undefined) cancelAnimationFrame(mountFrame);
+      if (visibleFrame !== undefined) cancelAnimationFrame(visibleFrame);
+      if (exitTimer !== undefined) window.clearTimeout(exitTimer);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!visible) return;

@@ -105,7 +105,10 @@ interface MapViewProps {
 function BoundsReporter({ onChange }: { onChange?: (b: MapBounds) => void }) {
   const map = useMap();
   const cbRef = useRef(onChange);
-  cbRef.current = onChange;
+
+  useEffect(() => {
+    cbRef.current = onChange;
+  }, [onChange]);
 
   useEffect(() => {
     if (!cbRef.current) return;

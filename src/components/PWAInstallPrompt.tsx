@@ -95,13 +95,30 @@ function getIOSStep1Copy(browser: IOSBrowser): string {
   }
 }
 
+function readInitialEligibility(): {
+  eligible: boolean;
+  platform: Platform;
+  iosBrowser: IOSBrowser;
+} {
+  if (typeof window === 'undefined') {
+    return { eligible: false, platform: 'other', iosBrowser: 'other' };
+  }
+  const platform = detectPlatform();
+  const eligible = platform !== 'other' && !isStandalone() && !recentlyDismissed();
+  return {
+    eligible,
+    platform,
+    iosBrowser: platform === 'ios' ? detectIOSBrowser() : 'other',
+  };
+}
+
 export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptProps) {
   // Eligibility resolves once on mount: standalone, desktop, or recently
   // dismissed devices never get the prompt at all, so we don't bother
   // tracking timers / install events.
-  const [eligible, setEligible] = useState(false);
-  const [platform, setPlatform] = useState<Platform>('other');
-  const [iosBrowser, setIOSBrowser] = useState<IOSBrowser>('other');
+  const [initialEligibility] = useState(readInitialEligibility);
+  const { platform, iosBrowser } = initialEligibility;
+  const [eligible, setEligible] = useState(initialEligibility.eligible);
 
   const [open, setOpen] = useState(false);
   // Tracks the next paint after `open` flips true so we can transition from
@@ -113,19 +130,6 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const triggeredRef = useRef(false);
   const autoTimerRef = useRef<number | null>(null);
-
-  // One-shot mount-time eligibility check. Re-running this on every render
-  // would burn the user's standalone check for no reason.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const plat = detectPlatform();
-    if (plat === 'other') return;
-    if (isStandalone()) return;
-    if (recentlyDismissed()) return;
-    setPlatform(plat);
-    if (plat === 'ios') setIOSBrowser(detectIOSBrowser());
-    setEligible(true);
-  }, []);
 
   // Capture Android's deferred install prompt as soon as the browser fires
   // it — which can happen well before the user interacts with anything,

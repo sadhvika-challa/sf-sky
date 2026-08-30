@@ -39,19 +39,28 @@ export default function BugReportOverlay({ open, onClose }: BugReportOverlayProp
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    let enterFrame: number | undefined;
+    let visibleFrame: number | undefined;
+    let exitTimer: number | undefined;
     if (open) {
-      setMounted(true);
-      requestAnimationFrame(() => setVisible(true));
-    } else if (mounted) {
-      setVisible(false);
-      const t = window.setTimeout(() => {
+      enterFrame = requestAnimationFrame(() => {
+        setMounted(true);
+        visibleFrame = requestAnimationFrame(() => setVisible(true));
+      });
+    } else {
+      enterFrame = requestAnimationFrame(() => setVisible(false));
+      exitTimer = window.setTimeout(() => {
         setMounted(false);
         setDescription('');
         setSubmitted(false);
       }, 200);
-      return () => window.clearTimeout(t);
     }
-  }, [open, mounted]);
+    return () => {
+      if (enterFrame !== undefined) cancelAnimationFrame(enterFrame);
+      if (visibleFrame !== undefined) cancelAnimationFrame(visibleFrame);
+      if (exitTimer !== undefined) window.clearTimeout(exitTimer);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!visible || submitted) return;
