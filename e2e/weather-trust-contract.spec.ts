@@ -147,7 +147,15 @@ test('explains a failed forecast fetch and preserves recovery', async ({ page },
   const nowCard = await oceanCard(page);
   await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
   await expect(nowCard.getByText('Curated estimate · Forecast not retrieved', { exact: true })).toBeVisible();
+  const retry = nowCard.getByRole('button', { name: 'Retry forecast for Ocean Beach' });
+  await expect(retry).toBeVisible();
   await capture(page, testInfo, 'forecast-fetch-error');
+
+  harness.failCoordinates.clear();
+  await retry.click();
+  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  expect(harness.requests.forecast.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(2);
+  expect(harness.requests.airQuality.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(2);
   reportRequests(harness, 'fetch-error');
 });
 

@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test';
+import type { Page, Request, Route } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 
 export const FIXED_NOW = new Date('2026-08-29T18:15:00-07:00');
@@ -63,7 +63,14 @@ const airQualityResponse = {
 };
 
 function coordinates(url: URL): string {
-  return `${url.searchParams.get('latitude')},${url.searchParams.get('longitude')}`;
+  return weatherCoordinateKey(
+    Number(url.searchParams.get('latitude')),
+    Number(url.searchParams.get('longitude')),
+  );
+}
+
+export function weatherCoordinateKey(latitude: number, longitude: number): string {
+  return `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
 }
 
 function cacheKey(
@@ -141,12 +148,24 @@ export interface WeatherRequestLog {
   airQuality: string[];
   completed: string[];
   failed: string[];
+  aborted: string[];
+  lifecycle: WeatherRequestLifecycle[];
   active: number;
   maxActive: number;
   activeCoordinateJobs: number;
   maxActiveCoordinateJobs: number;
   unexpectedExternal: string[];
   unhandledOpenMeteo: string[];
+}
+
+export interface WeatherRequestLifecycle {
+  id: number;
+  endpoint: WeatherEndpoint;
+  coordinateKey: string;
+  startedAt: number;
+  terminalAt: number | null;
+  terminal: 'finished' | 'aborted' | null;
+  failureText: string | null;
 }
 
 export type WeatherEndpoint = 'forecast' | 'airQuality';
@@ -201,6 +220,8 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     airQuality: [],
     completed: [],
     failed: [],
+    aborted: [],
+    lifecycle: [],
     active: 0,
     maxActive: 0,
     activeCoordinateJobs: 0,
@@ -247,8 +268,25 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     },
   };
   const activeCoordinateRequests = new Map<string, number>();
+  const lifecycleByRequest = new WeakMap<Request, WeatherRequestLifecycle>();
+  let nextRequestId = 1;
 
-  const beginRequest = (endpoint: WeatherEndpoint, coordinateKey: string): (() => void) => {
+  const beginRequest = (
+    request: Request,
+    endpoint: WeatherEndpoint,
+    coordinateKey: string,
+  ): WeatherRequestLifecycle => {
+    const lifecycle: WeatherRequestLifecycle = {
+      id: nextRequestId++,
+      endpoint,
+      coordinateKey,
+      startedAt: Date.now(),
+      terminalAt: null,
+      terminal: null,
+      failureText: null,
+    };
+    requests.lifecycle.push(lifecycle);
+    lifecycleByRequest.set(request, lifecycle);
     requests.active += 1;
     requests.maxActive = Math.max(requests.maxActive, requests.active);
     const coordinateRequestCount = activeCoordinateRequests.get(coordinateKey) ?? 0;
@@ -260,21 +298,37 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         requests.activeCoordinateJobs,
       );
     }
-    let finished = false;
-    return () => {
-      if (finished) return;
-      finished = true;
+    return lifecycle;
+  };
+
+  const finishRequest = (
+    request: Request,
+    terminal: 'finished' | 'aborted',
+    failureText: string | null = null,
+  ): void => {
+      const lifecycle = lifecycleByRequest.get(request);
+      if (!lifecycle || lifecycle.terminal !== null) return;
+      lifecycle.terminal = terminal;
+      lifecycle.terminalAt = Date.now();
+      lifecycle.failureText = failureText;
       requests.active -= 1;
-      const remainingCoordinateRequests = (activeCoordinateRequests.get(coordinateKey) ?? 1) - 1;
+      const remainingCoordinateRequests =
+        (activeCoordinateRequests.get(lifecycle.coordinateKey) ?? 1) - 1;
       if (remainingCoordinateRequests <= 0) {
-        activeCoordinateRequests.delete(coordinateKey);
+        activeCoordinateRequests.delete(lifecycle.coordinateKey);
         requests.activeCoordinateJobs -= 1;
       } else {
-        activeCoordinateRequests.set(coordinateKey, remainingCoordinateRequests);
+        activeCoordinateRequests.set(lifecycle.coordinateKey, remainingCoordinateRequests);
       }
-      requests.completed.push(`${endpoint}:${coordinateKey}`);
-    };
+      const label = `${lifecycle.endpoint}:${lifecycle.coordinateKey}`;
+      if (terminal === 'finished') requests.completed.push(label);
+      else requests.aborted.push(label);
   };
+
+  page.on('requestfinished', (request) => finishRequest(request, 'finished'));
+  page.on('requestfailed', (request) => {
+    finishRequest(request, 'aborted', request.failure()?.errorText ?? 'request failed');
+  });
 
   const waitForResponseDelay = async (): Promise<void> => {
     if (harness.responseDelayMs <= 0) return;
@@ -312,8 +366,7 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     const coordinateKey = coordinates(url);
     if (url.hostname === 'api.open-meteo.com' && url.pathname === '/v1/forecast') {
       requests.forecast.push(coordinateKey);
-      const finish = beginRequest('forecast', coordinateKey);
-      try {
+      beginRequest(route.request(), 'forecast', coordinateKey);
       const deferred = deferredForecasts.get(coordinateKey);
       if (deferred) {
         deferred.requested();
@@ -334,14 +387,10 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         json: override ? { hourly: override } : forecastFixture(harness, coordinateKey),
       });
       return;
-      } finally {
-        finish();
-      }
     }
     if (url.hostname === 'air-quality-api.open-meteo.com' && url.pathname === '/v1/air-quality') {
       requests.airQuality.push(coordinateKey);
-      const finish = beginRequest('airQuality', coordinateKey);
-      try {
+      beginRequest(route.request(), 'airQuality', coordinateKey);
       await waitForResponseDelay();
       if (await applyFailure(route, 'airQuality', coordinateKey)) return;
       if (harness.failCoordinates.has(coordinateKey) || harness.failAirQualityCoordinates.has(coordinateKey)) {
@@ -356,9 +405,6 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         json: override ? { hourly: override } : airQualityFixture(harness, coordinateKey),
       });
       return;
-      } finally {
-        finish();
-      }
     }
     requests.unhandledOpenMeteo.push(route.request().url());
     await route.abort('blockedbyclient');

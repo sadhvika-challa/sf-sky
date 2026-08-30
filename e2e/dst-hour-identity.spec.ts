@@ -279,6 +279,8 @@ test('preserves repeated Central hours for an Austin spot', async ({ page }, tes
     .getByRole('dialog', { name: 'Mount Bonnell (Covert Park) sky scores' })
     .locator('[data-card-type="now"]');
   const slider = card.getByRole('slider', { name: 'Forecast hour' });
+  await expect(card.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await slider.focus();
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
