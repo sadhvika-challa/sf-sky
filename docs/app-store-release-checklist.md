@@ -89,6 +89,8 @@ Use Apple's current [screenshot specifications](https://developer.apple.com/help
 SOLEIL_RELEASE_CANDIDATE=1 \
 SOLEIL_MARKETING_VERSION=1.0 \
 SOLEIL_BUILD_NUMBER=1 \
+SOLEIL_SOURCE_COMMIT="$(git rev-parse HEAD)" \
+SOLEIL_PREFLIGHT_REPORT=/tmp/soleil-release-preflight.json \
 SOLEIL_DEVICE_FAMILY_APPROVAL=approved \
 SOLEIL_MAP_PROVIDER_APPROVAL=approved \
 SOLEIL_PRIVACY_AUDIT_APPROVAL=approved \
@@ -97,7 +99,7 @@ SOLEIL_PUBLIC_ORIGIN_APPROVAL=approved \
 npm run ios:release:verify
 ```
 
-  Strict preflight also requires eligible repository state, an approved production map-provider contract for public web/PWA and App Store distribution, and removal of the legacy signing identity through the supported Xcode version. The map-provider attestation must not be set for OpenFreeMap until its embedded-user age terms and no-SLA risk are accepted against written evidence. An attestation cannot bypass an ineligible provider integration, icon, splash, origin, privacy structure, or device-family setting. This command verifies only the gates it names. It does not attest to enrollment, export compliance, App Store metadata, archive validation, signing, physical-device acceptance, or TestFlight acceptance.
+  Strict preflight also requires the claimed full source commit to match `HEAD`, a clean tracked and untracked worktree, eligible repository state, an approved production map-provider contract for public web/PWA and App Store distribution, and removal of the legacy signing identity through the supported Xcode version. Retain the JSON report with the candidate record. The map-provider attestation must not be set for OpenFreeMap until its embedded-user age terms and no-SLA risk are accepted against written evidence. An attestation cannot bypass an ineligible provider integration, icon, splash, origin, privacy structure, or device-family setting. This command verifies only the gates it names. It does not attest to enrollment, export compliance, App Store metadata, archive validation, signing, physical-device acceptance, or TestFlight acceptance.
 - [ ] Confirm generated native web assets have no uncommitted drift.
 - [ ] In Xcode, select Sadhvika's team and use automatic signing.
 - [ ] Confirm Release configuration, bundle identifier, marketing version, build number, deployment target, and device family.
