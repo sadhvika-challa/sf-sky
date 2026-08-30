@@ -12,7 +12,10 @@ export default defineConfig({
   },
   outputDir: '/tmp/soleil-pwa-playwright-results',
   preserveOutput: 'always',
-  reporter: [['list']],
+  reporter: [
+    ['list'],
+    ['json', { outputFile: '/tmp/soleil-pwa-playwright-results/results.json' }],
+  ],
   use: {
     ...devices['Desktop Chrome'],
     baseURL: `http://localhost:${testPort}`,

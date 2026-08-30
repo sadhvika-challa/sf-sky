@@ -4,7 +4,9 @@
 
 `npm run test:pwa` builds the production artifact and starts a dedicated preview on port 5002 with service workers enabled. Its Chromium acceptance project verifies the installable manifest and decoded icon sizes through the browser, then proves a fresh revisioned application shell can cold-start the bundled spot catalog offline after the browser HTTP cache is cleared. It also proves that an obsolete Soleil shell is removed without deleting unrelated product caches.
 
-This is an application-shell contract, not an offline weather claim. Live forecasts, map tiles, and directions require a connection. The test makes an external forecast request while offline and requires it to fail rather than returning invented current data. Browser automation cannot prove Safari's Add to Home Screen interaction, so that remains a physical iPhone release gate.
+This is an application-shell contract, not an offline weather claim. Live forecasts, map tiles, and directions require a connection. The test makes an external forecast request while offline and requires it to fail rather than returning invented current data. Browser automation cannot prove Safari's Add to Home Screen interaction, so that remains a physical iPhone release gate documented in [the PWA device acceptance checklist](../docs/pwa-device-acceptance.md).
+
+CI retains each successful or failed browser run for seven days in artifacts named `browser-journeys-<commit>` and `pwa-acceptance-<commit>`. Each artifact includes a JSON report and any traces, screenshots, or test attachments emitted for that exact GitHub source commit. These artifacts support review, but they do not replace the physical iPhone record.
 
 `npm run test:e2e` starts Vite on port 5001 and runs the Now-card scrubber,
 forecast-trust, timezone identity, and request-budget journeys in desktop

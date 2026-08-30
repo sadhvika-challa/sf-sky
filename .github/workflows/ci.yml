@@ -59,8 +59,26 @@ jobs:
       - name: Verify deterministic browser journeys
         run: npm run test:e2e
 
+      - name: Upload browser journey evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-journeys-${{ github.sha }}
+          path: /tmp/soleil-playwright-results
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Verify production PWA
         run: npm run test:pwa:artifact
+
+      - name: Upload PWA acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-acceptance-${{ github.sha }}
+          path: /tmp/soleil-pwa-playwright-results
+          if-no-files-found: warn
+          retention-days: 7
 
   ios-native-archive:
     name: Archive native iOS shell
