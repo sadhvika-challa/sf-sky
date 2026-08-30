@@ -91,6 +91,10 @@ esac
 
     const report = JSON.parse(await readFile(reportPath, 'utf8'));
     const lockfile = await readFile(join(repositoryRoot, 'package-lock.json'));
+    const swiftLockfile = await readFile(join(
+      repositoryRoot,
+      'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
+    ));
     expect(report.passed).toBe(true);
     expect(report.schemaVersion).toBe(1);
     expect(report.provenance).toEqual({
@@ -99,6 +103,10 @@ esac
       lockfile: {
         path: 'package-lock.json',
         sha256: createHash('sha256').update(lockfile).digest('hex'),
+      },
+      swiftLockfile: {
+        path: 'ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved',
+        sha256: createHash('sha256').update(swiftLockfile).digest('hex'),
       },
       toolchain: {
         xcodeVersion: '26.1',

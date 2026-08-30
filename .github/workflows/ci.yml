@@ -95,7 +95,7 @@ jobs:
         run: npm run native:sync
 
       - name: Resolve Swift packages
-        run: xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+        run: xcodebuild -resolvePackageDependencies -disableAutomaticPackageResolution -project ios/App/App.xcodeproj -scheme App
 
       - name: Archive Release shell for a generic iOS device without signing
         run: |
@@ -106,6 +106,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Soleil.xcarchive" \
             -resultBundlePath "$RUNNER_TEMP/SoleilArchive.xcresult" \
+            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             archive
 
@@ -136,5 +137,6 @@ jobs:
             ${{ runner.temp }}/ios-archive-verification.json
             ${{ runner.temp }}/Soleil.xcarchive.zip
             ${{ runner.temp }}/SoleilArchive.xcresult
+            ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
           if-no-files-found: warn
           retention-days: 7

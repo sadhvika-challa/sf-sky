@@ -11,6 +11,7 @@ Options:
   --device-families IDS    Expected UIDeviceFamily values. Defaults to 1,2.
   --source-commit SHA      Full source commit. Defaults to the checked-out Git HEAD.
   --lockfile PATH          Dependency lockfile. Defaults to package-lock.json.
+  --swift-lockfile PATH    Swift dependency lockfile. Defaults to the Xcode workspace Package.resolved.
   --package PATH           Retained archive package to bind by SHA-256.
   --report PATH            Write a JSON verification report.
   --help                   Show this help.`;
@@ -20,6 +21,7 @@ const parseArguments = (args) => {
     bundleId: 'com.sadhvika.soleil',
     deviceFamilies: ['1', '2'],
     lockfile: resolve('package-lock.json'),
+    swiftLockfile: resolve('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -37,6 +39,7 @@ const parseArguments = (args) => {
     else if (argument === '--device-families') options.deviceFamilies = value.split(',').map((item) => item.trim()).filter(Boolean);
     else if (argument === '--source-commit') options.sourceCommit = value;
     else if (argument === '--lockfile') options.lockfile = resolve(value);
+    else if (argument === '--swift-lockfile') options.swiftLockfile = resolve(value);
     else if (argument === '--package') options.package = resolve(value);
     else if (argument === '--report') options.report = resolve(value);
     else throw new Error(`Unknown argument: ${argument}`);
@@ -95,6 +98,7 @@ try {
   const sourceCommit = options.sourceCommit ?? headCommit;
   const worktreeStatus = commandOutput('git', ['status', '--porcelain=v1', '--untracked-files=all']);
   const lockfile = await readFile(options.lockfile);
+  const swiftLockfile = await readFile(options.swiftLockfile);
   const xcodeLines = commandOutput('xcodebuild', ['-version']).split(/\r?\n/);
   const xcodeVersion = xcodeLines[0]?.replace(/^Xcode\s+/, '') ?? '';
   const xcodeBuild = xcodeLines[1]?.replace(/^Build version\s+/, '') ?? '';
@@ -105,6 +109,12 @@ try {
   check('Source provenance matches the checked-out Git HEAD', sourceCommit === headCommit, headCommit, sourceCommit);
   check('Source provenance comes from a clean Git worktree', worktreeStatus.length === 0, 'no tracked or untracked changes', worktreeStatus || 'clean');
   check('Dependency provenance uses the repository package-lock.json', options.lockfile === resolve('package-lock.json'), resolve('package-lock.json'), options.lockfile);
+  check(
+    'Swift dependency provenance uses the Xcode workspace Package.resolved',
+    options.swiftLockfile === resolve('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
+    resolve('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
+    options.swiftLockfile,
+  );
   check('Xcode provenance includes a version', Boolean(xcodeVersion), 'nonempty Xcode version', xcodeVersion || 'none');
   check('Xcode provenance includes a build', Boolean(xcodeBuild), 'nonempty Xcode build', xcodeBuild || 'none');
   check('iOS SDK provenance includes a version', Boolean(sdkVersion), 'nonempty iOS SDK version', sdkVersion || 'none');
@@ -116,6 +126,10 @@ try {
     lockfile: {
       path: relative(process.cwd(), options.lockfile) || basename(options.lockfile),
       sha256: createHash('sha256').update(lockfile).digest('hex'),
+    },
+    swiftLockfile: {
+      path: relative(process.cwd(), options.swiftLockfile) || basename(options.swiftLockfile),
+      sha256: createHash('sha256').update(swiftLockfile).digest('hex'),
     },
     toolchain: {
       xcodeVersion,
