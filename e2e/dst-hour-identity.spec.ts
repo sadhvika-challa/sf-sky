@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  expectWeatherRequestBudget,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -309,9 +310,17 @@ test('uses the selected repeated instant for the weather overlay sample', async 
 
   await firstOccurrence.click();
   await expect(firstOccurrence).toHaveAttribute('aria-pressed', 'true');
-  await expect(averageMarker).toHaveAttribute('style', /top: 0%/);
+  await expect(averageMarker).toHaveAttribute('style', /top: 27\.2727%/);
 
   await secondOccurrence.click();
   await expect(secondOccurrence).toHaveAttribute('aria-pressed', 'true');
   await expect(averageMarker).toHaveAttribute('style', /top: 100%/);
+  await expect.poll(() => harness.requests.forecast.length).toBe(25);
+  await expect.poll(() => harness.requests.active).toBe(0);
+  expectWeatherRequestBudget(harness.requests, {
+    forecast: 25,
+    airQuality: 0,
+    maxActive: 4,
+    maxCoordinateJobs: 4,
+  });
 });

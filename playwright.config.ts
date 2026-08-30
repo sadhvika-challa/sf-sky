@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const testPort = 5001;
+const testPort = Number(process.env.SOLEIL_PLAYWRIGHT_PORT ?? 5001);
 
 export default defineConfig({
   testDir: './e2e',

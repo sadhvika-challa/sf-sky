@@ -4,6 +4,7 @@ import {
   OCEAN_BEACH_COORDINATES,
   assertNoDuplicateWeatherRequests,
   assertNoLiveOpenMeteoTraffic,
+  expectWeatherRequestBudget,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -104,11 +105,9 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
 
   assertNoDuplicateWeatherRequests(harness.requests);
   assertNoLiveOpenMeteoTraffic(harness.requests);
-  expect(harness.requests.forecast.length).toBeGreaterThan(0);
-  expect(harness.requests.airQuality.length).toBe(harness.requests.forecast.length);
+  expectWeatherRequestBudget(harness.requests, { forecast: 1, airQuality: 1, maxActive: 2 });
   console.info(
-    `[weather-fixture] ${harness.requests.forecast.length} forecast and ` +
-    `${harness.requests.airQuality.length} air-quality requests, one pair per coordinate`,
+    '[weather-fixture] selected-spot budget: one forecast and one air-quality request',
   );
 });
 
