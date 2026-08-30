@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build && node scripts/finalize-pwa.mjs",
     "native:sync": "npm run build && cap sync ios",
     "ios:open": "cap open ios",
+    "ios:release:verify": "node scripts/verify-app-store-readiness.mjs",
     "ios:verify": "npm run native:sync && node scripts/verify-ios-shell.mjs",
     "lint": "eslint .",
     "preview": "vite preview",

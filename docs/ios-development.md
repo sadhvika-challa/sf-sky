@@ -57,7 +57,7 @@ If Soleil moves to a custom domain, update the public origin, website metadata, 
 
 `Info.plist` contains only `NSLocationWhenInUseUsageDescription` for location. There is no Always or background-location purpose string or capability.
 
-`PrivacyInfo.xcprivacy` declares `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1`, as required by the Capacitor Preferences plugin. The manifest does not claim other data collection or required-reason API use.
+`PrivacyInfo.xcprivacy` declares `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1`, as required by the Capacitor Preferences plugin. The manifest does not claim other data collection, tracking status, or required-reason API use. Tracking and collected-data declarations must follow the approved production vendor audit.
 
 App Store privacy answers remain a human release gate. They must be reviewed against the actual production build, forecast providers, map providers, diagnostics, and any analytics added later.
 
@@ -73,6 +73,8 @@ App Store privacy answers remain a human release gate. They must be reviewed aga
 - Add Universal Links only after the canonical domain and associated-domain deployment are approved.
 
 The shell intentionally contains no Apple team ID, signing certificate, provisioning profile, distribution upload, or App Store submission automation.
+
+Before preparing a release candidate, run `npm run ios:release:verify`. Development mode reports unresolved human gates without hiding them. Strict candidate mode requires the intended version and build plus explicit approval inputs for the gates it evaluates. Run `npm run ios:release:verify -- --help` for the exact inputs. It does not replace the [App Store release checklist](./app-store-release-checklist.md) or [TestFlight acceptance checklist](./testflight-acceptance.md), which cover account, policy, archive, and physical-device evidence that repository checks cannot provide.
 
 ## Physical iPhone location acceptance
 
