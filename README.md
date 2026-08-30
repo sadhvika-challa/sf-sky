@@ -13,13 +13,13 @@ The repository ships the shared React application as both an installable PWA and
 - Use a weather overlay and metric views for San Francisco.
 - Search and filter spots, switch cities, use location, and install the PWA.
 
-Scores are recommendations, not guarantees. Weather and air-quality data come from Open-Meteo. Astronomical calculations use SunCalc. Map tiles are served by CARTO.
+Scores are recommendations, not guarantees. Weather and air-quality data come from Open-Meteo. Astronomical calculations use SunCalc. The beta map uses OpenFreeMap vector data with OpenMapTiles and OpenStreetMap attribution.
 
 ## Technology
 
 - React 19 and TypeScript
 - Vite 8
-- Leaflet and React Leaflet
+- Leaflet and React Leaflet, with MapLibre GL for OpenFreeMap vector maps
 - Tailwind CSS 4 plus application CSS
 - Vitest
 - A web app manifest and service worker for PWA installation and offline navigation fallback

@@ -1,5 +1,4 @@
 import type { Page, Request, Route } from '@playwright/test';
-import { Buffer } from 'node:buffer';
 
 export const FIXED_NOW = new Date('2026-08-29T18:15:00-07:00');
 export const OCEAN_BEACH_COORDINATES = '37.7594,-122.5107';
@@ -15,10 +14,18 @@ const ONBOARDING_KEYS = [
   'onboarding:v2:complete',
 ];
 
-const TRANSPARENT_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAE/wJ/l4W7WQAAAABJRU5ErkJggg==',
-  'base64',
-);
+const EMPTY_OPENFREEMAP_STYLE = {
+  version: 8,
+  name: 'Soleil test basemap',
+  sources: {},
+  layers: [
+    {
+      id: 'background',
+      type: 'background',
+      paint: { 'background-color': '#dce8ec' },
+    },
+  ],
+};
 
 function hourlyEpochSeconds(): number[] {
   const values: number[] = [];
@@ -410,8 +417,17 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     await route.abort('blockedbyclient');
   });
 
+  await page.route(/^https:\/\/tiles\.openfreemap\.org\/styles\//, async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: EMPTY_OPENFREEMAP_STYLE,
+    });
+  });
+
   await page.route(/https:\/\/[a-d]\.basemaps\.cartocdn\.com\/.+\.png/, async (route: Route) => {
-    await route.fulfill({ status: 200, contentType: 'image/png', body: TRANSPARENT_PNG });
+    requests.unexpectedExternal.push(route.request().url());
+    await route.abort('blockedbyclient');
   });
 
   await page.route(/^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com|unpkg\.com)\//, async (route: Route) => {

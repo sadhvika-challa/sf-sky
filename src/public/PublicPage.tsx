@@ -129,12 +129,13 @@ function PrivacyPage() {
             <a href="https://open-meteo.com/en/terms" rel="noreferrer">Open-Meteo terms and privacy information</a>.
           </li>
           <li>
-            <strong>CARTO:</strong> Map tile requests disclose the visible map area and technical request
-            information. CARTO's current basemap terms describe logging a truncated IP address, referrer,
-            user agent, timestamps, and request volume, with logs retained in the United States for 30 days.
-            Soleil's current unkeyed basemap integration remains subject to release review. This notice does
-            not establish that integration's release compliance. Read the{' '}
-            <a href="https://carto.com/legal/basemap-terms/" rel="noreferrer">CARTO basemap terms</a>.
+            <strong>OpenFreeMap:</strong> Loading the map sends the visible map area and ordinary technical
+            request information to OpenFreeMap's tile service. OpenFreeMap says it does not store IP addresses
+            in normal logs, may retain anonymized browser, referrer, operating-system, and timestamp information
+            indefinitely, and may temporarily log IP addresses for up to 30 days during a security incident. It may use
+            Cloudflare to deliver the service, and Cloudflare may process network request information. Read the{' '}
+            <a href="https://openfreemap.org/privacy/" rel="noreferrer">OpenFreeMap Privacy Policy</a> and{' '}
+            <a href="https://www.cloudflare.com/privacypolicy/" rel="noreferrer">Cloudflare Privacy Policy</a>.
           </li>
           <li>
             <strong>Typography:</strong> The current build bundles its font files locally and does not

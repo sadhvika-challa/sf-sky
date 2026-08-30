@@ -100,6 +100,10 @@ async function authoritativePayload(page: Page): Promise<SavedPayload | null> {
 }
 
 async function resetSavedSpots(page: Page): Promise<void> {
+  // The application entry is route-split. Wait for the app route to mount
+  // before mutating durable state so an in-flight hydration cannot overwrite
+  // the test fixture after it is seeded.
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
   await setAuthoritativeRaw(page, null);
   await page.evaluate((key) => window.localStorage.removeItem(key), STORAGE_KEY);
 }
@@ -380,6 +384,7 @@ test('keeps the bundled saved catalog usable offline', async ({ context, page })
   await resetSavedSpots(page);
   await seedSavedSpots(page, [MOUNT_BONNELL.id]);
   await page.reload();
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
   await context.setOffline(true);
 
   const saved = await openSavedSpots(page);
@@ -416,7 +421,7 @@ test('provides keyboard-operable controls and stable accessible names', async ({
   const remove = sheet.getByRole('button', { name: `Remove ${OCEAN_BEACH.name} from saved spots` });
   await remove.focus();
   await expect(remove).toBeFocused();
-  await page.keyboard.press('Enter');
+  await remove.press('Enter');
   await expect(sheet.getByRole('button', { name: `Save ${OCEAN_BEACH.name}` }))
     .toHaveAttribute('aria-pressed', 'false');
 });
@@ -552,6 +557,7 @@ test('retains a row and suppresses rehydrate Retry after failed removal', async 
   await resetSavedSpots(page);
   await seedSavedSpots(page, [OCEAN_BEACH.id]);
   await page.reload();
+  await countSettingsLabel(page, 1);
   await failFutureReadwriteTransactions(page);
 
   const saved = await openSavedSpots(page);

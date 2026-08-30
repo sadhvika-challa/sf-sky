@@ -164,8 +164,10 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const nowCard = dialog.locator('[data-card-type="now"]');
   const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
-  await slider.focus();
-  await page.keyboard.press('ArrowRight');
+  await waitForStableGeometry(dialog);
+  await expect(slider).toHaveAttribute('aria-valuenow', '0');
+  await slider.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
 
   const shareButton = nowCard.getByRole('button', {
     name: 'Share selected hour card for Ocean Beach',
