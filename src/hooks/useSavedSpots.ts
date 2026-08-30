@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
-import { KNOWN_SPOT_IDS, SPOT_ID_ALIASES } from '../data/spotIdentity';
+import { KNOWN_SPOT_IDS, RETIRED_SPOT_IDS, SPOT_ID_ALIASES } from '../data/spotIdentity';
 import { browserKeyValueStore, type KeyValueStore } from '../platform/storage';
 import {
   FutureSavedSpotsVersionError,
@@ -47,6 +47,7 @@ export class SavedSpotsController {
   private state: SavedSpotsState = INITIAL_STATE;
   private desired = new Set<string>();
   private committed = new Set<string>();
+  private opaqueSpotIds: string[] = [];
   private listeners = new Set<Listener>();
   private initializePromise: Promise<void> | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
@@ -55,15 +56,18 @@ export class SavedSpotsController {
   private readonly store: KeyValueStore;
   private readonly knownIds: ReadonlySet<string>;
   private readonly aliases: Readonly<Record<string, string>>;
+  private readonly retiredIds: ReadonlySet<string>;
 
   constructor(
     store: KeyValueStore,
     knownIds: ReadonlySet<string>,
     aliases: Readonly<Record<string, string>> = {},
+    retiredIds: ReadonlySet<string> = new Set(),
   ) {
     this.store = store;
     this.knownIds = knownIds;
     this.aliases = aliases;
+    this.retiredIds = retiredIds;
   }
 
   getSnapshot = (): SavedSpotsState => this.state;
@@ -89,6 +93,7 @@ export class SavedSpotsController {
         await this.store.get(SAVED_SPOTS_STORAGE_KEY),
         this.knownIds,
         this.aliases,
+        this.retiredIds,
       );
       if (parsed.kind === 'future-version') {
         this.publish(snapshot('protected', new Set(), 'future-version'));
@@ -97,6 +102,7 @@ export class SavedSpotsController {
 
       this.desired = new Set(parsed.spotIds);
       this.committed = new Set(parsed.spotIds);
+      this.opaqueSpotIds = [...parsed.opaqueSpotIds];
       this.publish(snapshot(
         parsed.kind === 'corrupt' ? 'error' : 'ready',
         this.desired,
@@ -105,7 +111,14 @@ export class SavedSpotsController {
 
       if (parsed.kind === 'loaded' && parsed.needsRewrite) {
         try {
-          await persistSavedSpots(this.store, parsed.spotIds, this.knownIds, this.aliases);
+          await persistSavedSpots(
+            this.store,
+            parsed.spotIds,
+            parsed.opaqueSpotIds,
+            this.knownIds,
+            this.aliases,
+            this.retiredIds,
+          );
         } catch (error) {
           if (error instanceof FutureSavedSpotsVersionError) {
             this.publish(snapshot('protected', new Set(), 'future-version'));
@@ -117,6 +130,7 @@ export class SavedSpotsController {
     } catch {
       this.desired = new Set();
       this.committed = new Set();
+      this.opaqueSpotIds = [];
       this.publish(snapshot('error', this.desired, 'read-failed'));
     }
   }
@@ -129,21 +143,25 @@ export class SavedSpotsController {
           await this.store.get(SAVED_SPOTS_STORAGE_KEY),
           this.knownIds,
           this.aliases,
+          this.retiredIds,
         );
         if (parsed.kind === 'future-version') {
           this.desired = new Set();
           this.committed = new Set();
+          this.opaqueSpotIds = [];
           this.publish(snapshot('protected', this.desired, 'future-version'));
           return;
         }
         if (parsed.kind === 'corrupt') {
           this.desired = new Set();
           this.committed = new Set();
+          this.opaqueSpotIds = [];
           this.publish(snapshot('error', this.desired, 'read-failed'));
           return;
         }
         this.desired = new Set(parsed.spotIds);
         this.committed = new Set(parsed.spotIds);
+        this.opaqueSpotIds = [...parsed.opaqueSpotIds];
         this.publish(snapshot('ready', this.desired, null));
       } catch {
         this.publish(snapshot('error', this.desired, 'read-failed'));
@@ -175,7 +193,14 @@ export class SavedSpotsController {
     const targetKey = `${spotId}:${saved}`;
     const write = this.writeQueue.then(async () => {
       try {
-        await persistSavedSpots(this.store, [...target], this.knownIds, this.aliases);
+        await persistSavedSpots(
+          this.store,
+          [...target],
+          this.opaqueSpotIds,
+          this.knownIds,
+          this.aliases,
+          this.retiredIds,
+        );
         this.committed = new Set(target);
         if (this.desired === target) {
           this.publish(snapshot('ready', this.desired, null));
@@ -206,6 +231,7 @@ export interface UseSavedSpotsOptions {
   store?: KeyValueStore;
   knownIds?: ReadonlySet<string>;
   aliases?: Readonly<Record<string, string>>;
+  retiredIds?: ReadonlySet<string>;
 }
 
 export interface UseSavedSpotsResult extends SavedSpotsState {
@@ -222,9 +248,10 @@ export function useSavedSpots(
   const store = options.store ?? browserKeyValueStore;
   const knownIds = options.knownIds ?? KNOWN_SPOT_IDS;
   const aliases = options.aliases ?? SPOT_ID_ALIASES;
+  const retiredIds = options.retiredIds ?? RETIRED_SPOT_IDS;
   const controller = useMemo(
-    () => new SavedSpotsController(store, knownIds, aliases),
-    [aliases, knownIds, store],
+    () => new SavedSpotsController(store, knownIds, aliases, retiredIds),
+    [aliases, knownIds, retiredIds, store],
   );
   const state = useSyncExternalStore(
     controller.subscribe,

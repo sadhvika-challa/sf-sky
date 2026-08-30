@@ -24,6 +24,7 @@ import OnboardingHint from './components/OnboardingHint';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
 import MapErrorBoundary from './components/MapErrorBoundary';
+import LocationControl from './components/LocationControl';
 import type { ScoreTier, ViewMode } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
@@ -745,6 +746,10 @@ function App() {
         <div
           className="absolute bottom-0 left-0 right-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 bg-white/95 backdrop-blur-sm rounded-t-xl shadow-[0_-2px_10px_rgba(0,0,0,0.08)]"
         >
+          <LocationControl
+            state={location.state}
+            onRequest={location.request}
+          />
           <WeatherControls
             hourKeys={weatherHourKeys}
             hourKey={timelineHourKey || resolvedNowKey}

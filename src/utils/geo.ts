@@ -1,6 +1,8 @@
 export interface UserLocation {
   lat: number;
   lng: number;
+  accuracyMeters?: number | null;
+  precision?: LocationPrecision;
 }
 
 export type LocationPrecision = 'precise' | 'approximate' | 'unknown';

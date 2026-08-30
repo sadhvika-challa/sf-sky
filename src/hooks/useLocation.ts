@@ -32,6 +32,7 @@ type LocationListener = () => void;
 export class LocationController {
   private state: LocationState = { status: 'not-requested' };
   private latestRequest = 0;
+  private activeRequest: Promise<LocationState> | null = null;
   private readonly listeners = new Set<LocationListener>();
   private readonly provider: LocationProvider;
 
@@ -51,7 +52,17 @@ export class LocationController {
     for (const listener of this.listeners) listener();
   }
 
-  async request(options?: LocationRequestOptions): Promise<LocationState> {
+  request(options?: LocationRequestOptions): Promise<LocationState> {
+    if (this.activeRequest) return this.activeRequest;
+    const operation = this.performRequest(options);
+    this.activeRequest = operation;
+    void operation.finally(() => {
+      if (this.activeRequest === operation) this.activeRequest = null;
+    });
+    return operation;
+  }
+
+  private async performRequest(options?: LocationRequestOptions): Promise<LocationState> {
     const requestId = ++this.latestRequest;
     if (!this.provider.isSupported()) {
       const unsupported: LocationState = { status: 'unsupported' };

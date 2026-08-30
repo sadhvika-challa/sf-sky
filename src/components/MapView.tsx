@@ -611,10 +611,18 @@ export default function MapView({
           position={[userLocation.lat, userLocation.lng]}
           icon={userIcon}
           zIndexOffset={500}
+          title={userLocation.precision === 'approximate'
+            ? 'Your approximate location'
+            : 'Your location'}
+          alt={userLocation.precision === 'approximate'
+            ? 'Your approximate location'
+            : 'Your location'}
         >
           {!isCoarsePointer && (
             <Tooltip direction="top" offset={[0, -10]} className="spot-tooltip" opacity={1} interactive={false}>
-              You are here
+              {userLocation.precision === 'approximate'
+                ? 'Your approximate location'
+                : 'You are here'}
             </Tooltip>
           )}
         </Marker>

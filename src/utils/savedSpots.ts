@@ -9,10 +9,10 @@ export interface SavedSpotsPayloadV1 {
 }
 
 export type SavedSpotsParseResult =
-  | { kind: 'missing'; spotIds: []; needsRewrite: false }
-  | { kind: 'loaded'; spotIds: string[]; needsRewrite: boolean }
-  | { kind: 'corrupt'; spotIds: []; needsRewrite: false }
-  | { kind: 'future-version'; version: number; spotIds: []; needsRewrite: false };
+  | { kind: 'missing'; spotIds: []; opaqueSpotIds: []; needsRewrite: false }
+  | { kind: 'loaded'; spotIds: string[]; opaqueSpotIds: string[]; needsRewrite: boolean }
+  | { kind: 'corrupt'; spotIds: []; opaqueSpotIds: []; needsRewrite: false }
+  | { kind: 'future-version'; version: number; spotIds: []; opaqueSpotIds: []; needsRewrite: false };
 
 export class FutureSavedSpotsVersionError extends Error {
   readonly version: number;
@@ -40,32 +40,49 @@ function legacyIds(value: unknown): unknown[] | null {
 function resolveAlias(
   id: string,
   aliases: Readonly<Record<string, string>>,
-): string | null {
+): string {
   let resolved = id;
   const visited = new Set<string>();
   while (aliases[resolved] !== undefined) {
-    if (visited.has(resolved)) return null;
+    if (visited.has(resolved)) return id;
     visited.add(resolved);
     resolved = aliases[resolved];
   }
   return resolved;
 }
 
+export interface ClassifiedSavedSpotIds {
+  spotIds: string[];
+  opaqueSpotIds: string[];
+}
+
+export function classifySavedSpotIds(
+  values: readonly unknown[],
+  knownIds: ReadonlySet<string>,
+  aliases: Readonly<Record<string, string>> = {},
+  retiredIds: ReadonlySet<string> = new Set(),
+): ClassifiedSavedSpotIds {
+  const spotIds: string[] = [];
+  const opaqueSpotIds: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (typeof value !== 'string' || value.length === 0) continue;
+    const aliased = resolveAlias(value, aliases);
+    if (retiredIds.has(value) || retiredIds.has(aliased) || seen.has(aliased)) continue;
+    seen.add(aliased);
+    if (knownIds.has(aliased)) spotIds.push(aliased);
+    else opaqueSpotIds.push(aliased);
+  }
+  return { spotIds, opaqueSpotIds };
+}
+
 export function normalizeSavedSpotIds(
   values: readonly unknown[],
   knownIds: ReadonlySet<string>,
   aliases: Readonly<Record<string, string>> = {},
+  retiredIds: ReadonlySet<string> = new Set(),
 ): string[] {
-  const normalized: string[] = [];
-  const seen = new Set<string>();
-  for (const value of values) {
-    if (typeof value !== 'string') continue;
-    const aliased = resolveAlias(value, aliases);
-    if (!aliased || !knownIds.has(aliased) || seen.has(aliased)) continue;
-    seen.add(aliased);
-    normalized.push(aliased);
-  }
-  return normalized;
+  return classifySavedSpotIds(values, knownIds, aliases, retiredIds).spotIds;
 }
 
 function sameStringArray(left: readonly unknown[], right: readonly string[]): boolean {
@@ -76,14 +93,17 @@ export function parseSavedSpots(
   raw: string | null,
   knownIds: ReadonlySet<string>,
   aliases: Readonly<Record<string, string>> = {},
+  retiredIds: ReadonlySet<string> = new Set(),
 ): SavedSpotsParseResult {
-  if (raw === null) return { kind: 'missing', spotIds: [], needsRewrite: false };
+  if (raw === null) {
+    return { kind: 'missing', spotIds: [], opaqueSpotIds: [], needsRewrite: false };
+  }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { kind: 'corrupt', spotIds: [], needsRewrite: false };
+    return { kind: 'corrupt', spotIds: [], opaqueSpotIds: [], needsRewrite: false };
   }
 
   if (isRecord(parsed) && typeof parsed.version === 'number' && parsed.version > SAVED_SPOTS_VERSION) {
@@ -91,26 +111,36 @@ export function parseSavedSpots(
       kind: 'future-version',
       version: parsed.version,
       spotIds: [],
+      opaqueSpotIds: [],
       needsRewrite: false,
     };
   }
 
   const ids = legacyIds(parsed);
-  if (!ids) return { kind: 'corrupt', spotIds: [], needsRewrite: false };
+  if (!ids) {
+    return { kind: 'corrupt', spotIds: [], opaqueSpotIds: [], needsRewrite: false };
+  }
 
   const version = isRecord(parsed) ? parsed.version : undefined;
   if (version !== undefined && version !== 0 && version !== SAVED_SPOTS_VERSION) {
-    return { kind: 'corrupt', spotIds: [], needsRewrite: false };
+    return { kind: 'corrupt', spotIds: [], opaqueSpotIds: [], needsRewrite: false };
   }
 
-  const spotIds = normalizeSavedSpotIds(ids, knownIds, aliases);
+  const { spotIds, opaqueSpotIds } = classifySavedSpotIds(
+    ids,
+    knownIds,
+    aliases,
+    retiredIds,
+  );
+  const storedIds = [...spotIds, ...opaqueSpotIds];
   const isCurrentShape = isRecord(parsed)
     && parsed.version === SAVED_SPOTS_VERSION
     && Array.isArray(parsed.spotIds);
   return {
     kind: 'loaded',
     spotIds,
-    needsRewrite: !isCurrentShape || !sameStringArray(ids, spotIds),
+    opaqueSpotIds,
+    needsRewrite: !isCurrentShape || !sameStringArray(ids, storedIds),
   };
 }
 
@@ -126,17 +156,32 @@ export function serializeSavedSpots(spotIds: readonly string[]): string {
 export async function persistSavedSpots(
   store: KeyValueStore,
   spotIds: readonly string[],
+  opaqueSpotIds: readonly string[],
   knownIds: ReadonlySet<string>,
   aliases: Readonly<Record<string, string>> = {},
+  retiredIds: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   const current = parseSavedSpots(
     await store.get(SAVED_SPOTS_STORAGE_KEY),
     knownIds,
     aliases,
+    retiredIds,
   );
   if (current.kind === 'future-version') {
     throw new FutureSavedSpotsVersionError(current.version);
   }
-  const normalized = normalizeSavedSpotIds(spotIds, knownIds, aliases);
-  await store.set(SAVED_SPOTS_STORAGE_KEY, serializeSavedSpots(normalized));
+  const normalized = classifySavedSpotIds(
+    [
+      ...spotIds,
+      ...opaqueSpotIds,
+      ...(current.kind === 'loaded' ? current.opaqueSpotIds : []),
+    ],
+    knownIds,
+    aliases,
+    retiredIds,
+  );
+  await store.set(SAVED_SPOTS_STORAGE_KEY, serializeSavedSpots([
+    ...normalized.spotIds,
+    ...normalized.opaqueSpotIds,
+  ]));
 }

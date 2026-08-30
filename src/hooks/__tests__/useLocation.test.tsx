@@ -91,6 +91,31 @@ describe('useLocation privacy contract', () => {
     });
   });
 
+  it('coalesces repeated activation while a location request is pending', async () => {
+    let resolveLocation: ((location: Awaited<ReturnType<LocationProvider['request']>>) => void) | undefined;
+    const provider: LocationProvider = {
+      isSupported: () => true,
+      request: vi.fn(() => new Promise<Awaited<ReturnType<LocationProvider['request']>>>((resolve) => {
+        resolveLocation = resolve;
+      })),
+    };
+    const controller = new LocationController(provider);
+
+    const first = controller.request();
+    const repeated = controller.request();
+    expect(repeated).toBe(first);
+    expect(provider.request).toHaveBeenCalledTimes(1);
+    resolveLocation?.({
+      lat: 37.75,
+      lng: -122.44,
+      accuracyMeters: 20,
+      precision: 'precise',
+      capturedAt: 1,
+    });
+    await Promise.all([first, repeated]);
+    expect(controller.getSnapshot().status).toBe('allowed');
+  });
+
   it.each([
     ['denied'],
     ['timeout'],

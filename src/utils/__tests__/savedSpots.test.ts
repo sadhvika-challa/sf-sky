@@ -10,6 +10,7 @@ import {
 
 const KNOWN = new Set(['sf-ocean-beach', 'sf-twin-peaks', 'austin-mount-bonnell']);
 const ALIASES = { 'sf-twin-peaks-overlook': 'sf-twin-peaks' };
+const RETIRED = new Set(['retired-unknown']);
 
 class MemoryStore implements KeyValueStore {
   value: string | null = null;
@@ -39,11 +40,12 @@ describe('saved-spots payload', () => {
     expect(parseSavedSpots(raw, KNOWN, ALIASES)).toEqual({
       kind: 'loaded',
       spotIds: ['sf-ocean-beach', 'austin-mount-bonnell'],
+      opaqueSpotIds: [],
       needsRewrite: false,
     });
   });
 
-  it('migrates legacy shapes, aliases retired IDs, deduplicates, and prunes unknown IDs', () => {
+  it('migrates legacy shapes, aliases IDs, deduplicates, and prunes only explicitly retired IDs', () => {
     const parsed = parseSavedSpots(JSON.stringify({
       version: 0,
       savedSpotIds: [
@@ -52,12 +54,14 @@ describe('saved-spots payload', () => {
         'retired-unknown',
         7,
         'sf-ocean-beach',
+        'future-catalog-spot',
       ],
-    }), KNOWN, ALIASES);
+    }), KNOWN, ALIASES, RETIRED);
 
     expect(parsed).toEqual({
       kind: 'loaded',
       spotIds: ['sf-twin-peaks', 'sf-ocean-beach'],
+      opaqueSpotIds: ['future-catalog-spot'],
       needsRewrite: true,
     });
   });
@@ -66,11 +70,13 @@ describe('saved-spots payload', () => {
     expect(parseSavedSpots('{broken', KNOWN, ALIASES)).toEqual({
       kind: 'corrupt',
       spotIds: [],
+      opaqueSpotIds: [],
       needsRewrite: false,
     });
     expect(parseSavedSpots(JSON.stringify({ version: 1, spotIds: 'nope' }), KNOWN)).toEqual({
       kind: 'corrupt',
       spotIds: [],
+      opaqueSpotIds: [],
       needsRewrite: false,
     });
   });
@@ -84,9 +90,10 @@ describe('saved-spots payload', () => {
       kind: 'future-version',
       version: 42,
       spotIds: [],
+      opaqueSpotIds: [],
       needsRewrite: false,
     });
-    await expect(persistSavedSpots(store, ['sf-ocean-beach'], KNOWN)).rejects.toThrow(
+    await expect(persistSavedSpots(store, ['sf-ocean-beach'], [], KNOWN)).rejects.toThrow(
       'unsupported version 42',
     );
     expect(store.value).toBe(original);
@@ -106,11 +113,30 @@ describe('SavedSpotsController', () => {
       savedSpotIds: ['sf-twin-peaks'],
       error: null,
     });
-    expect(store.value).toBe(serializeSavedSpots(['sf-twin-peaks']));
+    expect(store.value).toBe(serializeSavedSpots(['sf-twin-peaks', 'unknown']));
 
     const nextLaunch = new SavedSpotsController(store, KNOWN, ALIASES);
     await nextLaunch.initialize();
     expect(nextLaunch.getSnapshot().savedSpotIds).toEqual(['sf-twin-peaks']);
+  });
+
+  it('keeps opaque same-schema IDs across known save and unsave writes', async () => {
+    const store = new MemoryStore();
+    store.value = serializeSavedSpots(['future-catalog-spot', 'sf-twin-peaks']);
+    const controller = new SavedSpotsController(store, KNOWN, ALIASES, RETIRED);
+    await controller.initialize();
+
+    expect(controller.getSnapshot().savedSpotIds).toEqual(['sf-twin-peaks']);
+    await controller.setSaved('sf-ocean-beach', true);
+    expect(JSON.parse(store.value ?? '')).toEqual({
+      version: 1,
+      spotIds: ['sf-twin-peaks', 'sf-ocean-beach', 'future-catalog-spot'],
+    });
+    await controller.setSaved('sf-twin-peaks', false);
+    expect(JSON.parse(store.value ?? '')).toEqual({
+      version: 1,
+      spotIds: ['sf-ocean-beach', 'future-catalog-spot'],
+    });
   });
 
   it('preserves save/unsave ordering and makes repeated intent idempotent', async () => {
@@ -178,6 +204,22 @@ describe('SavedSpotsController', () => {
     await controller.rehydrate();
     expect(controller.getSnapshot().savedSpotIds).toEqual(['austin-mount-bonnell']);
   });
+
+  it('rehydrates and preserves newly observed opaque IDs on the next write', async () => {
+    const store = new MemoryStore();
+    const controller = new SavedSpotsController(store, KNOWN, ALIASES, RETIRED);
+    await controller.initialize();
+    store.value = serializeSavedSpots(['austin-mount-bonnell', 'other-release-spot']);
+    await controller.rehydrate();
+
+    expect(controller.getSnapshot().savedSpotIds).toEqual(['austin-mount-bonnell']);
+    await controller.setSaved('sf-ocean-beach', true);
+    expect(JSON.parse(store.value ?? '').spotIds).toEqual([
+      'austin-mount-bonnell',
+      'sf-ocean-beach',
+      'other-release-spot',
+    ]);
+  });
 });
 
 describe('guarded browser storage', () => {
@@ -188,5 +230,60 @@ describe('guarded browser storage', () => {
     const store = createBrowserKeyValueStore(() => storage, () => undefined);
 
     await expect(store.get(SAVED_SPOTS_STORAGE_KEY)).rejects.toBeInstanceOf(StorageAccessError);
+  });
+
+  it('rehydrates only for matching storage changes and meaningful resume events, then cleans up', () => {
+    type Handler = EventListenerOrEventListenerObject;
+    const windowListeners = new Map<string, Set<Handler>>();
+    const documentListeners = new Map<string, Set<Handler>>();
+    let visibilityState: DocumentVisibilityState = 'visible';
+
+    const add = (listeners: Map<string, Set<Handler>>, type: string, handler: Handler) => {
+      const handlers = listeners.get(type) ?? new Set<Handler>();
+      handlers.add(handler);
+      listeners.set(type, handlers);
+    };
+    const remove = (listeners: Map<string, Set<Handler>>, type: string, handler: Handler) => {
+      listeners.get(type)?.delete(handler);
+    };
+    const dispatch = (listeners: Map<string, Set<Handler>>, type: string, event: Event) => {
+      for (const handler of listeners.get(type) ?? []) {
+        if (typeof handler === 'function') handler(event);
+        else handler.handleEvent(event);
+      }
+    };
+    const fakeDocument = {
+      get visibilityState() { return visibilityState; },
+      addEventListener: (type: string, handler: Handler) => add(documentListeners, type, handler),
+      removeEventListener: (type: string, handler: Handler) => remove(documentListeners, type, handler),
+    } as unknown as Document;
+    const fakeWindow = {
+      document: fakeDocument,
+      addEventListener: (type: string, handler: Handler) => add(windowListeners, type, handler),
+      removeEventListener: (type: string, handler: Handler) => remove(windowListeners, type, handler),
+    } as unknown as Window;
+    const store = createBrowserKeyValueStore(() => undefined, () => fakeWindow);
+    const listener = vi.fn();
+    const unsubscribe = store.subscribe?.(SAVED_SPOTS_STORAGE_KEY, listener);
+
+    dispatch(windowListeners, 'storage', { key: 'another:key' } as StorageEvent);
+    expect(listener).not.toHaveBeenCalled();
+    dispatch(windowListeners, 'storage', { key: SAVED_SPOTS_STORAGE_KEY } as StorageEvent);
+    expect(listener).toHaveBeenCalledTimes(1);
+    dispatch(windowListeners, 'pageshow', {} as PageTransitionEvent);
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    visibilityState = 'hidden';
+    dispatch(documentListeners, 'visibilitychange', {} as Event);
+    expect(listener).toHaveBeenCalledTimes(2);
+    visibilityState = 'visible';
+    dispatch(documentListeners, 'visibilitychange', {} as Event);
+    expect(listener).toHaveBeenCalledTimes(3);
+
+    unsubscribe?.();
+    dispatch(windowListeners, 'storage', { key: SAVED_SPOTS_STORAGE_KEY } as StorageEvent);
+    dispatch(windowListeners, 'pageshow', {} as PageTransitionEvent);
+    dispatch(documentListeners, 'visibilitychange', {} as Event);
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 });
