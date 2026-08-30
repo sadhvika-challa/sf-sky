@@ -154,6 +154,10 @@ export interface WeatherHarness {
     forecast: Record<string, number[]>;
     airQuality: Record<string, number[]>;
   }>;
+  defaultHourly?: {
+    forecast: Record<string, number[]>;
+    airQuality: Record<string, number[]>;
+  };
   deferForecast: (coordinateKey: string) => DeferredForecast;
 }
 
@@ -220,7 +224,8 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
         return;
       }
-      const override = harness.hourlyByCoordinates.get(coordinateKey)?.forecast;
+      const override = harness.hourlyByCoordinates.get(coordinateKey)?.forecast
+        ?? harness.defaultHourly?.forecast;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -234,7 +239,8 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
         return;
       }
-      const override = harness.hourlyByCoordinates.get(coordinateKey)?.airQuality;
+      const override = harness.hourlyByCoordinates.get(coordinateKey)?.airQuality
+        ?? harness.defaultHourly?.airQuality;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
