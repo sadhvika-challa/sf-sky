@@ -497,6 +497,14 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     setExpanded(!expanded);
   };
 
+  const handleCardWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    event.preventDefault();
+    scroller.scrollLeft += event.deltaX;
+  };
+
   useEffect(() => {
     const scrollTarget = initialCardType ?? 'now';
     if (!scrollTarget || !expanded) return;
@@ -850,6 +858,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                   >
                     <div
                       data-card-scroll
+                      onWheel={handleCardWheel}
                       className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
                       style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                     >
