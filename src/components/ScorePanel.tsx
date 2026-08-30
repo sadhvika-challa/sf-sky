@@ -411,7 +411,10 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     const frame1 = requestAnimationFrame(() => {
       frame2 = requestAnimationFrame(() => {
         setEntered(true);
-        sheetRef.current?.focus({ preventScroll: true });
+        const sheet = sheetRef.current;
+        if (sheet && !sheet.contains(document.activeElement)) {
+          sheet.focus({ preventScroll: true });
+        }
       });
     });
     return () => {
