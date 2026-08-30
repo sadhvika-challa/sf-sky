@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type UIEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
@@ -502,6 +502,31 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     scroller.scrollLeft += event.deltaX;
   };
 
+  const handleCardScroll = (event: UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2;
+    const cardEls = Array.from(
+      scroller.querySelectorAll<HTMLElement>('[data-card-type]'),
+    );
+    let closestType: CardType | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    for (const cardEl of cardEls) {
+      const cardCenter = cardEl.offsetLeft + cardEl.offsetWidth / 2;
+      const distance = Math.abs(cardCenter - viewportCenter);
+      const type = cardEl.dataset.cardType;
+      if (
+        distance < closestDistance &&
+        (type === 'now' || type === 'sunrise' || type === 'sunset' || type === 'stargazing')
+      ) {
+        closestDistance = distance;
+        closestType = type;
+      }
+    }
+
+    if (closestType) setActiveCardType(closestType);
+  };
+
   useEffect(() => {
     const scrollTarget = initialCardType ?? 'now';
     if (!scrollTarget || !expanded) return;
@@ -836,6 +861,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             {/* Cards — swipeable, one card per page, snaps cleanly */}
             <div
               ref={scrollerRef}
+              onScroll={handleCardScroll}
               className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
               style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
             >
