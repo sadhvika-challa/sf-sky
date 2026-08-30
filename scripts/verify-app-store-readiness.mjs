@@ -210,7 +210,9 @@ for (const [label, expression] of signingPatterns) {
 gate(
   'No legacy signing identity is committed',
   !/\bCODE_SIGN_IDENTITY\s*=/.test(project),
-  'The project still contains a legacy CODE_SIGN_IDENTITY setting. Remove it through the supported Xcode version, then validate automatic signing.',
+  /\bCODE_SIGN_IDENTITY\s*=/.test(project)
+    ? 'The project still contains a legacy CODE_SIGN_IDENTITY setting. Remove it through the supported Xcode version, then validate automatic signing.'
+    : 'No signing identity is pinned. The app target retains automatic signing.',
 );
 
 const listFiles = async (directoryUrl, prefix = '') => {

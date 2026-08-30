@@ -37,6 +37,28 @@ Run the repository-level shell checks:
 npm run ios:verify
 ```
 
+With full Xcode selected, you can also create the same enrollment-free archive that CI verifies:
+
+```bash
+xcodebuild \
+  -project ios/App/App.xcodeproj \
+  -scheme App \
+  -configuration Release \
+  -destination 'generic/platform=iOS' \
+  -archivePath /tmp/Soleil.xcarchive \
+  CODE_SIGNING_ALLOWED=NO \
+  archive
+
+npm run ios:archive:verify -- \
+  --archive /tmp/Soleil.xcarchive \
+  --marketing-version 1.0 \
+  --build-number 1
+```
+
+The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. CI retains the unsigned archive, its Xcode result bundle, and a machine-readable verification report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+
+This archive deliberately uses `CODE_SIGNING_ALLOWED=NO`. It proves that the Release archive action produces the expected device artifact before Apple Developer Program enrollment, but it cannot be installed, exported for distribution, uploaded to TestFlight, or used as signing validation.
+
 Open the generated project:
 
 ```bash
@@ -73,6 +95,8 @@ App Store privacy answers remain a human release gate. They must be reviewed aga
 - Add Universal Links only after the canonical domain and associated-domain deployment are approved.
 
 The shell intentionally contains no Apple team ID, signing certificate, provisioning profile, distribution upload, or App Store submission automation.
+
+The Xcode target retains automatic signing so a developer can select their own team locally after enrollment. The repository does not pin a signing identity. CI disables signing only for its unsigned archive command.
 
 Before preparing a release candidate, run `npm run ios:release:verify`. Development mode reports unresolved human gates without hiding them. Strict candidate mode requires the intended version and build plus explicit approval inputs for the gates it evaluates. Run `npm run ios:release:verify -- --help` for the exact inputs. It does not replace the [App Store release checklist](./app-store-release-checklist.md) or [TestFlight acceptance checklist](./testflight-acceptance.md), which cover account, policy, archive, and physical-device evidence that repository checks cannot provide.
 
