@@ -4,6 +4,7 @@ const testPort = Number(process.env.SOLEIL_PLAYWRIGHT_PORT ?? 5001);
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: ['**/pwa/**'],
   fullyParallel: false,
   timeout: 45_000,
   expect: {

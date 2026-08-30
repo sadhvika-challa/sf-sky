@@ -10,8 +10,8 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// Register service worker for PWA
-if (!isNativeRuntime() && 'serviceWorker' in navigator) {
+// Register the finalized service worker only for production web builds.
+if (import.meta.env.PROD && !isNativeRuntime() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {
       // SW registration failed — app still works without it

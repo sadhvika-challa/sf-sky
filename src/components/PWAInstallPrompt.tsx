@@ -11,7 +11,7 @@ interface PWAInstallPromptProps {
 }
 
 type Platform = 'ios' | 'android' | 'other';
-type IOSBrowser = 'safari' | 'chrome' | 'firefox' | 'opera' | 'edge' | 'other';
+type IOSBrowser = 'safari' | 'chrome' | 'firefox' | 'opera' | 'edge' | 'webview' | 'other';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -24,6 +24,9 @@ const DISMISS_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const AUTO_SHOW_DELAY_MS = 30_000;
 const EXIT_ANIM_MS = 340;
 const ENTER_ANIM_MS = 360;
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
+  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function isStandalone(): boolean {
   if (typeof window === 'undefined') return false;
@@ -51,8 +54,8 @@ function detectIOSBrowser(): IOSBrowser {
   if (ua.includes('FxiOS')) return 'firefox';
   if (ua.includes('OPiOS')) return 'opera';
   if (ua.includes('EdgiOS')) return 'edge';
-  // No CriOS/FxiOS/OPiOS/EdgiOS → real Safari (or a webview, which we treat as Safari).
-  return 'safari';
+  if (/Version\/[\d.]+.*Mobile\/.*Safari\//i.test(ua)) return 'safari';
+  return 'webview';
 }
 
 function readDismissedAt(): number | null {
@@ -91,6 +94,7 @@ function getIOSStep1Copy(browser: IOSBrowser): string {
     case 'firefox':
     case 'opera':
     case 'edge':
+    case 'webview':
     case 'other':
       return 'Tap the share button in your browser';
   }
@@ -108,11 +112,16 @@ function readInitialEligibility(): {
     return { eligible: false, platform: 'other', iosBrowser: 'other' };
   }
   const platform = detectPlatform();
-  const eligible = platform !== 'other' && !isStandalone() && !recentlyDismissed();
+  const iosBrowser = platform === 'ios' ? detectIOSBrowser() : 'other';
+  const eligible =
+    platform === 'ios' &&
+    iosBrowser !== 'webview' &&
+    !isStandalone() &&
+    !recentlyDismissed();
   return {
     eligible,
     platform,
-    iosBrowser: platform === 'ios' ? detectIOSBrowser() : 'other',
+    iosBrowser,
   };
 }
 
@@ -134,6 +143,8 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const triggeredRef = useRef(false);
   const autoTimerRef = useRef<number | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   // Capture Android's deferred install prompt as soon as the browser fires
   // it — which can happen well before the user interacts with anything,
@@ -141,12 +152,14 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handler = (e: Event) => {
+      if (platform !== 'android' || isStandalone() || recentlyDismissed()) return;
       e.preventDefault();
       deferredPromptRef.current = e as BeforeInstallPromptEvent;
+      setEligible(true);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
+  }, [platform]);
 
   // If the user installs through the browser UI (or accepts the deferred
   // prompt), tear down so we never paint over a freshly-installed app.
@@ -164,6 +177,9 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
   const trigger = useCallback(() => {
     if (triggeredRef.current) return;
     triggeredRef.current = true;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     if (autoTimerRef.current !== null) {
       window.clearTimeout(autoTimerRef.current);
       autoTimerRef.current = null;
@@ -196,7 +212,10 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
   // out of.
   useEffect(() => {
     if (!open) return;
-    const id = window.requestAnimationFrame(() => setEntered(true));
+    const id = window.requestAnimationFrame(() => {
+      setEntered(true);
+      dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+    });
     return () => window.cancelAnimationFrame(id);
   }, [open]);
 
@@ -221,6 +240,58 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
       setExiting(false);
     }, EXIT_ANIM_MS);
   }, [exiting]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        dismiss();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? [],
+      ).filter((element) => element.offsetParent !== null);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (!dialogRef.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
+  }, [dismiss, open]);
+
+  useEffect(() => {
+    if (open) return;
+    const target = returnFocusRef.current;
+    if (!target) return;
+    returnFocusRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (target.isConnected && target.offsetParent !== null) {
+        target.focus();
+      } else {
+        const underlyingDialog = Array.from(document.querySelectorAll<HTMLElement>(
+          '[role="dialog"]:not(.karl-pwa-root)',
+        )).find((dialog) => dialog.offsetParent !== null);
+        (underlyingDialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? underlyingDialog ??
+          document.querySelector<HTMLElement>('button:not([disabled])'))?.focus();
+      }
+    });
+  }, [open]);
 
   const handleAndroidInstall = useCallback(async () => {
     const deferred = deferredPromptRef.current;
@@ -250,16 +321,17 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
   if (!open) return null;
 
   const visible = entered && !exiting;
-  const headline = platform === 'ios' ? 'Add Soleil to your dock' : 'Install Soleil';
+  const headline = platform === 'ios' ? 'Add Soleil to your Home Screen' : 'Install Soleil';
   const subtitle =
     platform === 'ios'
-      ? 'So I can ruin your sunset plans faster. No app store required.'
-      : 'Pin me to your home screen. You know you want to.';
+      ? 'Save the Soleil website for faster access. Live weather, maps, and directions still need a connection.'
+      : 'Open Soleil like an app from your Home Screen. Live weather, maps, and directions still need a connection.';
 
   return (
     <>
       <style>{styles}</style>
       <div
+        ref={dialogRef}
         className="karl-pwa-root"
         role="dialog"
         aria-modal="true"
@@ -356,7 +428,7 @@ function IOSContent({ browser, onPrimary, onSecondary }: IOSContentProps) {
             <div className="karl-pwa-step-title">
               <span className="karl-pwa-step-num">3.</span> Tap Add
             </div>
-            <div className="karl-pwa-step-desc">Karl moves in. No rent required.</div>
+            <div className="karl-pwa-step-desc">Soleil appears on your Home Screen.</div>
           </div>
         </li>
       </ol>
@@ -531,10 +603,10 @@ const styles = `
 
 .karl-pwa-close {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 30px;
-  height: 30px;
+  top: 5px;
+  right: 5px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: none;
   background: rgba(42, 38, 34, 0.06);

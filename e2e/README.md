@@ -1,5 +1,11 @@
 # Browser regression scope
 
+## Production PWA acceptance
+
+`npm run test:pwa` builds the production artifact and starts a dedicated preview on port 5002 with service workers enabled. Its Chromium acceptance project verifies the installable manifest and decoded icon sizes through the browser, then proves a fresh revisioned application shell can cold-start the bundled spot catalog offline after the browser HTTP cache is cleared. It also proves that an obsolete Soleil shell is removed without deleting unrelated product caches.
+
+This is an application-shell contract, not an offline weather claim. Live forecasts, map tiles, and directions require a connection. The test makes an external forecast request while offline and requires it to fail rather than returning invented current data. Browser automation cannot prove Safari's Add to Home Screen interaction, so that remains a physical iPhone release gate.
+
 `npm run test:e2e` starts Vite on port 5001 and runs the Now-card scrubber,
 forecast-trust, timezone identity, and request-budget journeys in desktop
 Chromium, desktop WebKit, and a 402 by 874 mobile WebKit profile. Open-Meteo

@@ -32,8 +32,17 @@ function isolateModalSiblings(modalRoot: HTMLElement): () => void {
   const parent = modalRoot.parentElement;
   if (!parent) return () => undefined;
   const priorState = new Map<HTMLElement, { inert: boolean; ariaHidden: string | null }>();
+  const modalPrior = {
+    inert: modalRoot.inert,
+    ariaHidden: modalRoot.getAttribute('aria-hidden'),
+  };
+  let modalIsolatedForInstallPrompt = false;
   const isolate = (element: HTMLElement) => {
-    if (element === modalRoot || priorState.has(element)) return;
+    if (
+      element === modalRoot ||
+      element.classList.contains('karl-pwa-root') ||
+      priorState.has(element)
+    ) return;
     priorState.set(element, {
       inert: element.inert,
       ariaHidden: element.getAttribute('aria-hidden'),
@@ -41,14 +50,32 @@ function isolateModalSiblings(modalRoot: HTMLElement): () => void {
     element.inert = true;
     element.setAttribute('aria-hidden', 'true');
   };
-  for (const child of parent.children) isolate(child as HTMLElement);
-  const observer = new MutationObserver(() => {
+  const restoreModal = () => {
+    modalRoot.inert = modalPrior.inert;
+    if (modalPrior.ariaHidden === null) modalRoot.removeAttribute('aria-hidden');
+    else modalRoot.setAttribute('aria-hidden', modalPrior.ariaHidden);
+    modalIsolatedForInstallPrompt = false;
+  };
+  const sync = () => {
+    const installPromptOpen = Array.from(parent.children).some((child) =>
+      child instanceof HTMLElement && child.classList.contains('karl-pwa-root'),
+    );
+    if (installPromptOpen && !modalIsolatedForInstallPrompt) {
+      modalRoot.inert = true;
+      modalRoot.setAttribute('aria-hidden', 'true');
+      modalIsolatedForInstallPrompt = true;
+    } else if (!installPromptOpen && modalIsolatedForInstallPrompt) {
+      restoreModal();
+    }
     for (const child of parent.children) isolate(child as HTMLElement);
-  });
+  };
+  sync();
+  const observer = new MutationObserver(sync);
   observer.observe(parent, { childList: true });
 
   return () => {
     observer.disconnect();
+    if (modalIsolatedForInstallPrompt) restoreModal();
     for (const [element, prior] of priorState) {
       element.inert = prior.inert;
       if (prior.ariaHidden === null) element.removeAttribute('aria-hidden');
@@ -189,6 +216,7 @@ export default function SavedSpotsSheet({
       modalRootRef.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [],
     ).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
     const handleKey = (event: KeyboardEvent) => {
+      if (document.querySelector('.karl-pwa-root')) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         // Capture at the window boundary so an underlying spot sheet cannot
@@ -317,7 +345,7 @@ export default function SavedSpotsSheet({
             <div className="py-10 text-center">
               <p className="font-serif text-lg text-gray-700">No saved spots yet</p>
               <p className="mt-2 font-mono text-[11px] leading-4 text-gray-500">
-                Open any spot and use its save button. The full city catalog remains available offline.
+                Open any spot and use its save button. The spot catalog is built into Soleil. Live weather and map tiles need a connection.
               </p>
             </div>
           )}
