@@ -425,17 +425,18 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   // dominantly vertical (dismiss) or horizontal (let the card scroller pan).
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  // axis: 'y' = vertical drag in progress (we own the gesture); 'x' = user is
-  // panning the card scroller horizontally, so we ignore it; null = still
-  // deciding (only used by the content-area axis-lock entry point).
+  // Axis y dismisses the sheet, x pages horizontally, and scroll leaves a
+  // vertical gesture with the active card. Null means the direction is not
+  // decided yet.
   const dragStateRef = useRef<{
     pointerId: number;
     startX: number;
     startY: number;
     startTime: number;
     moved: boolean;
-    axis: 'x' | 'y' | null;
+    axis: 'x' | 'y' | 'scroll' | null;
     captureEl: Element | null;
+    scrollEl: HTMLElement | null;
   } | null>(null);
   // Set when a drag actually moved so the trailing click event doesn't toggle
   // collapse after the user lifts their finger.
@@ -487,6 +488,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
       moved: false,
       axis: 'y',
       captureEl: e.currentTarget,
+      scrollEl: null,
     };
     setIsDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -529,6 +531,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
       moved: false,
       axis: null,
       captureEl: e.currentTarget,
+      scrollEl: target?.closest<HTMLElement>('[data-card-scroll]') ?? null,
     };
   };
 
@@ -543,14 +546,20 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         return;
       }
       if (Math.abs(dy) > Math.abs(dx)) {
-        state.axis = 'y';
-        state.moved = true;
-        setIsDragging(true);
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        } catch {
-          // setPointerCapture can throw if the pointer is already released;
-          // safe to ignore — we'll just rely on bubble events.
+        const cardScroll = state.scrollEl;
+        const shouldScrollCard = cardScroll && (dy < 0 || cardScroll.scrollTop > 0);
+        if (shouldScrollCard) {
+          state.axis = 'scroll';
+        } else {
+          state.axis = 'y';
+          state.moved = true;
+          setIsDragging(true);
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            // setPointerCapture can throw if the pointer is already released;
+            // safe to ignore because bubble events still finish the gesture.
+          }
         }
       } else {
         state.axis = 'x';
@@ -717,7 +726,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             onPointerMove={handleContentPointerMove}
             onPointerUp={handleContentPointerEnd}
             onPointerCancel={handleContentPointerEnd}
-            style={{ touchAction: 'pan-x' }}
+            style={{ touchAction: 'pan-x pan-y' }}
           >
             {/* Header — spot identity + travel context. Pure spot info,
                 so the swipeable weather cards below can stay forecast-only. */}
@@ -864,13 +873,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             <div
               ref={scrollerRef}
               className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
-              style={{ touchAction: 'pan-x', WebkitOverflowScrolling: 'touch' }}
+              style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
             >
               {cards.map((card) => (
                 <div
                   key={card.type}
                   data-card-type={card.type}
-                  className="w-full flex-shrink-0 snap-center px-3 pb-4 pt-1"
+                  data-card-scroll
+                  className="w-full min-h-0 flex-shrink-0 snap-center overflow-y-auto overscroll-contain px-3 pb-4 pt-1"
+                  style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                 >
                   <ScoreCard
                     spot={spot}
