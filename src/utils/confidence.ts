@@ -16,6 +16,7 @@ export type ScorePresentationState =
   | 'event-forecast'
   | 'aging-forecast'
   | 'stale-forecast'
+  | 'unknown-age-forecast'
   | 'partial-forecast'
   | 'unavailable'
   | 'curated-estimate';
@@ -113,8 +114,11 @@ function forecastStatusLabel(
   completeness: ForecastCompleteness,
 ): { state: ScorePresentationState; label: string } {
   if (freshness === 'stale') return { state: 'stale-forecast', label: 'Stale forecast' };
-  if (completeness !== 'complete' || freshness === 'unknown') {
+  if (completeness !== 'complete') {
     return { state: 'partial-forecast', label: 'Partial forecast' };
+  }
+  if (freshness === 'unknown') {
+    return { state: 'unknown-age-forecast', label: 'Forecast age unknown' };
   }
   if (freshness === 'aging') return { state: 'aging-forecast', label: 'Aging forecast' };
   if (moment === 'current') return { state: 'current-forecast', label: 'Current forecast' };

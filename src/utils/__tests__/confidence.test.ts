@@ -94,6 +94,19 @@ describe('buildScoreEvidence', () => {
     });
   });
 
+  it('keeps complete data separate from an unknown retrieval age', () => {
+    const read = evidence({ fetchedAt: null });
+    expect(read).toMatchObject({
+      provenance: 'forecast',
+      freshness: 'unknown',
+      completeness: 'complete',
+      confidence: 'low',
+      state: 'unknown-age-forecast',
+      reason: 'missing-retrieval-time',
+      statusLabel: 'Forecast age unknown · low confidence',
+    });
+  });
+
   it('marks retained data stale when refresh fails, regardless of timestamp age', () => {
     const read = evidence({ error: new Error('offline') });
     expect(read).toMatchObject({
