@@ -109,7 +109,10 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             archive
 
-      - name: Verify unsigned iOS archive contents
+      - name: Package unsigned archive
+        run: ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Soleil.xcarchive" "$RUNNER_TEMP/Soleil.xcarchive.zip"
+
+      - name: Verify and bind unsigned iOS archive evidence
         run: |
           npm run ios:archive:verify -- \
             --archive "$RUNNER_TEMP/Soleil.xcarchive" \
@@ -118,13 +121,11 @@ jobs:
             --build-number "$IOS_BUILD_NUMBER" \
             --device-families 1,2 \
             --source-commit "$GITHUB_SHA" \
+            --package "$RUNNER_TEMP/Soleil.xcarchive.zip" \
             --report "$RUNNER_TEMP/ios-archive-verification.json"
 
       - name: Verify generated native state is committed
         run: git diff --exit-code
-
-      - name: Package unsigned archive
-        run: ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Soleil.xcarchive" "$RUNNER_TEMP/Soleil.xcarchive.zip"
 
       - name: Upload archive verification evidence
         if: always()

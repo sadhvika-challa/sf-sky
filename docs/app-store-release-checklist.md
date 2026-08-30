@@ -104,7 +104,7 @@ npm run ios:release:verify
 - [ ] Capture the complete map request-host list from the live OpenFreeMap styles in both a web session and the candidate WKWebView. Reconcile style, sprite, glyph, vector-tile, and CDN hosts with the privacy inventory.
 - [ ] Run the archive locally on the iPhone 17 Pro where possible, then complete [testflight-acceptance.md](./testflight-acceptance.md).
 - [ ] Archive with the generic iOS device destination and validate the archive in Xcode Organizer.
-- [ ] Retain the machine-readable archive report and confirm its source commit, `package-lock.json` SHA-256, Xcode version and build, and iPhoneOS SDK version and build match the reviewed candidate record.
+- [ ] Retain the machine-readable archive report with the exact packaged archive. Confirm its source commit, clean-worktree result, `package-lock.json` SHA-256, Xcode version and build, iPhoneOS SDK version and build, archive tree digest, app tree digest, and package SHA-256 match the reviewed candidate record.
 
 No successful browser test or static repository check replaces an Xcode archive, signing validation, or physical-device test.
 

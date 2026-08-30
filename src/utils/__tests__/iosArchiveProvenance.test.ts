@@ -28,6 +28,7 @@ describe('iOS archive verification report', () => {
     const application = join(archive, 'Products', 'Applications', 'Soleil.app');
     const binaryDirectory = join(fixtureRoot, 'bin');
     const reportPath = join(fixtureRoot, 'report.json');
+    const packagePath = join(fixtureRoot, 'Soleil.xcarchive.zip');
     await Promise.all([
       mkdir(application, { recursive: true }),
       mkdir(binaryDirectory, { recursive: true }),
@@ -36,8 +37,17 @@ describe('iOS archive verification report', () => {
       writeFile(join(archive, 'Info.plist'), '<plist/>'),
       writeFile(join(application, 'Info.plist'), '<plist/>'),
       writeFile(join(application, 'PrivacyInfo.xcprivacy'), '<plist/>'),
+      writeFile(packagePath, 'retained archive package'),
     ]);
 
+    const sourceCommit = '1234567890abcdef1234567890abcdef12345678';
+    await writeExecutable(join(binaryDirectory, 'git'), `#!/bin/sh
+case "$1 $2" in
+  "rev-parse HEAD") printf '${sourceCommit}\\n' ;;
+  "status --porcelain=v1") exit 0 ;;
+  *) exit 2 ;;
+esac
+`);
     await writeExecutable(join(binaryDirectory, 'xcodebuild'), `#!/bin/sh
 printf 'Xcode 26.1\\nBuild version 17B55\\n'
 `);
@@ -60,22 +70,24 @@ case "$2" in
 esac
 `);
 
-    const sourceCommit = '1234567890abcdef1234567890abcdef12345678';
-    execFileSync(process.execPath, [
-      join(repositoryRoot, 'scripts', 'verify-ios-archive.mjs'),
-      '--archive', archive,
-      '--marketing-version', '1.0',
-      '--build-number', '1',
-      '--source-commit', sourceCommit,
-      '--report', reportPath,
-    ], {
-      cwd: repositoryRoot,
-      env: {
-        ...process.env,
-        PATH: `${binaryDirectory}:${process.env.PATH}`,
-      },
-      stdio: 'pipe',
-    });
+    const runVerifier = (claimedCommit: string) => execFileSync(process.execPath, [
+        join(repositoryRoot, 'scripts', 'verify-ios-archive.mjs'),
+        '--archive', archive,
+        '--marketing-version', '1.0',
+        '--build-number', '1',
+        '--source-commit', claimedCommit,
+        '--package', packagePath,
+        '--report', reportPath,
+      ], {
+        cwd: repositoryRoot,
+        env: {
+          ...process.env,
+          PATH: `${binaryDirectory}:${process.env.PATH}`,
+        },
+        stdio: 'pipe',
+      });
+
+    runVerifier(sourceCommit);
 
     const report = JSON.parse(await readFile(reportPath, 'utf8'));
     const lockfile = await readFile(join(repositoryRoot, 'package-lock.json'));
@@ -83,6 +95,7 @@ esac
     expect(report.schemaVersion).toBe(1);
     expect(report.provenance).toEqual({
       sourceCommit,
+      worktreeClean: true,
       lockfile: {
         path: 'package-lock.json',
         sha256: createHash('sha256').update(lockfile).digest('hex'),
@@ -95,5 +108,50 @@ esac
         sdkBuild: '23B74',
       },
     });
+    expect(report.artifact).toEqual({
+      archive: {
+        name: 'Soleil.xcarchive',
+        relativeAppPath: 'Products/Applications/Soleil.app',
+        digest: {
+          algorithm: 'sha256-tree-v1',
+          value: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      },
+      app: {
+        name: 'Soleil.app',
+        digest: {
+          algorithm: 'sha256-tree-v1',
+          value: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      },
+      package: {
+        name: 'Soleil.xcarchive.zip',
+        digest: {
+          algorithm: 'sha256',
+          value: createHash('sha256').update('retained archive package').digest('hex'),
+        },
+      },
+    });
+
+    expect(() => runVerifier('abcdefabcdefabcdefabcdefabcdefabcdefabcd')).toThrow();
+    const mismatchedCommitReport = JSON.parse(await readFile(reportPath, 'utf8'));
+    expect(mismatchedCommitReport.checks).toContainEqual(expect.objectContaining({
+      label: 'Source provenance matches the checked-out Git HEAD',
+      passed: false,
+    }));
+
+    await writeExecutable(join(binaryDirectory, 'git'), `#!/bin/sh
+case "$1 $2" in
+  "rev-parse HEAD") printf '${sourceCommit}\\n' ;;
+  "status --porcelain=v1") printf ' M src/App.tsx\\n' ;;
+  *) exit 2 ;;
+esac
+`);
+    expect(() => runVerifier(sourceCommit)).toThrow();
+    const dirtyWorktreeReport = JSON.parse(await readFile(reportPath, 'utf8'));
+    expect(dirtyWorktreeReport.checks).toContainEqual(expect.objectContaining({
+      label: 'Source provenance comes from a clean Git worktree',
+      passed: false,
+    }));
   });
 });
