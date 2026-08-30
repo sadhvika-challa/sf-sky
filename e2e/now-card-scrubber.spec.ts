@@ -142,7 +142,7 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
   await shareButton.click();
   await expect.poll(() => page.evaluate(
     () => (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData?.url ?? null,
-  )).toContain('hour=2026-08-29T19');
+  )).toContain('instant=2026-08-30T02%3A00%3A00Z');
   const shared = await page.evaluate(
     () => (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData,
   );
