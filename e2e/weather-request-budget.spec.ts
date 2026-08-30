@@ -241,8 +241,11 @@ test('moves a newly selected spot ahead of queued overlay work', async ({ page }
   const search = page.getByRole('dialog', { name: 'Search spots' });
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
   const oceanResult = search.getByRole('button', { name: /Ocean Beach/ });
+  await expect(oceanResult).toBeVisible();
   const overlayJobsBeforeSelection = harness.requests.forecast.length;
-  await oceanResult.click();
+  // Dispatch immediately so Playwright's actionability polling does not let
+  // unrelated overlay requests advance between the queue snapshot and click.
+  await oceanResult.dispatchEvent('click');
   await expect.poll(() => harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeGreaterThanOrEqual(0);
   expect(harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeLessThanOrEqual(
     overlayJobsBeforeSelection,

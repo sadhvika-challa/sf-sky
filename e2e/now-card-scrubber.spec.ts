@@ -59,6 +59,69 @@ test.beforeEach(async ({ page }) => {
   await installDeterministicBrowserState(page);
 });
 
+test('gives every card-page tab a full hit target and supports keyboard paging', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const tablist = dialog.getByRole('tablist', { name: 'Card pages' });
+  const tabs = tablist.getByRole('tab');
+  await expect(dialog).toBeVisible();
+  await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
+  await expect(tabs).toHaveCount(CARD_ORDER.length);
+
+  const tabGeometry = await tabs.evaluateAll((elements) => elements.map((element) => {
+    const target = element.getBoundingClientRect();
+    const dot = element.firstElementChild?.getBoundingClientRect();
+    return {
+      target: { left: target.left, right: target.right, top: target.top, bottom: target.bottom, width: target.width, height: target.height },
+      dot: dot ? { width: dot.width, height: dot.height } : null,
+    };
+  }));
+  for (const [index, geometry] of tabGeometry.entries()) {
+    expect(geometry.target.width, `${CARD_ORDER[index]} tab width`).toBeGreaterThanOrEqual(43.99);
+    expect(geometry.target.height, `${CARD_ORDER[index]} tab height`).toBeGreaterThanOrEqual(43.99);
+    expect(geometry.dot?.width, `${CARD_ORDER[index]} visual dot stays compact`).toBeLessThanOrEqual(12);
+    expect(geometry.dot?.height, `${CARD_ORDER[index]} visual dot stays compact`).toBeLessThanOrEqual(6);
+    if (index > 0) {
+      expect(
+        geometry.target.left,
+        `${CARD_ORDER[index - 1]} and ${CARD_ORDER[index]} targets must not overlap`,
+      ).toBeGreaterThanOrEqual(tabGeometry[index - 1].target.right - 0.01);
+    }
+  }
+
+  const nowTab = tablist.getByRole('tab', { name: 'Show Now card' });
+  const sunriseTab = tablist.getByRole('tab', { name: 'Show Sunrise card' });
+  const sunsetTab = tablist.getByRole('tab', { name: 'Show Sunset card' });
+  const stargazingTab = tablist.getByRole('tab', { name: 'Show Stargazing card' });
+  await expect(nowTab).toHaveAttribute('tabindex', '0');
+  await expect(sunriseTab).toHaveAttribute('tabindex', '-1');
+
+  await nowTab.focus();
+  await nowTab.press('ArrowRight');
+  await expect(sunriseTab).toBeFocused();
+  await expect(sunriseTab).toHaveAttribute('aria-selected', 'true');
+  await expect(sunriseTab).toHaveAttribute('tabindex', '0');
+
+  await sunriseTab.press('End');
+  await expect(stargazingTab).toBeFocused();
+  await expect(stargazingTab).toHaveAttribute('aria-selected', 'true');
+
+  await stargazingTab.press('ArrowRight');
+  await expect(nowTab).toBeFocused();
+  await expect(nowTab).toHaveAttribute('aria-selected', 'true');
+
+  await nowTab.press('ArrowLeft');
+  await expect(stargazingTab).toBeFocused();
+  await stargazingTab.press('Home');
+  await expect(nowTab).toBeFocused();
+  await expect(nowTab).toHaveAttribute('aria-selected', 'true');
+  await expect(sunsetTab).toHaveAttribute('aria-selected', 'false');
+  await expect(dialog).toBeVisible();
+  await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
+});
+
 test('keeps the forecast scrubber in the Now card and preserves the sheet', async ({ page }, testInfo) => {
   const harness = await installWeatherHarness(page);
   await page.goto(SPOT_URL);
@@ -189,6 +252,84 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
   await expect(restored.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '1');
   await expect(restored.getByRole('heading', { level: 3 })).toHaveText('NOW · SELECTED HOUR');
   await expect(restored.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+});
+
+test('keeps selected-hour score, evidence, time, and weather aligned after scrubbing', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Cross-surface parity is exercised once in Chromium');
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const nowCard = dialog.locator('[data-card-type="now"]');
+  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  await slider.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Now, Today · 7:00 PM');
+  await expect(nowCard.getByText('66°', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+
+  const sheetScore = (await dialog.locator('[aria-label^="Now score "]').textContent())?.trim();
+  expect(sheetScore).toMatch(/^\d{1,3}$/);
+  await expect(dialog.locator('[aria-label^="Now score "]')).toHaveAttribute(
+    'aria-label',
+    new RegExp(`^Now score ${sheetScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+  );
+  await expect(nowCard.getByText(sheetScore!, { exact: true })).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('[aria-label^="Ocean Beach, score "]')).toHaveAttribute(
+    'aria-label',
+    new RegExp(`^Ocean Beach, score ${sheetScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+  );
+
+  await page.getByRole('button', { name: 'Search spots' }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
+  await expect(search.getByText('Scores for Now · Today at 7:00 PM', { exact: true })).toBeVisible();
+  const result = search.getByRole('button', { name: /Ocean Beach/ });
+  await expect(result.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(result.locator('span').last()).toHaveText(sheetScore!);
+
+  await result.click();
+  const reopenedCard = page
+    .getByRole('dialog', { name: 'Ocean Beach sky scores' })
+    .locator('[data-card-type="now"]');
+  await expect(reopenedCard.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute(
+    'aria-valuetext',
+    'Now, Today · 7:00 PM',
+  );
+  await expect(reopenedCard.getByText('66°', { exact: true })).toBeVisible();
+  await expect(reopenedCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+});
+
+test.describe('city time differs from the browser time zone', () => {
+  test.use({ timezoneId: 'Asia/Tokyo' });
+
+  test('identifies Now from the Austin timeline using the city clock', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-chromium', 'Cross-timezone identity is exercised once in Chromium');
+    await installWeatherHarness(page);
+    await page.goto('/?spot=atx-mount-bonnell&view=now');
+
+    await expect.poll(() => page.evaluate(() => new Date().toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    }))).toBe('10:15 AM');
+    const dialog = page.getByRole('dialog', { name: 'Mount Bonnell (Covert Park) sky scores' });
+    const nowCard = dialog.locator('[data-card-type="now"]');
+    const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+    await expect(slider).toHaveAttribute('aria-valuenow', '0');
+    await expect(slider).toHaveAttribute('aria-valuetext', 'Sunset, Now · 8:15 PM');
+    await expect(nowCard.getByRole('heading', { level: 3 })).toHaveText('RIGHT NOW');
+    await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+    await expect(nowCard.getByText('64°', { exact: true })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Search spots' }).click();
+    await expect(page.getByRole('dialog', { name: 'Search spots' })
+      .getByText('Scores for Right now', { exact: true })).toBeVisible();
+  });
 });
 
 test('keeps recovery available when the selected spot forecast fails', async ({ page }) => {
