@@ -161,25 +161,29 @@ test('keeps the complete Now card reachable in the narrow touch layout', async (
 
   const reachability = await nowPage.evaluate((pageElement) => {
     const scroller = pageElement.parentElement;
-    const scoreCard = pageElement.firstElementChild;
+    const cardScroll = pageElement.querySelector<HTMLElement>('[data-card-scroll]');
+    const scoreCard = cardScroll?.firstElementChild;
     const breakdown = Array.from(pageElement.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('See breakdown'),
     );
-    if (!scroller || !scoreCard || !breakdown) throw new Error('Now-card layout nodes missing');
+    if (!scroller || !cardScroll || !scoreCard || !breakdown) {
+      throw new Error('Now-card layout nodes missing');
+    }
 
     const scrollerRect = scroller.getBoundingClientRect();
     const cardRect = scoreCard.getBoundingClientRect();
     const breakdownRect = breakdown.getBoundingClientRect();
     const scrollerStyle = getComputedStyle(scroller);
     const pageStyle = getComputedStyle(pageElement);
+    const cardScrollStyle = getComputedStyle(cardScroll);
     const cardStyle = getComputedStyle(scoreCard);
     const clippedPixels = Math.max(0, Math.round(cardRect.bottom - scrollerRect.bottom));
     const scrollerCanScroll =
       (scrollerStyle.overflowY === 'auto' || scrollerStyle.overflowY === 'scroll') &&
       scroller.scrollHeight > scroller.clientHeight;
-    const pageCanScroll =
-      (pageStyle.overflowY === 'auto' || pageStyle.overflowY === 'scroll') &&
-      pageElement.scrollHeight > pageElement.clientHeight;
+    const cardPageCanScroll =
+      (cardScrollStyle.overflowY === 'auto' || cardScrollStyle.overflowY === 'scroll') &&
+      cardScroll.scrollHeight > cardScroll.clientHeight;
 
     return {
       scroller: {
@@ -192,6 +196,12 @@ test('keeps the complete Now card reachable in the narrow touch layout', async (
         scrollHeight: pageElement.scrollHeight,
         overflowY: pageStyle.overflowY,
       },
+      cardScroll: {
+        clientHeight: cardScroll.clientHeight,
+        scrollHeight: cardScroll.scrollHeight,
+        overflowX: cardScrollStyle.overflowX,
+        overflowY: cardScrollStyle.overflowY,
+      },
       scoreCard: {
         clientHeight: (scoreCard as HTMLElement).clientHeight,
         scrollHeight: (scoreCard as HTMLElement).scrollHeight,
@@ -199,7 +209,7 @@ test('keeps the complete Now card reachable in the narrow touch layout', async (
       },
       clippedPixels,
       breakdownVisibleInScroller: breakdownRect.bottom <= scrollerRect.bottom + 1,
-      hasVerticalScrollPath: scrollerCanScroll || pageCanScroll,
+      hasVerticalScrollPath: scrollerCanScroll || cardPageCanScroll,
     };
   });
 
@@ -211,7 +221,8 @@ test('keeps the complete Now card reachable in the narrow touch layout', async (
   expect(reachability.breakdownVisibleInScroller || reachability.hasVerticalScrollPath).toBe(true);
 
   await nowPage.evaluate((pageElement) => {
-    pageElement.scrollTop = pageElement.scrollHeight;
+    const cardScroll = pageElement.querySelector<HTMLElement>('[data-card-scroll]');
+    if (cardScroll) cardScroll.scrollTop = cardScroll.scrollHeight;
   });
   const breakdownIsReachable = await nowPage.evaluate((pageElement) => {
     const scroller = pageElement.parentElement;
@@ -230,4 +241,68 @@ test('keeps the complete Now card reachable in the narrow touch layout', async (
     path: scrolledScreenshotPath,
     contentType: 'image/png',
   });
+});
+
+test('pages horizontally when the gesture starts over scrollable card content', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile-webkit', 'Mouse wheel is unavailable in mobile WebKit');
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const scroller = dialog.locator('.score-cards-scroll');
+  const nowPage = dialog.locator('[data-card-type="now"]');
+  const cardScroll = nowPage.locator('[data-card-scroll]');
+  const sunriseTab = dialog.getByRole('tab', { name: 'Show Sunrise card' });
+  await expect(nowPage).toBeVisible();
+
+  const cardOverflow = await nowPage.evaluate((element) => {
+    const inner = element.querySelector<HTMLElement>('[data-card-scroll]');
+    if (!inner) throw new Error('Card scroll wrapper missing');
+    const outerStyle = getComputedStyle(element);
+    const innerStyle = getComputedStyle(inner);
+    return {
+      outerOverflowX: outerStyle.overflowX,
+      outerOverflowY: outerStyle.overflowY,
+      innerOverflowX: innerStyle.overflowX,
+      innerOverflowY: innerStyle.overflowY,
+      innerClientWidth: inner.clientWidth,
+      innerScrollWidth: inner.scrollWidth,
+    };
+  });
+  console.info(`[horizontal-paging] ${JSON.stringify(cardOverflow)}`);
+  expect(cardOverflow.outerOverflowX).toBe('visible');
+  expect(cardOverflow.outerOverflowY).toBe('visible');
+  expect(cardOverflow.innerOverflowY).toBe('auto');
+  expect(cardOverflow.innerScrollWidth).toBe(cardOverflow.innerClientWidth);
+
+  const pageBox = await cardScroll.boundingBox();
+  if (!pageBox) throw new Error('Now card page has no layout box');
+  await page.mouse.move(
+    pageBox.x + pageBox.width / 2,
+    pageBox.y + Math.min(180, pageBox.height / 3),
+  );
+  await page.mouse.wheel(pageBox.width * 0.9, 0);
+
+  await expect.poll(async () => scroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(
+    pageBox.width * 0.5,
+  );
+  await expect(sunriseTab).toHaveAttribute('aria-selected', 'true');
+});
+
+test('dismisses the sheet from the dedicated handle pointer drag', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const handle = dialog.getByRole('button', { name: 'Swipe down to dismiss, or tap to collapse' });
+  await expect(handle).toBeVisible();
+  const box = await handle.boundingBox();
+  if (!box) throw new Error('Sheet handle has no layout box');
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 180, { steps: 8 });
+  await page.mouse.up();
+
+  await expect(dialog).toBeHidden();
 });
