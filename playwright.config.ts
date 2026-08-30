@@ -12,7 +12,10 @@ export default defineConfig({
   },
   outputDir: '/tmp/soleil-playwright-results',
   preserveOutput: 'always',
-  reporter: [['list']],
+  reporter: [
+    ['list'],
+    ['json', { outputFile: '/tmp/soleil-playwright-results/results.json' }],
+  ],
   use: {
     baseURL: `http://localhost:${testPort}`,
     locale: 'en-US',
