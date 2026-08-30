@@ -1,12 +1,18 @@
 import { execFileSync } from 'node:child_process';
-import { access, readdir, stat, writeFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { access, lstat, readFile, readlink, readdir, stat, writeFile } from 'node:fs/promises';
+import { basename, join, relative, resolve } from 'node:path';
 
 const usage = `Usage: npm run ios:archive:verify -- --archive PATH --marketing-version VERSION --build-number NUMBER [options]
 
 Options:
   --bundle-id ID           Expected bundle ID. Defaults to com.sadhvika.soleil.
   --device-families IDS    Expected UIDeviceFamily values. Defaults to 1,2.
+  --source-commit SHA      Full source commit. Defaults to the checked-out Git HEAD.
+  --lockfile PATH          Dependency lockfile. Defaults to package-lock.json.
+  --swift-lockfile PATH    Swift dependency lockfile. Defaults to the Xcode workspace Package.resolved.
+  --package PATH           Retained archive package to bind by SHA-256.
   --report PATH            Write a JSON verification report.
   --help                   Show this help.`;
 
@@ -14,6 +20,8 @@ const parseArguments = (args) => {
   const options = {
     bundleId: 'com.sadhvika.soleil',
     deviceFamilies: ['1', '2'],
+    lockfile: resolve('package-lock.json'),
+    swiftLockfile: resolve('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -29,6 +37,10 @@ const parseArguments = (args) => {
     else if (argument === '--marketing-version') options.marketingVersion = value;
     else if (argument === '--build-number') options.buildNumber = value;
     else if (argument === '--device-families') options.deviceFamilies = value.split(',').map((item) => item.trim()).filter(Boolean);
+    else if (argument === '--source-commit') options.sourceCommit = value;
+    else if (argument === '--lockfile') options.lockfile = resolve(value);
+    else if (argument === '--swift-lockfile') options.swiftLockfile = resolve(value);
+    else if (argument === '--package') options.package = resolve(value);
     else if (argument === '--report') options.report = resolve(value);
     else throw new Error(`Unknown argument: ${argument}`);
     index += 1;
@@ -49,10 +61,97 @@ const plistValue = (plist, keyPath, format = 'raw') => execFileSync(
   ['-extract', keyPath, format, '-o', '-', '--', plist],
   { encoding: 'utf8' },
 ).trim();
+const commandOutput = (command, args) => execFileSync(command, args, { encoding: 'utf8' }).trim();
+const hashFile = async (path) => {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
+};
+const hashTree = async (root) => {
+  const hash = createHash('sha256');
+  const visit = async (directory) => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      const relativePath = relative(root, path).split('\\').join('/');
+      const metadata = await lstat(path);
+      if (entry.isDirectory()) {
+        hash.update(`directory\0${relativePath}\0`);
+        await visit(path);
+      } else if (entry.isSymbolicLink()) {
+        hash.update(`symlink\0${relativePath}\0${await readlink(path)}\0`);
+      } else if (entry.isFile()) {
+        hash.update(`file\0${relativePath}\0${metadata.size}\0${await hashFile(path)}\0`);
+      } else {
+        throw new Error(`Unsupported archive entry type: ${relativePath}.`);
+      }
+    }
+  };
+  await visit(root);
+  return hash.digest('hex');
+};
+
+let provenance;
+try {
+  const headCommit = commandOutput('git', ['rev-parse', 'HEAD']);
+  const sourceCommit = options.sourceCommit ?? headCommit;
+  const worktreeStatus = commandOutput('git', ['status', '--porcelain=v1', '--untracked-files=all']);
+  const lockfile = await readFile(options.lockfile);
+  const swiftLockfile = await readFile(options.swiftLockfile);
+  const xcodeLines = commandOutput('xcodebuild', ['-version']).split(/\r?\n/);
+  const xcodeVersion = xcodeLines[0]?.replace(/^Xcode\s+/, '') ?? '';
+  const xcodeBuild = xcodeLines[1]?.replace(/^Build version\s+/, '') ?? '';
+  const sdkVersion = commandOutput('xcrun', ['--sdk', 'iphoneos', '--show-sdk-version']);
+  const sdkBuild = commandOutput('xcrun', ['--sdk', 'iphoneos', '--show-sdk-build-version']);
+
+  check('Source provenance uses a full Git commit SHA', /^[a-f0-9]{40}$/i.test(sourceCommit), '40 hexadecimal characters', sourceCommit);
+  check('Source provenance matches the checked-out Git HEAD', sourceCommit === headCommit, headCommit, sourceCommit);
+  check('Source provenance comes from a clean Git worktree', worktreeStatus.length === 0, 'no tracked or untracked changes', worktreeStatus || 'clean');
+  check('Dependency provenance uses the repository package-lock.json', options.lockfile === resolve('package-lock.json'), resolve('package-lock.json'), options.lockfile);
+  check(
+    'Swift dependency provenance uses the Xcode workspace Package.resolved',
+    options.swiftLockfile === resolve('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
+    resolve('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
+    options.swiftLockfile,
+  );
+  check('Xcode provenance includes a version', Boolean(xcodeVersion), 'nonempty Xcode version', xcodeVersion || 'none');
+  check('Xcode provenance includes a build', Boolean(xcodeBuild), 'nonempty Xcode build', xcodeBuild || 'none');
+  check('iOS SDK provenance includes a version', Boolean(sdkVersion), 'nonempty iOS SDK version', sdkVersion || 'none');
+  check('iOS SDK provenance includes a build', Boolean(sdkBuild), 'nonempty iOS SDK build', sdkBuild || 'none');
+
+  provenance = {
+    sourceCommit,
+    worktreeClean: worktreeStatus.length === 0,
+    lockfile: {
+      path: relative(process.cwd(), options.lockfile) || basename(options.lockfile),
+      sha256: createHash('sha256').update(lockfile).digest('hex'),
+    },
+    swiftLockfile: {
+      path: relative(process.cwd(), options.swiftLockfile) || basename(options.swiftLockfile),
+      sha256: createHash('sha256').update(swiftLockfile).digest('hex'),
+    },
+    toolchain: {
+      xcodeVersion,
+      xcodeBuild,
+      sdk: 'iphoneos',
+      sdkVersion,
+      sdkBuild,
+    },
+  };
+} catch (error) {
+  checks.push({
+    label: 'Archive provenance inspection completed',
+    passed: false,
+    expected: 'source, dependency, Xcode, and iOS SDK provenance readable',
+    actual: error instanceof Error ? error.message : String(error),
+  });
+}
 
 let archiveInfo;
 let appPath;
 let appInfo;
+let artifactBinding;
 
 try {
   check('Archive path has the .xcarchive extension', options.archive.endsWith('.xcarchive'), '*.xcarchive', options.archive);
@@ -129,6 +228,34 @@ try {
   execFileSync('plutil', ['-lint', '--', appInfo], { stdio: 'pipe' });
   execFileSync('plutil', ['-lint', '--', privacyManifest], { stdio: 'pipe' });
   check('Archived property lists are valid', true, 'valid plists', 'valid plists');
+
+  artifactBinding = {
+    archive: {
+      name: basename(options.archive),
+      relativeAppPath: relative(options.archive, appPath).split('\\').join('/'),
+      digest: {
+        algorithm: 'sha256-tree-v1',
+        value: await hashTree(options.archive),
+      },
+    },
+    app: {
+      name: basename(appPath),
+      digest: {
+        algorithm: 'sha256-tree-v1',
+        value: await hashTree(appPath),
+      },
+    },
+  };
+  if (options.package) {
+    check('Retained archive package is a file', (await stat(options.package)).isFile(), 'file present', options.package);
+    artifactBinding.package = {
+      name: basename(options.package),
+      digest: {
+        algorithm: 'sha256',
+        value: await hashFile(options.package),
+      },
+    };
+  }
 } catch (error) {
   checks.push({
     label: 'Archive inspection completed',
@@ -140,8 +267,9 @@ try {
 
 const failures = checks.filter(({ passed }) => !passed);
 const report = {
-  archive: options.archive,
-  app: appPath,
+  schemaVersion: 1,
+  artifact: artifactBinding,
+  provenance,
   expected: {
     bundleId: options.bundleId,
     marketingVersion: options.marketingVersion,

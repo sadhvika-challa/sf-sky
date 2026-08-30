@@ -65,6 +65,7 @@ Do not commit App Store Connect credentials, issuer IDs, private keys, signing i
 
 - [ ] Publish a privacy policy at an approved HTTPS URL.
 - [ ] Publish a support page with a working contact route at an approved HTTPS URL.
+- [ ] Run `npm run public:release:verify -- --origin https://example.com` against the proposed root origin. Attach its anonymous direct-response evidence to the release record. A passing command does not approve the hostname or the policy content.
 - [ ] Finalize the text in [app-store-metadata.md](./app-store-metadata.md).
 - [ ] Finalize the privacy answers using [app-privacy-data-inventory.md](./app-privacy-data-inventory.md).
 - [ ] Approve the final 1024 by 1024 App Store icon. It must not contain transparency.
@@ -104,6 +105,7 @@ npm run ios:release:verify
 - [ ] Capture the complete map request-host list from the live OpenFreeMap styles in both a web session and the candidate WKWebView. Reconcile style, sprite, glyph, vector-tile, and CDN hosts with the privacy inventory.
 - [ ] Run the archive locally on the iPhone 17 Pro where possible, then complete [testflight-acceptance.md](./testflight-acceptance.md).
 - [ ] Archive with the generic iOS device destination and validate the archive in Xcode Organizer.
+- [ ] Retain the machine-readable archive report with the exact packaged archive. Confirm its source commit, clean-worktree result, `package-lock.json` SHA-256, Xcode version and build, iPhoneOS SDK version and build, archive tree digest, app tree digest, and package SHA-256 match the reviewed candidate record.
 
 No successful browser test or static repository check replaces an Xcode archive, signing validation, or physical-device test.
 
@@ -127,6 +129,7 @@ See Apple's [TestFlight overview](https://developer.apple.com/help/app-store-con
 - [ ] Complete App Privacy answers after the vendor and retention audit, not from assumptions.
 - [ ] Complete export-compliance answers as a human legal attestation for that binary. See [Overview of export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance).
 - [ ] Confirm the support and privacy URLs are live without authentication.
+- [ ] Re-run `npm run public:release:verify -- --origin https://example.com` against the exact public candidate immediately before submission.
 - [ ] Provide review notes and a deterministic review path. Location must remain optional.
 - [ ] Confirm the reviewer can browse cities, open spots, inspect sky conditions, use the Now scrubber, save spots, and understand confidence and freshness without granting location.
 - [ ] Confirm every external provider and content source is permitted for production App Store use.

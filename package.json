@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/finalize-pwa.mjs",
+    "build": "npm run public:contract:verify && tsc -b && vite build && node scripts/finalize-pwa.mjs",
     "native:sync": "npm run build && cap sync ios",
     "ios:open": "cap open ios",
     "ios:archive:verify": "node scripts/verify-ios-archive.mjs",
@@ -13,6 +13,8 @@
     "ios:verify": "npm run native:sync && node scripts/verify-ios-shell.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
+    "public:contract:verify": "node scripts/verify-public-url-contract.mjs",
+    "public:release:verify": "node scripts/verify-public-origin.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:pwa": "npm run build && npm run test:pwa:artifact",

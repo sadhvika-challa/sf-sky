@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { neighborhoods } from '../src/data/neighborhoods';
+import { OVERLAY_CONCURRENCY } from '../src/hooks/useNeighborhoodForecasts';
 import {
   FIXED_NOW,
   OCEAN_BEACH_COORDINATES,
@@ -371,10 +372,11 @@ for (const scenario of [
     if (scenario.name === 'timeout') {
       while (harness.requests.forecast.length < OVERLAY_TOTAL) {
         const before = harness.requests.forecast.length;
-        await expect.poll(() => harness.requests.active).toBeGreaterThan(0);
+        const activeBatch = Math.min(OVERLAY_CONCURRENCY, OVERLAY_TOTAL - before);
+        await expect.poll(() => harness.requests.active).toBe(activeBatch);
         await page.clock.fastForward(15_000);
         harness.releaseTimeoutFailures();
-        if (before < OVERLAY_TOTAL - 4) {
+        if (before + activeBatch < OVERLAY_TOTAL) {
           await expect.poll(() => harness.requests.forecast.length).toBeGreaterThan(before);
         }
       }

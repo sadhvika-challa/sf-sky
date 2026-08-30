@@ -95,7 +95,7 @@ jobs:
         run: npm run native:sync
 
       - name: Resolve Swift packages
-        run: xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+        run: xcodebuild -resolvePackageDependencies -disableAutomaticPackageResolution -project ios/App/App.xcodeproj -scheme App
 
       - name: Archive Release shell for a generic iOS device without signing
         run: |
@@ -106,10 +106,14 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Soleil.xcarchive" \
             -resultBundlePath "$RUNNER_TEMP/SoleilArchive.xcresult" \
+            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             archive
 
-      - name: Verify unsigned iOS archive contents
+      - name: Package unsigned archive
+        run: ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Soleil.xcarchive" "$RUNNER_TEMP/Soleil.xcarchive.zip"
+
+      - name: Verify and bind unsigned iOS archive evidence
         run: |
           npm run ios:archive:verify -- \
             --archive "$RUNNER_TEMP/Soleil.xcarchive" \
@@ -117,13 +121,12 @@ jobs:
             --marketing-version "$IOS_MARKETING_VERSION" \
             --build-number "$IOS_BUILD_NUMBER" \
             --device-families 1,2 \
+            --source-commit "$GITHUB_SHA" \
+            --package "$RUNNER_TEMP/Soleil.xcarchive.zip" \
             --report "$RUNNER_TEMP/ios-archive-verification.json"
 
       - name: Verify generated native state is committed
         run: git diff --exit-code
-
-      - name: Package unsigned archive
-        run: ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Soleil.xcarchive" "$RUNNER_TEMP/Soleil.xcarchive.zip"
 
       - name: Upload archive verification evidence
         if: always()
@@ -134,5 +137,63 @@ jobs:
             ${{ runner.temp }}/ios-archive-verification.json
             ${{ runner.temp }}/Soleil.xcarchive.zip
             ${{ runner.temp }}/SoleilArchive.xcresult
+            ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          if-no-files-found: warn
+          retention-days: 7
+
+  ios-simulator-smoke:
+    name: Smoke native iOS simulator
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify required Xcode toolchain
+        run: |
+          xcodebuild -version
+          XCODE_MAJOR="$(xcodebuild -version | awk '/Xcode/{split($2, version, "."); print version[1]}')"
+          IOS_SIMULATOR_SDK_MAJOR="$(xcodebuild -showsdks | sed -nE 's/.*-sdk iphonesimulator([0-9]+).*/\1/p' | sort -nr | head -1)"
+          test "${XCODE_MAJOR}" -ge 26
+          test "${IOS_SIMULATOR_SDK_MAJOR}" -ge 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate native web bundle
+        run: npm run native:sync
+
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+
+      - name: Build, install, and cold-launch the native shell
+        run: |
+          node scripts/verify-ios-simulator-smoke.mjs \
+            --derived-data "$RUNNER_TEMP/SoleilSimulatorDerivedData" \
+            --result-bundle "$RUNNER_TEMP/SoleilSimulatorBuild.xcresult" \
+            --screenshot "$RUNNER_TEMP/soleil-simulator-launch.png" \
+            --log "$RUNNER_TEMP/soleil-simulator.log" \
+            --report "$RUNNER_TEMP/ios-simulator-smoke.json"
+
+      - name: Verify generated native state is committed
+        run: git diff --exit-code
+
+      - name: Upload simulator smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-smoke-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/ios-simulator-smoke.json
+            ${{ runner.temp }}/soleil-simulator-launch.png
+            ${{ runner.temp }}/soleil-simulator.log
+            ${{ runner.temp }}/SoleilSimulatorBuild.xcresult
           if-no-files-found: warn
           retention-days: 7

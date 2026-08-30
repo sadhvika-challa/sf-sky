@@ -46,18 +46,32 @@ xcodebuild \
   -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath /tmp/Soleil.xcarchive \
+  -disableAutomaticPackageResolution \
   CODE_SIGNING_ALLOWED=NO \
   archive
+
+ditto -c -k --sequesterRsrc --keepParent \
+  /tmp/Soleil.xcarchive \
+  /tmp/Soleil.xcarchive.zip
 
 npm run ios:archive:verify -- \
   --archive /tmp/Soleil.xcarchive \
   --marketing-version 1.0 \
-  --build-number 1
+  --build-number 1 \
+  --source-commit "$(git rev-parse HEAD)" \
+  --package /tmp/Soleil.xcarchive.zip \
+  --report /tmp/soleil-ios-archive-verification.json
 ```
 
-The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. CI retains the unsigned archive, its Xcode result bundle, and a machine-readable verification report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. Its machine-readable report also records the full source commit, SHA-256 digests of `package-lock.json` and the Xcode workspace `Package.resolved`, Xcode version and build, and iPhoneOS SDK version and build. It requires the claimed commit to equal the checked-out `HEAD`, requires a clean worktree, binds the archive and app directory trees with deterministic content digests, and binds the exact retained archive zip with SHA-256. CI retains the zip, its Xcode result bundle, both dependency locks, and that report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+
+The source commit and clean-worktree checks identify the reviewed checkout used to produce the archive. The JavaScript and Swift package lockfiles pin both dependency graphs, while the JavaScript lockfile digest and toolchain fields make dependency or build-environment drift visible. Release archives disable automatic Swift package resolution so Xcode must use the committed `Package.resolved`. The archive, app, and package digests prevent a report from being silently paired with different build output. Keep the report and the exact package together. For a later signed archive, confirm these provenance and artifact bindings match the reviewed release checkout and recorded TestFlight candidate before accepting the build.
 
 This archive deliberately uses `CODE_SIGNING_ALLOWED=NO`. It proves that the Release archive action produces the expected device artifact before Apple Developer Program enrollment, but it cannot be installed, exported for distribution, uploaded to TestFlight, or used as signing validation.
+
+CI also builds the native shell for an available iPhone Simulator running iOS 26 or later. It installs the packaged app, cold-launches `com.sadhvika.soleil`, waits up to 45 seconds for visual readiness, and repeatedly verifies that the launched process remains alive. The smoke fails if the screenshot remains blank or lacks varied dark interface content. It captures the final screenshot, application process log, Xcode result bundle, and a machine-readable success or failure report. This detects native build, packaging, install, immediate-crash, bundle identity, display-name, missing web entry-point, missing privacy-manifest, and blank-render regressions without Apple enrollment.
+
+Simulator smoke evidence does not prove physical-device gestures, performance, safe areas, Dynamic Type, VoiceOver, location Settings recovery, signing, TestFlight processing, or App Store eligibility. Those remain explicit acceptance gates on the exact candidate.
 
 Open the generated project:
 
@@ -74,6 +88,16 @@ After any React or configuration change, run `npm run native:sync` before buildi
 Native share links currently use `https://go-outside-six.vercel.app`. A build can override this with `VITE_PUBLIC_WEB_ORIGIN`, but the value must be an HTTPS origin.
 
 If Soleil moves to a custom domain, update the public origin, website metadata, Universal Links association, and App Store metadata as one coordinated release. Universal Links and warm or cold inbound app-link routing are not enabled in this shell because they require control of the deployed domain and Apple signing capabilities.
+
+The public route and PWA artifact paths are recorded in `config/public-url-contract.json`. Local builds verify that the manifest, service worker, public routes, static icons, Vercel rewrites, and native share paths stay aligned with that contract. This file does not select or approve a hostname.
+
+After an approved candidate is deployed to a proposed origin, run the anonymous, read-only live check:
+
+```bash
+npm run public:release:verify -- --origin https://example.com
+```
+
+The command requires a root HTTPS origin and refuses redirects, authentication gates, path changes, incorrect MIME types, non-root PWA identity or scope, missing public pages, and invalid icon artifacts. Passing it proves only the named HTTP contract. It does not change DNS, approve the hostname, validate legal policy content, or replace PWA and physical-device acceptance.
 
 ## Privacy and storage
 
