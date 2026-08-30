@@ -175,6 +175,7 @@ jobs:
             --derived-data "$RUNNER_TEMP/SoleilSimulatorDerivedData" \
             --result-bundle "$RUNNER_TEMP/SoleilSimulatorBuild.xcresult" \
             --screenshot "$RUNNER_TEMP/soleil-simulator-launch.png" \
+            --log "$RUNNER_TEMP/soleil-simulator.log" \
             --report "$RUNNER_TEMP/ios-simulator-smoke.json"
 
       - name: Verify generated native state is committed
@@ -188,6 +189,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ios-simulator-smoke.json
             ${{ runner.temp }}/soleil-simulator-launch.png
+            ${{ runner.temp }}/soleil-simulator.log
             ${{ runner.temp }}/SoleilSimulatorBuild.xcresult
           if-no-files-found: warn
           retention-days: 7
