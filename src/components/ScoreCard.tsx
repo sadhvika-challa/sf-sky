@@ -174,7 +174,7 @@ interface MetricCellProps {
 function MetricCell({ label, value, barValue, barColor }: MetricCellProps) {
   return (
     <div className="min-w-0">
-      <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase">{label}</p>
+      <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase">{label}</p>
       <p className="font-serif text-[15px] font-normal text-gray-800 leading-tight truncate mt-0.5">
         {value}
       </p>
@@ -760,11 +760,11 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                           : typeTitle[type])
                       : <>{dateLabel}&apos;s {typeTitle[type]}</>}
                   </h3>
-                  <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1 truncate">
+                  <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
                     {poetic}
                   </p>
                 </div>
-                <span className="font-mono text-[9px] text-gray-400 tracking-wide flex-shrink-0 mt-1">
+                <span className="font-mono text-[9px] text-gray-500 tracking-wide flex-shrink-0 mt-1">
                   {fullDate}
                 </span>
               </div>
@@ -774,7 +774,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                 <span className="font-serif text-[36px] leading-none font-light text-gray-800 tracking-tight">
                   {eventTimeData.time}
                 </span>
-                <span className="font-serif text-lg text-gray-400 font-light">
+                <span className="font-serif text-lg text-gray-500 font-light">
                   {eventTimeData.period}
                 </span>
               </div>
@@ -787,7 +787,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                   </span>
                   <span className="font-serif italic text-[14px] text-gray-500">{poetic}</span>
                 </div>
-                <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1.5">
+                <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase mt-1.5">
                   {scoreEvidence.provenanceLabel}
                   <span aria-hidden="true"> · </span>
                   {scoreEvidence.retrievalLabel}

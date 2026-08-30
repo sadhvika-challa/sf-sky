@@ -41,15 +41,11 @@ async function auditSurface(page: Page, testInfo: TestInfo, selector: string, na
   const seriousOrCritical = results.violations.filter(
     (violation) => violation.impact === 'serious' || violation.impact === 'critical',
   );
-  const contrastNodes = seriousOrCritical
-    .filter((violation) => violation.id === 'color-contrast')
-    .reduce((count, violation) => count + violation.nodes.length, 0);
   console.info(
     `[axe:${testInfo.project.name}:${name}] serious-or-critical=` +
-    `${JSON.stringify(seriousOrCritical.map((violation) => ({ id: violation.id, nodes: violation.nodes.length })))} ` +
-    `known-color-contrast-nodes=${contrastNodes}`,
+    JSON.stringify(seriousOrCritical.map((violation) => ({ id: violation.id, nodes: violation.nodes.length }))),
   );
-  expect(seriousOrCritical.filter((violation) => violation.id !== 'color-contrast')).toEqual([]);
+  expect(seriousOrCritical).toEqual([]);
 }
 
 function reportRequests(harness: WeatherHarness, label: string): void {

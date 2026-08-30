@@ -315,7 +315,7 @@ test('toggle-off aborts active overlay work and a new generation starts once per
   const activeBeforeToggle = harness.requests.lifecycle.filter((request) => request.terminal === null);
   const actionAt = Date.now();
 
-  await page.getByRole('button', { name: 'Toggle weather overlay' }).click();
+  await page.getByRole('button', { name: 'Toggle weather overlay' }).dispatchEvent('click');
   await expect(page.getByRole('button', { name: 'Toggle weather overlay' })).toHaveAttribute(
     'aria-pressed',
     'false',

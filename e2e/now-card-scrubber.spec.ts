@@ -186,17 +186,10 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   const seriousViolations = accessibility.violations.filter(
     (violation) => violation.impact === 'serious' || violation.impact === 'critical',
   );
-  // Existing visual styling has known WCAG contrast debt. Keep axe active for
-  // the whole expanded sheet and fail on every serious or critical rule other
-  // than color-contrast, so structural regressions cannot hide behind it.
-  expect(seriousViolations.filter((violation) => violation.id !== 'color-contrast')).toEqual([]);
-  const contrastNodes = seriousViolations
-    .filter((violation) => violation.id === 'color-contrast')
-    .reduce((total, violation) => total + violation.nodes.length, 0);
+  expect(seriousViolations).toEqual([]);
   console.info(
     `[axe:${testInfo.project.name}:expanded-sheet] serious-or-critical=` +
-    `${JSON.stringify(seriousViolations.map((violation) => ({ id: violation.id, nodes: violation.nodes.length })))} ` +
-    `known-color-contrast-nodes=${contrastNodes}`,
+    JSON.stringify(seriousViolations.map((violation) => ({ id: violation.id, nodes: violation.nodes.length }))),
   );
 
   assertNoDuplicateWeatherRequests(harness.requests);

@@ -255,6 +255,8 @@ test('preserves repeated Pacific hours for an SF spot', async ({ page }, testInf
 
   const card = page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).locator('[data-card-type="now"]');
   const slider = card.getByRole('slider', { name: 'Forecast hour' });
+  await expect(card.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PDT');
   await expect(card.getByText('64°', { exact: true })).toBeVisible();

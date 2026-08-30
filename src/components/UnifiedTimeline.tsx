@@ -139,7 +139,7 @@ export default function UnifiedTimeline({
         <span className="font-serif text-[18px] leading-tight text-gray-800">
           {VIEW_MODE_LABELS[viewMode]}
         </span>
-        <span className="font-mono text-[11px] tabular-nums text-[#9a9488]" aria-live="polite">
+        <span className="font-mono text-[11px] tabular-nums text-gray-500" aria-live="polite">
           {formatSelectedTime(hourKey, timeZone, now)}
         </span>
       </div>
@@ -214,7 +214,7 @@ export default function UnifiedTimeline({
       )}
       {disabled ? (
         <div className="min-h-10 flex items-center justify-between gap-2">
-          <p className="font-mono text-[10px] text-[#9a9488]" role="status">
+          <p className="font-mono text-[10px] text-gray-500" role="status">
             {loading ? 'Loading forecast hours…' : 'Hourly forecast unavailable'}
           </p>
           {hourKey !== '' && (
