@@ -53,6 +53,12 @@ function EvidenceBadge({ candidate }: { candidate: BestNearbyCandidate }) {
   );
 }
 
+function candidateFrameClass(isWinner: boolean): string {
+  return isWinner
+    ? 'border-[#8B5E3C]/35 bg-[#F6EFE8] shadow-[0_1px_0_rgba(139,94,60,0.08)]'
+    : 'border-black/[0.09] bg-white/75';
+}
+
 function CandidateRow({
   candidate,
   isWinner,
@@ -79,20 +85,24 @@ function CandidateRow({
   ].filter((part): part is string => Boolean(part)).join('. ');
 
   return (
-    <li className="py-0.5">
+    <li
+      className={`overflow-hidden rounded-xl border ${candidateFrameClass(isWinner)}`}
+      data-recommendation-candidate={candidate.id}
+      data-winner={isWinner ? 'true' : 'false'}
+    >
       <button
         type="button"
         onClick={onSelect}
-        className="flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-black/[0.035] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800"
+        className="grid min-h-16 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-black/[0.035] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800"
         aria-label={actionLabel}
       >
         <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-center gap-1.5">
+          <span className="flex flex-wrap items-center gap-1.5 leading-tight">
             <span className="truncate font-serif text-[14px] font-semibold text-[#1a1a18]">
               {candidate.name}
             </span>
             {isWinner && (
-              <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8B5E3C]">
+              <span className="rounded-full bg-[#8B5E3C] px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-white">
                 Top result
               </span>
             )}
@@ -102,29 +112,34 @@ function CandidateRow({
               </span>
             )}
           </span>
-          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] leading-tight text-gray-600">
+          <span className="mt-1.5 flex flex-col items-start gap-1 text-[10px] leading-tight text-gray-600 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2">
             <EvidenceBadge candidate={candidate} />
-            <span>{candidate.lastUpdatedLabel}</span>
+            <span className="font-mono text-[9px]">{candidate.lastUpdatedLabel}</span>
             {candidate.distance && (
-              <span>
+              <span className="font-mono text-[9px]">
                 {candidate.approximateDistance && <span>Approx. </span>}
                 {candidate.distance}
               </span>
             )}
           </span>
         </span>
-        <span
-          className="flex shrink-0 items-baseline gap-0.5 font-mono text-gray-900"
-          aria-label={candidate.score === null ? 'Current score unavailable' : `Score ${candidate.score}`}
-        >
-          <span className="text-[18px] font-semibold tabular-nums">
-            {candidate.score === null ? '—' : candidate.score}
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <span
+            className="flex items-baseline gap-0.5 font-mono text-gray-900"
+            aria-label={candidate.score === null ? 'Current score unavailable' : `Score ${candidate.score}`}
+          >
+            <span className="text-[18px] font-semibold tabular-nums">
+              {candidate.score === null ? '—' : candidate.score}
+            </span>
+            {candidate.score !== null && <span className="text-[9px] text-gray-600">/100</span>}
           </span>
-          {candidate.score !== null && <span className="text-[9px] text-gray-600">/100</span>}
+          <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.1em] text-[#8B5E3C]">
+            View spot
+          </span>
         </span>
       </button>
       {candidate.accessWarning && (
-        <details className="mx-2.5 mb-1 text-[10px] leading-relaxed text-amber-900">
+        <details className="border-t border-amber-900/10 px-3 text-[10px] leading-relaxed text-amber-900">
           <summary className="flex min-h-11 cursor-pointer items-center font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800">
             Access check needed
           </summary>
@@ -205,15 +220,18 @@ export default function BestNearbyCard(props: BestNearbyCardProps) {
         </div>
       ) : canNameWinner ? (
         <div role="status" aria-live="polite">
-          <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-[#8B5E3C]">
-            {winnerClaim}
-          </p>
-          <h2 className="mt-0.5 font-serif text-[18px] font-semibold leading-tight text-[#1a1a18]">
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-[#8B5E3C]">
+              {winnerClaim}
+            </p>
+            <span className="shrink-0 rounded-full border border-black/[0.08] bg-white/70 px-2 py-1 font-mono text-[9px] font-semibold text-gray-600">
+              {props.comparedCount} spots checked
+            </span>
+          </div>
+          <h2 className="mt-1 font-serif text-[18px] font-semibold leading-tight text-[#1a1a18]">
             {props.winner.name}
           </h2>
-          <p className="mt-1 text-[10px] text-gray-600">
-            {props.cityName} · {props.winner.confidence} data confidence · {props.winner.lastUpdatedLabel} · Compared {props.comparedCount} spots
-          </p>
+          <p className="mt-1 text-[10px] text-gray-600">{props.cityName}</p>
         </div>
       ) : (
         <div role="status" aria-live="polite">
@@ -227,7 +245,7 @@ export default function BestNearbyCard(props: BestNearbyCardProps) {
 
       {props.state !== 'loading' && candidates.length > 0 && (
         <ul
-          className="mt-2 divide-y divide-black/[0.06]"
+          className="mt-2 grid gap-2"
           aria-label={isNearby ? 'Nearby candidates' : `Candidates checked in ${props.cityName}`}
         >
           {candidates.map((candidate) => (
@@ -244,8 +262,7 @@ export default function BestNearbyCard(props: BestNearbyCardProps) {
 
       {props.state !== 'loading' && (
         <div className="mt-2 border-t border-black/[0.07] pt-2">
-          <p className="text-[10px] font-semibold text-gray-700">Check access before you go.</p>
-          <details className="mt-0.5 text-[10px] leading-relaxed text-gray-600">
+          <details className="text-[10px] leading-relaxed text-gray-600">
             <summary className="flex min-h-11 cursor-pointer items-center font-medium text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800">
               How spots are ranked
             </summary>

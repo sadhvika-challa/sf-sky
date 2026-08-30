@@ -49,10 +49,11 @@ describe('BestNearbyCard', () => {
   it('names a winner only with at least two comparable forecast-backed candidates', () => {
     const html = ready();
     expect(html).toContain('Best nearby now');
-    expect(html).toContain('San Francisco · High data confidence · Updated 8 min ago · Compared 2 spots');
+    expect(html).toContain('2 spots checked');
+    expect(html).toContain('<p class="mt-1 text-[10px] text-gray-600">San Francisco</p>');
     expect(html).toContain('aria-label="Open Ocean Beach, best nearby now. score 91 out of 100. High data confidence. Updated 8 min ago. approximate 2.1 mi. access check needed"');
     expect(html).toContain('We rank stronger current scores first. Distance breaks exact score ties.');
-    expect(html).toContain('Check access before you go.');
+    expect(html).not.toContain('Check access before you go.');
 
     const unsupported = { ...candidates[1], forecastBacked: false };
     const guarded = ready({ candidates: [candidates[0], unsupported] });
@@ -113,6 +114,17 @@ describe('BestNearbyCard', () => {
     expect(html).not.toContain('fourth');
   });
 
+  it('presents each candidate as a distinct selectable card with a clear winner state', () => {
+    const html = ready();
+
+    expect(html).toContain('class="mt-2 grid gap-2"');
+    expect(html).toContain('data-recommendation-candidate="ocean-beach" data-winner="true"');
+    expect(html).toContain('data-recommendation-candidate="lands-end" data-winner="false"');
+    expect(html.match(/>View spot<\/span>/g)).toHaveLength(2);
+    expect(html).toContain('rounded-full bg-[#8B5E3C]');
+    expect(html).toContain('flex flex-col items-start gap-1');
+  });
+
   it('does not present a curated fallback as a current score when forecast retrieval fails', () => {
     const unavailable: BestNearbyCandidate = {
       ...candidates[1],
@@ -134,7 +146,8 @@ describe('BestNearbyCard', () => {
   it('uses checked-city claims without implying that the city fallback is nearby', () => {
     const cityResult = ready({ claimKind: 'best-of-checked', cityName: 'Austin' });
     expect(cityResult).toContain('Best of the spots checked');
-    expect(cityResult).toContain('Austin · High data confidence');
+    expect(cityResult).toContain('<p class="mt-1 text-[10px] text-gray-600">Austin</p>');
+    expect(cityResult).toContain('High data confidence');
     expect(cityResult).toContain('aria-label="Open Ocean Beach, best of the spots checked. score 91 out of 100. High data confidence. Updated 8 min ago. approximate 2.1 mi. access check needed"');
     expect(cityResult).not.toMatch(/nearby/i);
 

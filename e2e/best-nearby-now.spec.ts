@@ -220,6 +220,41 @@ test('keeps approximate location useful and labels every derived candidate dista
   await verifyThreeCandidateBudget(weather);
 });
 
+test('keeps the 402px recommendation hierarchy scannable and each candidate clearly selectable', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-webkit', 'Compact hierarchy is verified at the iPhone viewport.');
+  await installLocationHarness(page);
+  await installWeatherHarness(page);
+  await page.goto('/');
+
+  await useLocation(page);
+  await expectReadyNearby(page);
+
+  const recommendation = page.getByRole('region', { name: 'Nearby spot recommendation' });
+  await expect(recommendation.getByText('3 spots checked', { exact: true })).toBeVisible();
+  const candidateCards = recommendation.locator('[data-recommendation-candidate]');
+  await expect(candidateCards).toHaveCount(3);
+  await expect(recommendation.locator('[data-winner="true"]')).toHaveCount(1);
+
+  const overflow = await recommendation.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+
+  const firstCandidate = candidateCards.first();
+  await expect(firstCandidate.getByText('Top result', { exact: true })).toBeVisible();
+  await expect(firstCandidate.getByText('View spot', { exact: true })).toBeVisible();
+  const evidence = await firstCandidate.getByText(/data confidence/i).boundingBox();
+  const freshness = await firstCandidate.getByText(/^Retrieved/).boundingBox();
+  expect(evidence).not.toBeNull();
+  expect(freshness).not.toBeNull();
+  expect(freshness!.y).toBeGreaterThanOrEqual(evidence!.y + evidence!.height - 1);
+
+  const secondCandidateButton = candidateCards.nth(1).getByRole('button', { name: /^Open / });
+  await secondCandidateButton.click();
+  await expect(page.getByRole('dialog', { name: /sky scores$/ })).toBeVisible();
+});
+
 test('keeps coordinates ephemeral and lets the person return to city-only results', async ({ page }) => {
   const latitude = 37.771234;
   const longitude = -122.412345;
