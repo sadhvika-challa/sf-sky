@@ -420,23 +420,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     };
   }, []);
 
-  // Swipe-down-to-dismiss. The drag handle commits to a vertical drag
-  // immediately; the broader card area waits to see whether the gesture is
-  // dominantly vertical (dismiss) or horizontal (let the card scroller pan).
+  // Swipe-down dismissal belongs to the dedicated handle. Card content keeps
+  // native horizontal paging and vertical scrolling without gesture capture.
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  // Axis y dismisses the sheet, x pages horizontally, and scroll leaves a
-  // vertical gesture with the active card. Null means the direction is not
-  // decided yet.
   const dragStateRef = useRef<{
     pointerId: number;
-    startX: number;
     startY: number;
     startTime: number;
     moved: boolean;
-    axis: 'x' | 'y' | 'scroll' | null;
-    captureEl: Element | null;
-    scrollEl: HTMLElement | null;
   } | null>(null);
   // Set when a drag actually moved so the trailing click event doesn't toggle
   // collapse after the user lifts their finger.
@@ -449,16 +441,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     const elapsed = endTime - state.startTime;
     const velocity = delta / Math.max(elapsed, 1); // px/ms, positive = downward
     const moved = state.moved;
-    const axis = state.axis;
     dragStateRef.current = null;
     setIsDragging(false);
-
-    if (axis !== 'y') {
-      // We never took ownership of this gesture (horizontal swipe or tap) —
-      // leave the sheet where it is.
-      setDragY(0);
-      return;
-    }
 
     const sheetHeight = sheetRef.current?.getBoundingClientRect().height ?? 600;
     const distanceThreshold = Math.min(120, sheetHeight * 0.25);
@@ -475,20 +459,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     setDragY(0);
   }, [onClose]);
 
-  // Handle (pill) — eager vertical drag. The handle's only job is to dismiss,
-  // so we lock to the y-axis on pointer down and capture immediately.
+  // The handle captures immediately because its only gesture is dismissal.
   const handleHandlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!expanded) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     dragStateRef.current = {
       pointerId: e.pointerId,
-      startX: e.clientX,
       startY: e.clientY,
       startTime: performance.now(),
       moved: false,
-      axis: 'y',
-      captureEl: e.currentTarget,
-      scrollEl: null,
     };
     setIsDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -497,7 +476,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const handleHandlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     const state = dragStateRef.current;
     if (!state || state.pointerId !== e.pointerId) return;
-    if (state.axis !== 'y') return;
     const delta = e.clientY - state.startY;
     if (Math.abs(delta) > 4) state.moved = true;
     const next = delta >= 0 ? delta : Math.max(delta, -40) * 0.3;
@@ -505,74 +483,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   };
 
   const handleHandlePointerEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
-    finishDrag(e.clientY, performance.now(), e.pointerId);
-  };
-
-  // Card content area — axis-locked vertical drag. We watch the first few
-  // pixels of movement and only take ownership if the gesture is mostly
-  // vertical. Horizontal motion is left to the native card scroller so
-  // swipe-between-cards still works. We skip the gesture entirely when the
-  // pointer starts on something interactive (button, link, etc.) so taps on
-  // share / directions / dots aren't swallowed.
-  const AXIS_LOCK_THRESHOLD = 8;
-
-  const handleContentPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!expanded) return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    const target = e.target as Element | null;
-    if (target?.closest('button, a, [role="button"], input, textarea, select')) {
-      return;
-    }
-    dragStateRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startTime: performance.now(),
-      moved: false,
-      axis: null,
-      captureEl: e.currentTarget,
-      scrollEl: target?.closest<HTMLElement>('[data-card-scroll]') ?? null,
-    };
-  };
-
-  const handleContentPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const state = dragStateRef.current;
-    if (!state || state.pointerId !== e.pointerId) return;
-    const dx = e.clientX - state.startX;
-    const dy = e.clientY - state.startY;
-
-    if (state.axis === null) {
-      if (Math.abs(dx) < AXIS_LOCK_THRESHOLD && Math.abs(dy) < AXIS_LOCK_THRESHOLD) {
-        return;
-      }
-      if (Math.abs(dy) > Math.abs(dx)) {
-        const cardScroll = state.scrollEl;
-        const shouldScrollCard = cardScroll && (dy < 0 || cardScroll.scrollTop > 0);
-        if (shouldScrollCard) {
-          state.axis = 'scroll';
-        } else {
-          state.axis = 'y';
-          state.moved = true;
-          setIsDragging(true);
-          try {
-            e.currentTarget.setPointerCapture(e.pointerId);
-          } catch {
-            // setPointerCapture can throw if the pointer is already released;
-            // safe to ignore because bubble events still finish the gesture.
-          }
-        }
-      } else {
-        state.axis = 'x';
-      }
-    }
-
-    if (state.axis !== 'y') return;
-    if (Math.abs(dy) > 4) state.moved = true;
-    const next = dy >= 0 ? dy : Math.max(dy, -40) * 0.3;
-    setDragY(next);
-  };
-
-  const handleContentPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     finishDrag(e.clientY, performance.now(), e.pointerId);
   };
 
@@ -722,10 +632,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         {expanded ? (
           <div
             className="flex flex-col flex-1 min-h-0"
-            onPointerDown={handleContentPointerDown}
-            onPointerMove={handleContentPointerMove}
-            onPointerUp={handleContentPointerEnd}
-            onPointerCancel={handleContentPointerEnd}
             style={{ touchAction: 'pan-x pan-y' }}
           >
             {/* Header — spot identity + travel context. Pure spot info,
@@ -879,26 +785,31 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 <div
                   key={card.type}
                   data-card-type={card.type}
-                  data-card-scroll
-                  className="w-full min-h-0 flex-shrink-0 snap-center overflow-y-auto overscroll-contain px-3 pb-4 pt-1"
+                  className="w-full min-h-0 flex-shrink-0 snap-center"
                   style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                 >
-                  <ScoreCard
-                    spot={spot}
-                    type={card.type}
-                    eventDate={card.eventDate}
-                    city={city}
-                    scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
-                    scrubViewMode={card.type === 'now' ? viewMode : undefined}
-                    activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
-                    activeScoreIsLive={card.type === 'now' ? (live?.activeIsLive ?? false) : undefined}
-                    canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
-                    onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
-                    timeZone={timeZone}
-                    forecast={forecast}
-                    forecastLoading={forecastLoading}
-                    forecastError={forecastError}
-                  />
+                  <div
+                    data-card-scroll
+                    className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                    style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+                  >
+                    <ScoreCard
+                      spot={spot}
+                      type={card.type}
+                      eventDate={card.eventDate}
+                      city={city}
+                      scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
+                      scrubViewMode={card.type === 'now' ? viewMode : undefined}
+                      activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
+                      activeScoreIsLive={card.type === 'now' ? (live?.activeIsLive ?? false) : undefined}
+                      canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
+                      onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
+                      timeZone={timeZone}
+                      forecast={forecast}
+                      forecastLoading={forecastLoading}
+                      forecastError={forecastError}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
