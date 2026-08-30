@@ -1,12 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { access, readdir, stat, writeFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { access, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { basename, join, relative, resolve } from 'node:path';
 
 const usage = `Usage: npm run ios:archive:verify -- --archive PATH --marketing-version VERSION --build-number NUMBER [options]
 
 Options:
   --bundle-id ID           Expected bundle ID. Defaults to com.sadhvika.soleil.
   --device-families IDS    Expected UIDeviceFamily values. Defaults to 1,2.
+  --source-commit SHA      Full source commit. Defaults to the checked-out Git HEAD.
+  --lockfile PATH          Dependency lockfile. Defaults to package-lock.json.
   --report PATH            Write a JSON verification report.
   --help                   Show this help.`;
 
@@ -14,6 +17,7 @@ const parseArguments = (args) => {
   const options = {
     bundleId: 'com.sadhvika.soleil',
     deviceFamilies: ['1', '2'],
+    lockfile: resolve('package-lock.json'),
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -29,6 +33,8 @@ const parseArguments = (args) => {
     else if (argument === '--marketing-version') options.marketingVersion = value;
     else if (argument === '--build-number') options.buildNumber = value;
     else if (argument === '--device-families') options.deviceFamilies = value.split(',').map((item) => item.trim()).filter(Boolean);
+    else if (argument === '--source-commit') options.sourceCommit = value;
+    else if (argument === '--lockfile') options.lockfile = resolve(value);
     else if (argument === '--report') options.report = resolve(value);
     else throw new Error(`Unknown argument: ${argument}`);
     index += 1;
@@ -49,6 +55,47 @@ const plistValue = (plist, keyPath, format = 'raw') => execFileSync(
   ['-extract', keyPath, format, '-o', '-', '--', plist],
   { encoding: 'utf8' },
 ).trim();
+const commandOutput = (command, args) => execFileSync(command, args, { encoding: 'utf8' }).trim();
+
+let provenance;
+try {
+  const sourceCommit = options.sourceCommit ?? commandOutput('git', ['rev-parse', 'HEAD']);
+  const lockfile = await readFile(options.lockfile);
+  const xcodeLines = commandOutput('xcodebuild', ['-version']).split(/\r?\n/);
+  const xcodeVersion = xcodeLines[0]?.replace(/^Xcode\s+/, '') ?? '';
+  const xcodeBuild = xcodeLines[1]?.replace(/^Build version\s+/, '') ?? '';
+  const sdkVersion = commandOutput('xcrun', ['--sdk', 'iphoneos', '--show-sdk-version']);
+  const sdkBuild = commandOutput('xcrun', ['--sdk', 'iphoneos', '--show-sdk-build-version']);
+
+  check('Source provenance uses a full Git commit SHA', /^[a-f0-9]{40}$/i.test(sourceCommit), '40 hexadecimal characters', sourceCommit);
+  check('Dependency provenance uses the repository package-lock.json', options.lockfile === resolve('package-lock.json'), resolve('package-lock.json'), options.lockfile);
+  check('Xcode provenance includes a version', Boolean(xcodeVersion), 'nonempty Xcode version', xcodeVersion || 'none');
+  check('Xcode provenance includes a build', Boolean(xcodeBuild), 'nonempty Xcode build', xcodeBuild || 'none');
+  check('iOS SDK provenance includes a version', Boolean(sdkVersion), 'nonempty iOS SDK version', sdkVersion || 'none');
+  check('iOS SDK provenance includes a build', Boolean(sdkBuild), 'nonempty iOS SDK build', sdkBuild || 'none');
+
+  provenance = {
+    sourceCommit,
+    lockfile: {
+      path: relative(process.cwd(), options.lockfile) || basename(options.lockfile),
+      sha256: createHash('sha256').update(lockfile).digest('hex'),
+    },
+    toolchain: {
+      xcodeVersion,
+      xcodeBuild,
+      sdk: 'iphoneos',
+      sdkVersion,
+      sdkBuild,
+    },
+  };
+} catch (error) {
+  checks.push({
+    label: 'Archive provenance inspection completed',
+    passed: false,
+    expected: 'source, dependency, Xcode, and iOS SDK provenance readable',
+    actual: error instanceof Error ? error.message : String(error),
+  });
+}
 
 let archiveInfo;
 let appPath;
@@ -140,8 +187,10 @@ try {
 
 const failures = checks.filter(({ passed }) => !passed);
 const report = {
+  schemaVersion: 1,
   archive: options.archive,
   app: appPath,
+  provenance,
   expected: {
     bundleId: options.bundleId,
     marketingVersion: options.marketingVersion,

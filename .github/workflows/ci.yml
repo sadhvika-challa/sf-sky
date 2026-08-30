@@ -117,6 +117,7 @@ jobs:
             --marketing-version "$IOS_MARKETING_VERSION" \
             --build-number "$IOS_BUILD_NUMBER" \
             --device-families 1,2 \
+            --source-commit "$GITHUB_SHA" \
             --report "$RUNNER_TEMP/ios-archive-verification.json"
 
       - name: Verify generated native state is committed

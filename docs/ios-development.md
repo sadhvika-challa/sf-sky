@@ -52,10 +52,14 @@ xcodebuild \
 npm run ios:archive:verify -- \
   --archive /tmp/Soleil.xcarchive \
   --marketing-version 1.0 \
-  --build-number 1
+  --build-number 1 \
+  --source-commit "$(git rev-parse HEAD)" \
+  --report /tmp/soleil-ios-archive-verification.json
 ```
 
-The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. CI retains the unsigned archive, its Xcode result bundle, and a machine-readable verification report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. Its machine-readable report also records the full source commit, SHA-256 digest of `package-lock.json`, Xcode version and build, and iPhoneOS SDK version and build. CI retains the unsigned archive, its Xcode result bundle, and that report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+
+The source commit in the report identifies the checkout used to produce the archive. The lockfile digest and toolchain fields make dependency or build-environment drift visible. Keep the report with any candidate evidence. For a later signed archive, confirm these provenance fields match the reviewed release checkout and recorded TestFlight candidate before accepting the build.
 
 This archive deliberately uses `CODE_SIGNING_ALLOWED=NO`. It proves that the Release archive action produces the expected device artifact before Apple Developer Program enrollment, but it cannot be installed, exported for distribution, uploaded to TestFlight, or used as signing validation.
 
