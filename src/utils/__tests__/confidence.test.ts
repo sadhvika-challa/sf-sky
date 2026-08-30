@@ -7,7 +7,7 @@ import {
   getForecastFreshness,
   scoreEvidenceAccessibilityLabel,
 } from '../confidence';
-import type { HourlyForecast } from '../weather';
+import { WeatherRequestError, type HourlyForecast } from '../weather';
 
 const NOW = new Date('2026-06-11T12:00:00.000Z');
 const MINUTE = 60_000;
@@ -117,6 +117,29 @@ describe('buildScoreEvidence', () => {
       reason: 'refresh-error',
       statusLabel: 'Saved forecast · low confidence',
     });
+  });
+
+  it('keeps a complete AQ refresh failure as one saved snapshot, not a partial forecast', () => {
+    const error = new WeatherRequestError(
+      'rate-limit',
+      'Forecast refresh was incomplete because air-quality evidence was unavailable',
+      429,
+      undefined,
+      undefined,
+      'air-quality',
+    );
+    const read = evidence({
+      error,
+      fetchedAt: NOW.getTime() - 15 * MINUTE,
+    });
+    expect(read).toMatchObject({
+      statusLabel: 'Saved forecast · low confidence',
+      retrievalLabel: 'Retrieved 15m ago',
+      provenanceLabel: 'Forecast-backed',
+      completeness: 'complete',
+      reason: 'refresh-error',
+    });
+    expect(read.provenanceLabel).not.toBe('Partial forecast');
   });
 
   it('marks missing required weather fields as partial and lowers confidence', () => {

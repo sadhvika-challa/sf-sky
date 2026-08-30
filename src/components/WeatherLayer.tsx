@@ -7,7 +7,6 @@ import { SF_OUTLINE } from '../data/sf-outline';
 import { type SpotForecast } from '../utils/weather';
 import {
   colorRampFor,
-  computeDynamicRange,
   formatMetricValue,
   idw,
   METRIC_IDW_POWER,
@@ -22,8 +21,9 @@ import {
   type CityStats,
   type LabelCandidate,
 } from '../utils/labelStats';
-import { buildSamples } from '../utils/weatherSamples';
+import { buildSamples, hasSpatialSupport } from '../utils/weatherSamples';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
+import { OVERLAY_USABLE_ANCHORS } from '../hooks/useNeighborhoodForecasts';
 
 // SF heatmap canvas bounds. Sized to comfortably contain the SF land
 // polygon plus a few hundred meters of ocean/bay padding so the soft mask
@@ -109,7 +109,12 @@ interface WeatherLayerProps {
 
 export default function WeatherLayer({ metric, hourKey, forecasts }: WeatherLayerProps) {
   const samples = useMemo(
-    () => buildSamples(metric, hourKey, forecasts),
+    () => {
+      const usable = buildSamples(metric, hourKey, forecasts);
+      return usable.size >= OVERLAY_USABLE_ANCHORS && hasSpatialSupport(usable)
+        ? usable
+        : new Map<number, SamplePoint>();
+    },
     [metric, hourKey, forecasts],
   );
 
@@ -690,7 +695,6 @@ function rasterize(metric: WeatherMetric, samples: ReadonlyArray<SamplePoint>): 
   const latSpan = north - south;
   const lngSpan = east - west;
 
-  const range = computeDynamicRange(metric, samples.map((s) => s.value)) ?? undefined;
   const mask = getLandMask();
 
   for (let y = 0; y < RASTER_H; y++) {
@@ -705,7 +709,7 @@ function rasterize(metric: WeatherMetric, samples: ReadonlyArray<SamplePoint>): 
       }
       const lng = west + (x / (RASTER_W - 1)) * lngSpan;
       const value = idw(samples, lat, lng, METRIC_IDW_POWER[metric]);
-      const [r, g, b] = colorRampFor(metric, value, range);
+      const [r, g, b] = colorRampFor(metric, value);
       data[idx] = r;
       data[idx + 1] = g;
       data[idx + 2] = b;

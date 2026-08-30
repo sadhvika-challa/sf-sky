@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import SunCalc from 'suncalc';
 import type { Spot } from '../data/spots';
 import {
   fetchSpotForecast,
   getHourlyForecastCompleteness,
+  WeatherRequestError,
   type HourlyForecast,
   type SpotForecast,
 } from '../utils/weather';
@@ -20,6 +21,11 @@ import {
   formatCanonicalHourKey,
   parseCanonicalHourKey,
 } from '../utils/timeline';
+import {
+  keepRefreshScheduleForScope,
+  nextWeatherRefreshAt,
+  WEATHER_REFRESH_INTERVAL_MS,
+} from '../utils/weatherRefresh';
 
 export interface LiveSpotScores {
   sunrise: number;
@@ -47,6 +53,8 @@ export interface TimelineScoresResult {
   scores: LiveScoresMap;
   forecasts: SpotForecastMap;
   forecastErrors: SpotForecastErrorMap;
+  retryForecast: () => void;
+  forecastRetrying: boolean;
 }
 
 function staticScoreForMode(spot: Spot, viewMode: ViewMode): number {
@@ -201,8 +209,6 @@ export function combineTimelineScores(
   return { ...canonical, ...active };
 }
 
-const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
-
 /** Single source of truth for score values and their evidence contract. */
 export function useTimelineScores(
   spots: ReadonlyArray<Spot>,
@@ -210,30 +216,78 @@ export function useTimelineScores(
   viewMode: ViewMode,
   timeZone: string,
   now: Date,
+  requestedSpotIds: ReadonlyArray<string> = spots.map((spot) => spot.id),
 ): TimelineScoresResult {
   const [forecasts, setForecasts] = useState<SpotForecastMap>(() => new Map());
   const [forecastErrors, setForecastErrors] = useState<SpotForecastErrorMap>(() => new Map());
-  const [refreshTick, setRefreshTick] = useState(0);
+  const [refreshRequest, setRefreshRequest] = useState({ generation: 0, force: false });
+  const [retryingScope, setRetryingScope] = useState<string | null>(null);
+  const [refreshSchedule, setRefreshSchedule] = useState<{
+    scope: string;
+    generation: number;
+    dueAt: number;
+  } | null>(null);
+  const requestedScope = `${timeZone}:${requestedSpotIds.join(',')}`;
+  const requestHourKey = formatCanonicalHourKey(now);
+  const bumpRefresh = useCallback((force: boolean) => {
+    setRefreshRequest((previous) => ({ generation: previous.generation + 1, force }));
+  }, []);
+  const retryForecast = useCallback(() => {
+    setRetryingScope(requestedScope);
+    setRefreshSchedule(null);
+    bumpRefresh(true);
+  }, [bumpRefresh, requestedScope]);
+
+  const activeRefreshSchedule = keepRefreshScheduleForScope(refreshSchedule, requestedScope);
+  const forecastRetrying = retryingScope === requestedScope;
 
   useEffect(() => {
-    const bump = () => setRefreshTick((tick) => tick + 1);
-    const interval = setInterval(bump, REFRESH_INTERVAL_MS);
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') bump();
+      if (document.visibilityState === 'visible') bumpRefresh(false);
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, []);
+  }, [bumpRefresh]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!activeRefreshSchedule || requestedSpotIds.length === 0) return;
+    const timeout = setTimeout(
+      () => bumpRefresh(false),
+      Math.max(0, activeRefreshSchedule.dueAt - Date.now()),
+    );
+    return () => clearTimeout(timeout);
+  }, [activeRefreshSchedule, bumpRefresh, requestedSpotIds.length]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const requested = new Set(requestedSpotIds);
+    const requestGeneration = refreshRequest.generation;
+    const scheduleNext = (dueAt: number) => {
+      setRefreshSchedule((previous) => {
+        if (
+          previous &&
+          previous.scope === requestedScope &&
+          previous.generation === requestGeneration
+        ) {
+          return { ...previous, dueAt: Math.min(previous.dueAt, dueAt) };
+        }
+        return { scope: requestedScope, generation: requestGeneration, dueAt };
+      });
+    };
     for (const spot of spots) {
-      fetchSpotForecast(spot.lat, spot.lng, timeZone)
+      if (!requested.has(spot.id)) continue;
+      fetchSpotForecast(spot.lat, spot.lng, timeZone, {
+        maxAgeMs: refreshRequest.force ? 0 : WEATHER_REFRESH_INTERVAL_MS,
+        requiredHourKey: requestHourKey,
+        signal: controller.signal,
+      })
         .then((forecast) => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
+          if (refreshRequest.force) {
+            setRetryingScope((scope) => scope === requestedScope ? null : scope);
+          }
           setForecasts((previous) => {
             if (previous.get(spot.id) === forecast) return previous;
             const next = new Map(previous);
@@ -246,21 +300,39 @@ export function useTimelineScores(
             next.delete(spot.id);
             return next;
           });
+          // fetchedAt is stamped after endpoint completion. A slow first
+          // request therefore still receives a full 15-minute fresh window.
+          scheduleNext(nextWeatherRefreshAt(
+            forecast.requestCompletedAt ?? forecast.fetchedAt,
+          ));
         })
         .catch((reason: unknown) => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
+          if (refreshRequest.force) {
+            setRetryingScope((scope) => scope === requestedScope ? null : scope);
+          }
           const error = reason instanceof Error ? reason : new Error(String(reason));
+          if (reason instanceof WeatherRequestError && reason.savedForecast) {
+            setForecasts((previous) => {
+              const next = new Map(previous);
+              next.set(spot.id, reason.savedForecast!);
+              return next;
+            });
+          }
           setForecastErrors((previous) => {
             const next = new Map(previous);
             next.set(spot.id, error);
             return next;
           });
+          // Failed revalidation never hot-loops. Retained evidence stays in
+          // place and the next automatic attempt waits a full interval.
+          scheduleNext(nextWeatherRefreshAt(null));
         });
     }
-    return () => {
-      cancelled = true;
-    };
-  }, [spots, refreshTick, timeZone]);
+    return () => controller.abort();
+  }, [requestHourKey, requestedScope, requestedSpotIds, spots, refreshRequest, timeZone]);
+
+  const requestedSet = useMemo(() => new Set(requestedSpotIds), [requestedSpotIds]);
 
   const currentHourKey = formatCanonicalHourKey(now);
   const selectedHourKey = hourKey || currentHourKey;
@@ -274,7 +346,7 @@ export function useTimelineScores(
     for (const spot of spots) {
       const forecast = forecasts.get(spot.id) ?? null;
       const error = forecastErrors.get(spot.id) ?? null;
-      const loading = forecast === null && error === null;
+      const loading = requestedSet.has(spot.id) && forecast === null && error === null;
       const canonical = canonicalScoresForSpot(
         spot,
         forecast,
@@ -306,8 +378,9 @@ export function useTimelineScores(
     selectedHourKey,
     selectedInstant,
     spots,
+    requestedSet,
     viewMode,
   ]);
 
-  return { scores, forecasts, forecastErrors };
+  return { scores, forecasts, forecastErrors, retryForecast, forecastRetrying };
 }

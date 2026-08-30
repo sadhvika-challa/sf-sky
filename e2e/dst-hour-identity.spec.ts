@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  expectWeatherRequestBudget,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -278,6 +279,8 @@ test('preserves repeated Central hours for an Austin spot', async ({ page }, tes
     .getByRole('dialog', { name: 'Mount Bonnell (Covert Park) sky scores' })
     .locator('[data-card-type="now"]');
   const slider = card.getByRole('slider', { name: 'Forecast hour' });
+  await expect(card.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await slider.focus();
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
@@ -306,12 +309,29 @@ test('uses the selected repeated instant for the weather overlay sample', async 
   const secondOccurrence = hours.getByRole('button', { name: /^Today · 1:00 AM PST/ });
   const scale = page.locator('[aria-label="Temperature color scale"]');
   const averageMarker = scale.locator('div.absolute');
+  const accessibleMapSummary = page.locator('[data-weather-overlay-state]').getByRole('img');
 
   await firstOccurrence.click();
   await expect(firstOccurrence).toHaveAttribute('aria-pressed', 'true');
-  await expect(averageMarker).toHaveAttribute('style', /top: 0%/);
+  await expect(averageMarker).toHaveAttribute('style', /top: 27\.2727%/);
+  await expect(accessibleMapSummary).toHaveAttribute(
+    'aria-label',
+    /San Francisco weather map.*1:00 AM PDT/i,
+  );
 
   await secondOccurrence.click();
   await expect(secondOccurrence).toHaveAttribute('aria-pressed', 'true');
   await expect(averageMarker).toHaveAttribute('style', /top: 100%/);
+  await expect(accessibleMapSummary).toHaveAttribute(
+    'aria-label',
+    /San Francisco weather map.*1:00 AM PST/i,
+  );
+  await expect.poll(() => harness.requests.forecast.length).toBe(25);
+  await expect.poll(() => harness.requests.active).toBe(0);
+  expectWeatherRequestBudget(harness.requests, {
+    forecast: 25,
+    airQuality: 0,
+    maxActive: 3,
+    maxCoordinateJobs: 3,
+  });
 });

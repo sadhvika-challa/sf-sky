@@ -285,6 +285,8 @@ interface ScorePanelProps {
   forecast: SpotForecast | null;
   forecastLoading: boolean;
   forecastError: Error | null;
+  onRetryForecast: () => void;
+  forecastRetrying: boolean;
   now: Date;
 }
 
@@ -314,7 +316,7 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError, now }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
@@ -791,6 +793,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                       forecast={forecast}
                       forecastLoading={forecastLoading}
                       forecastError={forecastError}
+                      onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
+                      forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
                       now={now}
                     />
                   </div>

@@ -4,6 +4,7 @@ import {
   OCEAN_BEACH_COORDINATES,
   assertNoDuplicateWeatherRequests,
   assertNoLiveOpenMeteoTraffic,
+  expectWeatherRequestBudget,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -19,6 +20,39 @@ async function cardOrder(dialog: Locator): Promise<string[]> {
 
 async function currentCardScrollLeft(dialog: Locator): Promise<number> {
   return dialog.locator('.score-cards-scroll').evaluate((scroller) => scroller.scrollLeft);
+}
+
+interface LayoutBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function sameBox(left: LayoutBox, right: LayoutBox): boolean {
+  return [left.x, left.y, left.width, left.height].every(
+    (value, index) => Math.abs(value - [right.x, right.y, right.width, right.height][index]) < 0.25,
+  );
+}
+
+async function waitForStableGeometry(locator: Locator): Promise<LayoutBox> {
+  await expect(locator).toBeVisible();
+  await locator.evaluate(async (element) => {
+    const sheet = element.closest('[role="dialog"]') ?? element;
+    await Promise.all(sheet.getAnimations().map((animation) => animation.finished.catch(() => {})));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+
+  let previous = await locator.boundingBox();
+  if (!previous) throw new Error('Element has no layout box');
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await locator.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    const current = await locator.boundingBox();
+    if (!current) throw new Error('Element lost its layout box while waiting for stable geometry');
+    if (sameBox(previous, current)) return current;
+    previous = current;
+  }
+  throw new Error(`Element geometry did not settle: ${JSON.stringify(previous)}`);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -42,7 +76,7 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Now, Now · 6:15 PM');
 
-  await page.waitForTimeout(400);
+  await waitForStableGeometry(dialog);
   const initialScrollLeft = await currentCardScrollLeft(dialog);
 
   await slider.focus();
@@ -104,11 +138,9 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
 
   assertNoDuplicateWeatherRequests(harness.requests);
   assertNoLiveOpenMeteoTraffic(harness.requests);
-  expect(harness.requests.forecast.length).toBeGreaterThan(0);
-  expect(harness.requests.airQuality.length).toBe(harness.requests.forecast.length);
+  expectWeatherRequestBudget(harness.requests, { forecast: 1, airQuality: 1, maxActive: 2 });
   console.info(
-    `[weather-fixture] ${harness.requests.forecast.length} forecast and ` +
-    `${harness.requests.airQuality.length} air-quality requests, one pair per coordinate`,
+    '[weather-fixture] selected-spot budget: one forecast and one air-quality request',
   );
 });
 
@@ -201,9 +233,12 @@ test('supports a positional scrub gesture in the narrow touch layout', async ({ 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const slider = dialog.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toBeVisible();
+  await expect(
+    dialog.locator('[data-card-type="now"]')
+      .getByText('Current forecast · high confidence', { exact: true }),
+  ).toBeVisible();
 
-  const box = await slider.boundingBox();
-  if (!box) throw new Error('Forecast slider has no layout box');
+  const box = await waitForStableGeometry(slider);
   await page.mouse.move(box.x + 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.65, box.y + box.height / 2, { steps: 8 });
@@ -360,8 +395,11 @@ test('dismisses the sheet from the dedicated handle pointer drag', async ({ page
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const handle = dialog.getByRole('button', { name: 'Swipe down to dismiss, or tap to collapse' });
   await expect(handle).toBeVisible();
-  const box = await handle.boundingBox();
-  if (!box) throw new Error('Sheet handle has no layout box');
+  await expect(
+    dialog.locator('[data-card-type="now"]')
+      .getByText('Current forecast · high confidence', { exact: true }),
+  ).toBeVisible();
+  const box = await waitForStableGeometry(handle);
   console.info(`[handle-target] ${Math.round(box.width)}x${Math.round(box.height)}px`);
   expect(box.height, 'Dedicated sheet-dismiss handle must provide a 44px touch target').toBeGreaterThanOrEqual(43.99);
 

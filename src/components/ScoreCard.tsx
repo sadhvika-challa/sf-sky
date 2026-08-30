@@ -4,7 +4,7 @@ import { toBlob } from 'html-to-image';
 import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
-import { clampPercentage, fogDensity, type HourlyForecast, type SpotForecast } from '../utils/weather';
+import { clampPercentage, fogDensity, weatherRefreshExplanation, type HourlyForecast, type SpotForecast } from '../utils/weather';
 import type { ScoreEvidence } from '../utils/confidence';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
@@ -37,6 +37,8 @@ interface ScoreCardProps {
   forecast: SpotForecast | null;
   forecastLoading: boolean;
   forecastError: Error | null;
+  onRetryForecast?: () => void;
+  forecastRetrying?: boolean;
   now: Date;
 }
 
@@ -489,7 +491,7 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error, now }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error, onRetryForecast, forecastRetrying = false, now }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -521,6 +523,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
     return breakdown ? breakdown.total : spot[type];
   })();
   const isForecastBacked = scoreEvidence.provenance === 'forecast';
+  const refreshExplanation = weatherRefreshExplanation(error);
 
   const spotScore = type === 'now' ? computeNowBaseScore(spot) : spot[type];
   const skyScore = (() => {
@@ -788,6 +791,21 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                   <span aria-hidden="true"> · </span>
                   {scoreEvidence.retrievalLabel}
                 </p>
+                {type === 'now' && refreshExplanation && (
+                  <p className="mt-2 font-mono text-[10px] leading-relaxed text-amber-800">
+                    {refreshExplanation}
+                  </p>
+                )}
+                {type === 'now' && error && onRetryForecast && (
+                  <button
+                    type="button"
+                    onClick={onRetryForecast}
+                    disabled={forecastRetrying}
+                    className="mt-2 font-mono text-[10px] font-semibold text-[#8B5E3C] underline underline-offset-2 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {forecastRetrying ? `Retrying forecast for ${spot.name}` : `Retry forecast for ${spot.name}`}
+                  </button>
+                )}
                 {showSparkStrip ? (
                   <SparkStrip points={sparkPoints} timeZone={timeZone} />
                 ) : showSparkSkeleton ? (

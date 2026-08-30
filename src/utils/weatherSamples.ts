@@ -3,17 +3,21 @@
 // (in `WeatherLayer`) and the insight-card narrative (in `InsightCard`).
 //
 // Keeping these here means the two consumers never disagree on which
-// hourly slice or fallback applies — they both walk the same code path.
+// exact canonical hourly slice applies — they both walk the same code path.
 
 import { neighborhoods } from '../data/neighborhoods';
 import {
   fogDensity,
-  getForecastAt,
+  isUsableWeatherMetricHour,
   type HourlyForecast,
   type SpotForecast,
 } from './weather';
 import { type SamplePoint, type WeatherMetric } from './interpolate';
-import { parseCanonicalHourKey } from './timeline';
+import { isCanonicalHourKey } from './timeline';
+
+const SF_SUPPORT_CENTER = { lat: 37.7575, lng: -122.4385 };
+const MIN_LAT_SPAN = 0.065;
+const MIN_LNG_SPAN = 0.075;
 
 /**
  * For each neighborhood, look up the value at `hourKey` from its forecast
@@ -26,18 +30,46 @@ export function buildSamples(
   forecasts: Map<number, SpotForecast>,
 ): Map<number, SamplePoint> {
   const out = new Map<number, SamplePoint>();
-  if (!hourKey) return out;
+  if (!isCanonicalHourKey(hourKey)) return out;
 
   for (const n of neighborhoods) {
     const forecast = forecasts.get(n.id);
-    if (!forecast) continue;
-    const hourly = forecast.hours[hourKey] ?? nearestHourly(forecast, hourKey);
+    if (!forecast || !forecast.hours || typeof forecast.hours !== 'object') continue;
+    const hourly = forecast.hours[hourKey];
     if (!hourly) continue;
+    if (!isUsableWeatherMetricHour(metric, hourly)) continue;
     const value = pickMetric(metric, hourly);
     if (!Number.isFinite(value)) continue;
     out.set(n.id, { lat: n.lat, lng: n.lng, value });
   }
   return out;
+}
+
+/**
+ * A city wash needs anchors across the map, not merely nine nearby points.
+ * Require meaningful north/south and east/west spans plus support in every
+ * quadrant around SF's center before interpolation can imply city coverage.
+ */
+export function hasSpatialSupport(samples: Map<number, SamplePoint>): boolean {
+  if (samples.size === 0) return false;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  const quadrants = new Set<string>();
+  for (const sample of samples.values()) {
+    if (![sample.lat, sample.lng, sample.value].every(Number.isFinite)) continue;
+    minLat = Math.min(minLat, sample.lat);
+    maxLat = Math.max(maxLat, sample.lat);
+    minLng = Math.min(minLng, sample.lng);
+    maxLng = Math.max(maxLng, sample.lng);
+    quadrants.add(
+      `${sample.lat >= SF_SUPPORT_CENTER.lat ? 'n' : 's'}${sample.lng >= SF_SUPPORT_CENTER.lng ? 'e' : 'w'}`,
+    );
+  }
+  return maxLat - minLat >= MIN_LAT_SPAN
+    && maxLng - minLng >= MIN_LNG_SPAN
+    && quadrants.size === 4;
 }
 
 /**
@@ -50,16 +82,19 @@ export function buildWindDirs(
   forecasts: Map<number, SpotForecast>,
 ): Map<number, number> {
   const out = new Map<number, number>();
-  if (!hourKey) return out;
+  if (!isCanonicalHourKey(hourKey)) return out;
   for (const n of neighborhoods) {
     const forecast = forecasts.get(n.id);
-    if (!forecast) continue;
-    const hourly = forecast.hours[hourKey] ?? nearestHourly(forecast, hourKey);
+    if (!forecast || !forecast.hours || typeof forecast.hours !== 'object') continue;
+    const hourly = forecast.hours[hourKey];
     if (!hourly || !Number.isFinite(hourly.windDir)) continue;
     out.set(n.id, hourly.windDir);
   }
   return out;
 }
+
+/** Validate the actual fields that drive a metric before treating an anchor as coverage. */
+export const isUsableMetricHour = isUsableWeatherMetricHour;
 
 export function pickMetric(metric: WeatherMetric, h: HourlyForecast): number {
   switch (metric) {
@@ -78,14 +113,6 @@ export function pickMetric(metric: WeatherMetric, h: HourlyForecast): number {
       throw new Error(`Unhandled metric: ${String(_exhaustive)}`);
     }
   }
-}
-
-function nearestHourly(forecast: SpotForecast, hourKey: string): HourlyForecast | null {
-  // Reuse the time-aware lookup in weather.ts so partial hour ranges still
-  // surface a value rather than falling back to NaN.
-  const parsed = parseCanonicalHourKey(hourKey);
-  if (!parsed) return null;
-  return getForecastAt(forecast, parsed);
 }
 
 /**
