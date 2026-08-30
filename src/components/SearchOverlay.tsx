@@ -3,9 +3,9 @@ import { type Spot, type City } from '../data/spots';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
-import { getUpcomingEventTimes } from '../utils/events';
 import { getKarlComment } from '../utils/karl-copy';
 import { getSpectrumColor, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
+import { describeActiveForecastTrust, formatActiveTimelineLabel } from '../utils/timeline';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -17,6 +17,9 @@ interface SearchOverlayProps {
   onSuggestSpot: (seed: string) => void;
   city: City;
   viewMode: ViewMode;
+  timelineHourKey: string;
+  timeZone: string;
+  timelineNow: Date;
 }
 
 interface RankedSpot {
@@ -53,18 +56,20 @@ function buildRanking(
       ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
       : null;
 
+    const score = live?.active ?? (
+      viewMode === 'now' ? computeNowBaseScore(spot) : spot[viewMode]
+    );
     if (viewMode === 'now') {
-      const score = live?.now ?? computeNowBaseScore(spot);
       return { spot, nextType: 'now' as ViewMode, nextTime: null, score, distanceMi };
     }
 
-    const events = getUpcomingEventTimes(spot);
-    const order: ScoreType[] = (['sunrise', 'sunset', 'stargazing'] as ScoreType[])
-      .filter((t) => !Number.isNaN(events[t].getTime()))
-      .sort((a, b) => events[a].getTime() - events[b].getTime());
-    const nextType: ScoreType = order[0] ?? 'sunset';
-    const score = live ? live[nextType] : spot[nextType];
-    return { spot, nextType, nextTime: events[nextType], score, distanceMi };
+    return {
+      spot,
+      nextType: viewMode,
+      nextTime: null,
+      score,
+      distanceMi,
+    };
   });
 }
 
@@ -78,6 +83,9 @@ export default function SearchOverlay({
   onSuggestSpot,
   city,
   viewMode,
+  timelineHourKey,
+  timeZone,
+  timelineNow,
 }: SearchOverlayProps) {
   const [tempUnit] = useTempUnit();
   const [query, setQuery] = useState('');
@@ -130,6 +138,12 @@ export default function SearchOverlay({
     () => buildRanking(spotList, liveScores, userLocation, viewMode),
     [spotList, liveScores, userLocation, viewMode],
   );
+  const activeTimelineLabel = formatActiveTimelineLabel(
+    timelineHourKey,
+    viewMode,
+    timeZone,
+    timelineNow,
+  );
 
   const trimmed = query.trim().toLowerCase();
   const hasQuery = trimmed.length > 0;
@@ -144,6 +158,9 @@ export default function SearchOverlay({
     }
     return [...ranked].sort((a, b) => b.score - a.score);
   }, [ranked, trimmed, hasQuery]);
+  const activeForecastTrust = describeActiveForecastTrust(
+    results.map((result) => liveScores.get(result.spot.id)?.activeIsLive ?? false),
+  );
 
   if (!mounted) return null;
 
@@ -200,13 +217,14 @@ export default function SearchOverlay({
 
       {/* Results list */}
       <div className="flex-1 overflow-y-auto overscroll-contain">
-        {!hasQuery && (
-          <div className="px-4 pt-4 pb-2">
-            <p className="font-mono text-[10px] tracking-[2px] uppercase text-gray-500">
-              {city === 'sf' ? 'Tonight per Karl' : "Tonight's outlook"}
-            </p>
-          </div>
-        )}
+        <div className="px-4 pt-4 pb-2">
+          <p className="font-mono text-[10px] tracking-[2px] uppercase text-gray-500">
+            Scores for {activeTimelineLabel}
+          </p>
+          <p className="mt-1 font-mono text-[10px] text-gray-400" role="status">
+            {activeForecastTrust}
+          </p>
+        </div>
 
         {results.length === 0 ? (
           <div className="px-4 py-10 text-center">

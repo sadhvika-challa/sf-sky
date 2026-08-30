@@ -7,6 +7,8 @@ import { getScoreTier, getSpectrumColor, tierColors, type ScoreTier, type ViewMo
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
+import { parseHourKeyInTimeZone, SCORE_CARD_ORDER } from '../utils/timeline';
+import type { SpotForecast } from '../utils/weather';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
@@ -16,18 +18,12 @@ interface CardInfo {
   eventTime: Date;
 }
 
-const CHRONOLOGICAL_CYCLE: CardType[] = ['sunrise', 'now', 'sunset', 'stargazing'];
-
-function getCardOrder(activeMode: ViewMode): CardType[] {
-  const idx = CHRONOLOGICAL_CYCLE.indexOf(activeMode as CardType);
-  if (idx <= 0) return CHRONOLOGICAL_CYCLE;
-  return [...CHRONOLOGICAL_CYCLE.slice(idx), ...CHRONOLOGICAL_CYCLE.slice(0, idx)];
-}
-
-function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = 'now'): CardInfo[] {
+function getNextEvents(spot: Spot, scrubHourKey: string, timeZone: string): CardInfo[] {
   const now = new Date();
-  const baseDate = scrubHourKey ? new Date(`${scrubHourKey}:00:00`) : now;
-  const today = new Date(baseDate);
+  const selectedInstant = scrubHourKey
+    ? (parseHourKeyInTimeZone(scrubHourKey, timeZone) ?? now)
+    : now;
+  const today = new Date(now);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -37,7 +33,7 @@ function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = '
   const cardsMap = new Map<CardType, CardInfo>();
 
   // Now
-  cardsMap.set('now', { type: 'now', eventDate: today, eventTime: baseDate });
+  cardsMap.set('now', { type: 'now', eventDate: selectedInstant, eventTime: selectedInstant });
 
   // Sunrise
   if (todayTimes.sunrise > now) {
@@ -67,7 +63,7 @@ function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = '
     cardsMap.set('stargazing', { type: 'stargazing', eventDate: tomorrow, eventTime: tomorrowDusk });
   }
 
-  return getCardOrder(viewMode).map((t) => cardsMap.get(t)!);
+  return SCORE_CARD_ORDER.map((type) => cardsMap.get(type)!);
 }
 
 const typeLabel: Record<CardType, string> = {
@@ -77,10 +73,10 @@ const typeLabel: Record<CardType, string> = {
   stargazing: 'Stargazing',
 };
 
-function formatStripTime(date: Date): string {
+function formatStripTime(date: Date, timeZone: string): string {
   if (Number.isNaN(date.getTime())) return '—';
   return date
-    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true })
     .toLowerCase()
     .replace(/\s/g, ' ');
 }
@@ -309,6 +305,11 @@ interface ScorePanelProps {
   city: City;
   viewMode?: ViewMode;
   timelineHourKey?: string;
+  onTimelineHourChange: (key: string) => void;
+  timeZone: string;
+  forecast: SpotForecast | null;
+  forecastLoading: boolean;
+  forecastError: Error | null;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -337,7 +338,7 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
@@ -359,25 +360,20 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const cards = getNextEvents(spot, timelineHourKey, viewMode ?? 'now');
-  // The soonest upcoming event is the one we feature in the collapsed strip.
-  // Read the score from the same live map that drives the map pin so the
-  // strip number and the pin number always agree.
+  const cards = getNextEvents(spot, timelineHourKey, timeZone);
+  // The Now card remains the sheet's primary card. Its score uses the active
+  // mode field from the same live map that drives the selected map pin.
   const primary = cards[0];
   const live = liveScores.get(spot.id);
-  const primaryScore = (() => {
-    if (primary.type === 'now') {
-      return live?.now ?? computeNowBaseScore(spot);
-    }
-    return live ? live[primary.type] : spot[primary.type];
-  })();
+  const activeMode = viewMode ?? 'now';
+  const primaryScore = live?.active ?? (
+    activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]
+  );
   const karlPill = getKarlPill(primaryScore, city);
   const scoreColor = getScoreColor(primaryScore);
 
   const getScoreFor = (type: CardType): number => {
-    if (type === 'now') {
-      return live?.now ?? computeNowBaseScore(spot);
-    }
+    if (type === 'now') return primaryScore;
     return live ? live[type] : spot[type];
   };
 
@@ -386,10 +382,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const [expanded, setExpanded] = useState(true);
   // Which card is currently centered in the swipe scroller — drives the
   // active page-indicator dot at the bottom of the sheet.
-  const viewModeCard: CardType | undefined =
-    viewMode ? viewMode as CardType : undefined;
   const initialActiveCardType: CardType =
-    initialCardType ?? viewModeCard ?? cards[0]?.type ?? 'now';
+    initialCardType ?? 'now';
   const [activeCardType, setActiveCardType] = useState<CardType>(
     initialActiveCardType,
   );
@@ -426,22 +420,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     };
   }, []);
 
-  // Swipe-down-to-dismiss. The drag handle commits to a vertical drag
-  // immediately; the broader card area waits to see whether the gesture is
-  // dominantly vertical (dismiss) or horizontal (let the card scroller pan).
+  // Swipe-down dismissal belongs to the dedicated handle. Card content keeps
+  // native horizontal paging and vertical scrolling without gesture capture.
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  // axis: 'y' = vertical drag in progress (we own the gesture); 'x' = user is
-  // panning the card scroller horizontally, so we ignore it; null = still
-  // deciding (only used by the content-area axis-lock entry point).
   const dragStateRef = useRef<{
     pointerId: number;
-    startX: number;
     startY: number;
     startTime: number;
     moved: boolean;
-    axis: 'x' | 'y' | null;
-    captureEl: Element | null;
   } | null>(null);
   // Set when a drag actually moved so the trailing click event doesn't toggle
   // collapse after the user lifts their finger.
@@ -454,16 +441,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     const elapsed = endTime - state.startTime;
     const velocity = delta / Math.max(elapsed, 1); // px/ms, positive = downward
     const moved = state.moved;
-    const axis = state.axis;
     dragStateRef.current = null;
     setIsDragging(false);
-
-    if (axis !== 'y') {
-      // We never took ownership of this gesture (horizontal swipe or tap) —
-      // leave the sheet where it is.
-      setDragY(0);
-      return;
-    }
 
     const sheetHeight = sheetRef.current?.getBoundingClientRect().height ?? 600;
     const distanceThreshold = Math.min(120, sheetHeight * 0.25);
@@ -480,19 +459,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     setDragY(0);
   }, [onClose]);
 
-  // Handle (pill) — eager vertical drag. The handle's only job is to dismiss,
-  // so we lock to the y-axis on pointer down and capture immediately.
+  // The handle captures immediately because its only gesture is dismissal.
   const handleHandlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!expanded) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     dragStateRef.current = {
       pointerId: e.pointerId,
-      startX: e.clientX,
       startY: e.clientY,
       startTime: performance.now(),
       moved: false,
-      axis: 'y',
-      captureEl: e.currentTarget,
     };
     setIsDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -501,7 +476,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const handleHandlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     const state = dragStateRef.current;
     if (!state || state.pointerId !== e.pointerId) return;
-    if (state.axis !== 'y') return;
     const delta = e.clientY - state.startY;
     if (Math.abs(delta) > 4) state.moved = true;
     const next = delta >= 0 ? delta : Math.max(delta, -40) * 0.3;
@@ -509,67 +483,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   };
 
   const handleHandlePointerEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
-    finishDrag(e.clientY, performance.now(), e.pointerId);
-  };
-
-  // Card content area — axis-locked vertical drag. We watch the first few
-  // pixels of movement and only take ownership if the gesture is mostly
-  // vertical. Horizontal motion is left to the native card scroller so
-  // swipe-between-cards still works. We skip the gesture entirely when the
-  // pointer starts on something interactive (button, link, etc.) so taps on
-  // share / directions / dots aren't swallowed.
-  const AXIS_LOCK_THRESHOLD = 8;
-
-  const handleContentPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!expanded) return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    const target = e.target as Element | null;
-    if (target?.closest('button, a, [role="button"], input, textarea, select')) {
-      return;
-    }
-    dragStateRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startTime: performance.now(),
-      moved: false,
-      axis: null,
-      captureEl: e.currentTarget,
-    };
-  };
-
-  const handleContentPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const state = dragStateRef.current;
-    if (!state || state.pointerId !== e.pointerId) return;
-    const dx = e.clientX - state.startX;
-    const dy = e.clientY - state.startY;
-
-    if (state.axis === null) {
-      if (Math.abs(dx) < AXIS_LOCK_THRESHOLD && Math.abs(dy) < AXIS_LOCK_THRESHOLD) {
-        return;
-      }
-      if (Math.abs(dy) > Math.abs(dx)) {
-        state.axis = 'y';
-        state.moved = true;
-        setIsDragging(true);
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        } catch {
-          // setPointerCapture can throw if the pointer is already released;
-          // safe to ignore — we'll just rely on bubble events.
-        }
-      } else {
-        state.axis = 'x';
-      }
-    }
-
-    if (state.axis !== 'y') return;
-    if (Math.abs(dy) > 4) state.moved = true;
-    const next = dy >= 0 ? dy : Math.max(dy, -40) * 0.3;
-    setDragY(next);
-  };
-
-  const handleContentPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     finishDrag(e.clientY, performance.now(), e.pointerId);
   };
 
@@ -582,14 +495,14 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   };
 
   useEffect(() => {
-    const scrollTarget = initialCardType ?? viewModeCard;
+    const scrollTarget = initialCardType ?? 'now';
     if (!scrollTarget || !expanded) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     const target = scroller.querySelector<HTMLElement>(`[data-card-type="${scrollTarget}"]`);
     if (!target) return;
     scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
-  }, [initialCardType, viewModeCard, spot.id, expanded]);
+  }, [initialCardType, spot.id, expanded]);
 
   // Track which card is centered as the user swipes. We watch each card with
   // an IntersectionObserver scoped to the horizontal scroller, picking the
@@ -705,7 +618,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             onPointerMove={handleHandlePointerMove}
             onPointerUp={handleHandlePointerEnd}
             onPointerCancel={handleHandlePointerEnd}
-            className="w-full flex flex-col items-center justify-center pt-2 pb-1 flex-shrink-0 group touch-none"
+            className="relative z-20 w-full min-h-11 -mb-7 flex flex-col items-center pt-2 flex-shrink-0 group touch-none"
             aria-label="Swipe down to dismiss, or tap to collapse"
             aria-expanded={expanded}
             style={{ touchAction: 'none' }}
@@ -719,11 +632,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         {expanded ? (
           <div
             className="flex flex-col flex-1 min-h-0"
-            onPointerDown={handleContentPointerDown}
-            onPointerMove={handleContentPointerMove}
-            onPointerUp={handleContentPointerEnd}
-            onPointerCancel={handleContentPointerEnd}
-            style={{ touchAction: 'pan-x' }}
+            style={{ touchAction: 'pan-x pan-y' }}
           >
             {/* Header — spot identity + travel context. Pure spot info,
                 so the swipeable weather cards below can stay forecast-only. */}
@@ -870,22 +779,37 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             <div
               ref={scrollerRef}
               className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
-              style={{ touchAction: 'pan-x', WebkitOverflowScrolling: 'touch' }}
+              style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
             >
               {cards.map((card) => (
                 <div
                   key={card.type}
                   data-card-type={card.type}
-                  className="w-full flex-shrink-0 snap-center px-3 pb-4 pt-1"
+                  className="w-full min-h-0 flex-shrink-0 snap-center"
+                  style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                 >
-                  <ScoreCard
-                    spot={spot}
-                    type={card.type}
-                    eventDate={card.eventDate}
-                    city={city}
-                    scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
-                    scrubViewMode={card.type === 'now' ? viewMode : undefined}
-                  />
+                  <div
+                    data-card-scroll
+                    className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                    style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+                  >
+                    <ScoreCard
+                      spot={spot}
+                      type={card.type}
+                      eventDate={card.eventDate}
+                      city={city}
+                      scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
+                      scrubViewMode={card.type === 'now' ? viewMode : undefined}
+                      activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
+                      activeScoreIsLive={card.type === 'now' ? (live?.activeIsLive ?? false) : undefined}
+                      canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
+                      onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
+                      timeZone={timeZone}
+                      forecast={forecast}
+                      forecastLoading={forecastLoading}
+                      forecastError={forecastError}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -938,7 +862,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 </span>
               </div>
               <p className="font-mono text-[10px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
-                {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime)}
+                {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime, timeZone)}
                 {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`}
               </p>
             </div>
