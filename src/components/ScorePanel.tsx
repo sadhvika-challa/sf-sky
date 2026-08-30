@@ -618,7 +618,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             onPointerMove={handleHandlePointerMove}
             onPointerUp={handleHandlePointerEnd}
             onPointerCancel={handleHandlePointerEnd}
-            className="w-full flex flex-col items-center justify-center pt-2 pb-1 flex-shrink-0 group touch-none"
+            className="relative z-20 w-full min-h-11 -mb-7 flex flex-col items-center pt-2 flex-shrink-0 group touch-none"
             aria-label="Swipe down to dismiss, or tap to collapse"
             aria-expanded={expanded}
             style={{ touchAction: 'none' }}
