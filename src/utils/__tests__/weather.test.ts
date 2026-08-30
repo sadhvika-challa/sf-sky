@@ -217,7 +217,7 @@ describe('Unix-time forecast ingestion', () => {
 
   it('uses one weather request and no AQ request for a regional overlay anchor', async () => {
     const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
       hourly: { time: [epoch], cloud_cover: [20] },
     }), { status: 200 }));
 
@@ -227,6 +227,94 @@ describe('Unix-time forecast ingestion', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain('api.open-meteo.com/v1/forecast');
+  });
+
+  it('shares the Twin Peaks weather endpoint across overlay and selected consumers', async () => {
+    const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      await gate;
+      const isAir = new URL(String(input)).hostname.startsWith('air-quality');
+      return new Response(JSON.stringify({ hourly: isAir
+        ? { time: [epoch], pm2_5: [4], us_aqi: [18] }
+        : { time: [epoch], cloud_cover: [20] } }), { status: 200 });
+    });
+    const overlayController = new AbortController();
+    const overlay = fetchSpotForecast(37.7544, -122.4477, 'America/Los_Angeles', {
+      includeAirQuality: false,
+      signal: overlayController.signal,
+    });
+    const selected = fetchSpotForecast(37.7544, -122.4477, 'America/Los_Angeles');
+    overlayController.abort();
+    release();
+
+    await expect(overlay).rejects.toMatchObject({ kind: 'aborted' });
+    await expect(selected).resolves.toMatchObject({ timeZone: 'America/Los_Angeles' });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.filter((url) => url.includes('/v1/forecast'))).toHaveLength(1);
+    expect(urls.filter((url) => url.includes('/v1/air-quality'))).toHaveLength(1);
+  });
+
+  it('bounds the endpoint capability cache when no tighter max age is supplied', async () => {
+    let now = Date.parse('2026-08-31T01:00:00Z');
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const epoch = now / 1000;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      hourly: { time: [epoch], cloud_cover: [20] },
+    }), { status: 200 }));
+
+    await fetchSpotForecast(37.7555, -122.4555, 'America/Los_Angeles', {
+      includeAirQuality: false,
+    });
+    now += 4 * 60 * 60 * 1000;
+    await fetchSpotForecast(37.7555, -122.4555, 'America/Los_Angeles', {
+      includeAirQuality: false,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('aborts an orphaned shared capability and starts a fresh later request', async () => {
+    const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
+    let abortedForecasts = 0;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (fetchMock.mock.calls.length <= 2) {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            if (url.pathname.includes('/forecast')) abortedForecasts += 1;
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        });
+      }
+      const isAir = url.hostname.startsWith('air-quality');
+      return new Response(JSON.stringify({ hourly: isAir
+        ? { time: [epoch], pm2_5: [4], us_aqi: [18] }
+        : { time: [epoch], cloud_cover: [20] } }), { status: 200 });
+    });
+    const overlayController = new AbortController();
+    const selectedController = new AbortController();
+    const overlay = fetchSpotForecast(37.7566, -122.4566, 'America/Los_Angeles', {
+      includeAirQuality: false,
+      signal: overlayController.signal,
+    });
+    const selected = fetchSpotForecast(37.7566, -122.4566, 'America/Los_Angeles', {
+      signal: selectedController.signal,
+    });
+    overlayController.abort();
+    selectedController.abort();
+
+    await expect(overlay).rejects.toMatchObject({ kind: 'aborted' });
+    await expect(selected).rejects.toMatchObject({ kind: 'aborted' });
+    await vi.waitFor(() => expect(abortedForecasts).toBe(1));
+
+    await expect(fetchSpotForecast(37.7566, -122.4566, 'America/Los_Angeles'))
+      .resolves.toMatchObject({ timeZone: 'America/Los_Angeles' });
+    const forecastCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/v1/forecast'));
+    expect(forecastCalls).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it('keeps inflight dedupe alive when only one subscriber cancels', async () => {

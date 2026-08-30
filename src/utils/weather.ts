@@ -2,7 +2,7 @@ import { formatCanonicalHourKey, isCanonicalHourKey, parseCanonicalHourKey } fro
 
 // Open-Meteo client for SF Sky.
 // Fetches an hourly weather + air-quality forecast for a given lat/lng and
-// caches it in sessionStorage with a 30-minute TTL so we don't hammer the API
+// caches it in sessionStorage with a bounded TTL so we don't hammer the API
 // while the user pans around.
 
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
@@ -126,6 +126,8 @@ export interface SpotForecast {
   timeZone: string;
   /** Wall-clock fetch time, ms since epoch. */
   fetchedAt: number;
+  /** Completion time for the composite request that produced this evidence. */
+  requestCompletedAt?: number;
 }
 
 interface CachedEntry {
@@ -141,7 +143,8 @@ export type WeatherRequestErrorKind =
   | 'rate-limit'
   | 'http'
   | 'network'
-  | 'aborted';
+  | 'aborted'
+  | 'invalid-data';
 
 export class WeatherRequestError extends Error {
   readonly kind: WeatherRequestErrorKind;
@@ -180,8 +183,34 @@ interface InflightEntry {
 
 const inflight = new Map<string, InflightEntry>();
 
+interface CapabilityResult<T> {
+  data: T;
+  /** Completion time for this individual endpoint response. */
+  fetchedAt: number;
+}
+
+interface CapabilityInflightEntry<T> {
+  promise: Promise<CapabilityResult<T>>;
+  controller: AbortController;
+  subscribers: number;
+  settled: boolean;
+}
+
+// Weather and AQ are independent capabilities. Keeping their physical
+// request identity separate lets a weather-only overlay anchor share the
+// forecast endpoint with a selected spot at the same coordinate, while the
+// selected spot remains the only consumer that asks for AQ.
+const weatherCapabilityCache = new Map<string, CapabilityResult<OpenMeteoForecastResponse>>();
+const airQualityCapabilityCache = new Map<string, CapabilityResult<OpenMeteoAirQualityResponse>>();
+const weatherCapabilityInflight = new Map<string, CapabilityInflightEntry<OpenMeteoForecastResponse>>();
+const airQualityCapabilityInflight = new Map<string, CapabilityInflightEntry<OpenMeteoAirQualityResponse>>();
+
 function cacheKey(lat: number, lng: number, timeZone: string, includeAirQuality: boolean): string {
   return `${CACHE_PREFIX}${lat.toFixed(4)}:${lng.toFixed(4)}:${timeZone}:${includeAirQuality ? 'weather-aq' : 'weather'}`;
+}
+
+function capabilityKey(lat: number, lng: number, timeZone: string): string {
+  return `${lat.toFixed(4)}:${lng.toFixed(4)}:${timeZone}`;
 }
 
 function isHourlyForecast(value: unknown): value is HourlyForecast {
@@ -197,6 +226,9 @@ export function isStructurallyValidSpotForecast(value: unknown): value is SpotFo
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   if (typeof record.fetchedAt !== 'number' || !Number.isFinite(record.fetchedAt) || typeof record.timeZone !== 'string') return false;
+  if (record.requestCompletedAt !== undefined && (
+    typeof record.requestCompletedAt !== 'number' || !Number.isFinite(record.requestCompletedAt)
+  )) return false;
   if (!record.hours || typeof record.hours !== 'object' || Array.isArray(record.hours)) return false;
   return Object.entries(record.hours as Record<string, unknown>)
     .every(([key, hourly]) => isCanonicalHourKey(key) && isHourlyForecast(hourly));
@@ -279,6 +311,78 @@ async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
   return (await res.json()) as T;
 }
 
+function subscribeToCapability<T>(
+  entry: CapabilityInflightEntry<T>,
+  signal?: AbortSignal,
+): Promise<CapabilityResult<T>> {
+  entry.subscribers += 1;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return false;
+      finished = true;
+      entry.subscribers = Math.max(0, entry.subscribers - 1);
+      signal?.removeEventListener('abort', onAbort);
+      return true;
+    };
+    const onAbort = () => {
+      if (!finish()) return;
+      reject(new WeatherRequestError('aborted', 'Weather request was cancelled'));
+      queueMicrotask(() => {
+        if (!entry.settled && entry.subscribers === 0) entry.controller.abort();
+      });
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    entry.promise.then(
+      (result) => { if (finish()) resolve(result); },
+      (reason) => { if (finish()) reject(reason); },
+    );
+  });
+}
+
+function fetchCapability<T>(
+  key: string,
+  url: string,
+  cache: Map<string, CapabilityResult<T>>,
+  entries: Map<string, CapabilityInflightEntry<T>>,
+  maxAgeMs: number | undefined,
+  signal?: AbortSignal,
+): Promise<CapabilityResult<T>> {
+  if (signal?.aborted) {
+    return Promise.reject(new WeatherRequestError('aborted', 'Weather request was cancelled'));
+  }
+  const cached = cache.get(key);
+  const effectiveMaxAgeMs = maxAgeMs ?? CACHE_TTL_MS;
+  if (
+    cached &&
+    cached.fetchedAt + effectiveMaxAgeMs > Date.now()
+  ) {
+    return Promise.resolve(cached);
+  }
+
+  let entry = entries.get(key);
+  if (entry?.controller.signal.aborted) {
+    if (entries.get(key) === entry) entries.delete(key);
+    entry = undefined;
+  }
+  if (!entry) {
+    const controller = new AbortController();
+    const promise = fetchJson<T>(url, controller.signal).then((data) => {
+      const result = { data, fetchedAt: Date.now() };
+      cache.set(key, result);
+      return result;
+    });
+    entry = { promise, controller, subscribers: 0, settled: false };
+    entries.set(key, entry);
+    const createdEntry = entry;
+    void promise.finally(() => {
+      createdEntry.settled = true;
+      if (entries.get(key) === createdEntry) entries.delete(key);
+    }).catch(() => {});
+  }
+  return subscribeToCapability(entry, signal);
+}
+
 function buildForecastUrl(lat: number, lng: number, timeZone: string): string {
   const params = new URLSearchParams({
     latitude: lat.toFixed(4),
@@ -334,6 +438,7 @@ export function mergeOpenMeteoResponses(
   air: OpenMeteoAirQualityResponse | null,
   timeZone: string,
   fetchedAt = Date.now(),
+  requestCompletedAt?: number,
 ): SpotForecast {
   try {
     const hours: Record<string, HourlyForecast> = {};
@@ -383,11 +488,11 @@ export function mergeOpenMeteoResponses(
       };
     }
 
-    return { hours, timeZone, fetchedAt };
+    return { hours, timeZone, fetchedAt, requestCompletedAt };
   } catch {
     // Malformed API response — return empty forecast so consumers
     // fall back to static base scores instead of crashing.
-    return { hours: {}, timeZone, fetchedAt };
+    return { hours: {}, timeZone, fetchedAt, requestCompletedAt };
   }
 }
 
@@ -425,7 +530,7 @@ export async function fetchSpotForecast(
   const cached = readCache(key, timeZone);
   let staleCandidate: SpotForecast | null = null;
   if (cached) {
-    if (options.maxAgeMs !== undefined && cached.fetchedAt + options.maxAgeMs < Date.now()) {
+    if (options.maxAgeMs !== undefined && cached.fetchedAt + options.maxAgeMs <= Date.now()) {
       // Keep the stored entry as recoverable evidence until revalidation
       // succeeds. Offline reloads must not destroy the last known forecast.
       staleCandidate = cached;
@@ -452,18 +557,42 @@ export async function fetchSpotForecast(
     }, timeoutMs);
     const promise = (async () => {
       try {
-        const [forecast, air] = await Promise.all([
-      fetchJson<OpenMeteoForecastResponse>(buildForecastUrl(lat, lng, timeZone), controller.signal),
-      // Air-quality endpoint occasionally fails or rate-limits separately;
-      // don't let it block the main forecast.
-      (includeAirQuality
-        ? fetchJson<OpenMeteoAirQualityResponse>(buildAirQualityUrl(lat, lng, timeZone), controller.signal)
-        : Promise.resolve(null)).catch((reason) => {
-        if (controller.signal.aborted) throw reason;
-        return null;
-      }),
+        const endpointKey = capabilityKey(lat, lng, timeZone);
+        const [weatherResult, airResult] = await Promise.all([
+          fetchCapability(
+            endpointKey,
+            buildForecastUrl(lat, lng, timeZone),
+            weatherCapabilityCache,
+            weatherCapabilityInflight,
+            options.maxAgeMs,
+            controller.signal,
+          ),
+          // Air quality can fail independently without discarding weather.
+          (includeAirQuality
+            ? fetchCapability(
+              endpointKey,
+              buildAirQualityUrl(lat, lng, timeZone),
+              airQualityCapabilityCache,
+              airQualityCapabilityInflight,
+              options.maxAgeMs,
+              controller.signal,
+            )
+            : Promise.resolve(null)).catch((reason) => {
+              if (controller.signal.aborted) throw reason;
+              return null;
+            }),
         ]);
-        const merged = mergeOpenMeteoResponses(forecast, air, timeZone);
+        // The composite is only as fresh as its oldest contributing endpoint.
+        const fetchedAt = airResult
+          ? Math.min(weatherResult.fetchedAt, airResult.fetchedAt)
+          : weatherResult.fetchedAt;
+        const merged = mergeOpenMeteoResponses(
+          weatherResult.data,
+          airResult?.data ?? null,
+          timeZone,
+          fetchedAt,
+          Date.now(),
+        );
         writeCache(key, merged);
         return merged;
       } catch (reason) {

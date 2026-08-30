@@ -37,6 +37,8 @@ interface ScoreCardProps {
   forecast: SpotForecast | null;
   forecastLoading: boolean;
   forecastError: Error | null;
+  onRetryForecast?: () => void;
+  forecastRetrying?: boolean;
   now: Date;
 }
 
@@ -489,7 +491,7 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error, now }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error, onRetryForecast, forecastRetrying = false, now }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -788,6 +790,16 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                   <span aria-hidden="true"> · </span>
                   {scoreEvidence.retrievalLabel}
                 </p>
+                {type === 'now' && error && onRetryForecast && (
+                  <button
+                    type="button"
+                    onClick={onRetryForecast}
+                    disabled={forecastRetrying}
+                    className="mt-2 font-mono text-[10px] font-semibold text-[#8B5E3C] underline underline-offset-2 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {forecastRetrying ? `Retrying forecast for ${spot.name}` : `Retry forecast for ${spot.name}`}
+                  </button>
+                )}
                 {showSparkStrip ? (
                   <SparkStrip points={sparkPoints} timeZone={timeZone} />
                 ) : showSparkSkeleton ? (

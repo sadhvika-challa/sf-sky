@@ -262,9 +262,12 @@ function App() {
     requestedSpotIds,
   );
   const liveScores = timelineScores.scores;
+  const activeWeatherHourKey = timelineHourKey || formatCanonicalHourKey(now);
   const neighborhoodForecastState = useNeighborhoodForecasts(
     weatherOverlay && activeCityConfig.hasWeatherMode,
     activeCityConfig.timeZone,
+    weatherMetric,
+    activeWeatherHourKey,
     now,
   );
   const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } = neighborhoodForecastState;
@@ -313,8 +316,7 @@ function App() {
   // Visible-area average for the legend marker position.
   const visibleMetricAvg = useMemo(() => {
     if (!weatherOverlay) return undefined;
-    const hourKey = timelineHourKey || formatCanonicalHourKey(now);
-    const samples = buildSamples(weatherMetric, hourKey, weatherForecasts);
+    const samples = buildSamples(weatherMetric, activeWeatherHourKey, weatherForecasts);
     if (samples.size === 0) return undefined;
 
     let sum = 0;
@@ -328,7 +330,7 @@ function App() {
       count++;
     }
     return count > 0 ? sum / count : undefined;
-  }, [mapBounds, now, timelineHourKey, weatherForecasts, weatherMetric, weatherOverlay]);
+  }, [activeWeatherHourKey, mapBounds, weatherForecasts, weatherMetric, weatherOverlay]);
 
   const handleReset = useCallback(() => {
     // Tier filters only — category selections are managed by
@@ -641,7 +643,7 @@ function App() {
           weatherOverlay={weatherOverlay}
           cityConfig={activeCityConfig}
           weatherMetric={weatherMetric}
-          weatherHourKey={timelineHourKey || formatCanonicalHourKey(now)}
+          weatherHourKey={activeWeatherHourKey}
           weatherForecasts={weatherForecasts}
           tapSpotHintActive={showTapSpotHint && !selectedSpot}
           onTapSpotAnchorChange={setTapSpotAnchor}
@@ -725,7 +727,12 @@ function App() {
       )}
 
       {weatherOverlay && weatherOverlayAvailable && (
-        <WeatherOverlayStatus {...neighborhoodForecastState} />
+        <WeatherOverlayStatus
+          {...neighborhoodForecastState}
+          metric={weatherMetric}
+          hourKey={activeWeatherHourKey}
+          visibleAverage={visibleMetricAvg}
+        />
       )}
 
       {!selectedSpot && (
@@ -810,6 +817,8 @@ function App() {
             !timelineScores.forecastErrors.has(selectedSpot.id)
           }
           forecastError={timelineScores.forecastErrors.get(selectedSpot.id) ?? null}
+          onRetryForecast={timelineScores.retryForecast}
+          forecastRetrying={timelineScores.forecastRetrying}
           now={now}
         />
       )}

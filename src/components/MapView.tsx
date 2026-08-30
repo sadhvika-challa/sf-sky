@@ -19,7 +19,7 @@ import type { WeatherMetric } from '../utils/interpolate';
 import type { SpotForecast } from '../utils/weather';
 import { parseCanonicalHourKey } from '../utils/timeline';
 import type { ScoreEvidence } from '../utils/confidence';
-import { buildSamples, buildWindDirs } from '../utils/weatherSamples';
+import { buildSamples, buildWindDirs, hasSpatialSupport } from '../utils/weatherSamples';
 import { OVERLAY_USABLE_ANCHORS } from '../hooks/useNeighborhoodForecasts';
 
 const isCoarsePointer =
@@ -565,16 +565,20 @@ export default function MapView({
   const exploreBounds = useMemo(() => boundsFromSpots(spotList), [spotList]);
 
   const windSamples = useMemo(
-    () => (isWeather && weatherMetric === 'wind' && weatherHourKey && weatherForecasts.size >= OVERLAY_USABLE_ANCHORS)
-      ? buildSamples('wind', weatherHourKey, weatherForecasts)
-      : new Map(),
+    () => {
+      if (!isWeather || weatherMetric !== 'wind' || !weatherHourKey) return new Map();
+      const samples = buildSamples('wind', weatherHourKey, weatherForecasts);
+      return samples.size >= OVERLAY_USABLE_ANCHORS && hasSpatialSupport(samples)
+        ? samples
+        : new Map();
+    },
     [isWeather, weatherMetric, weatherHourKey, weatherForecasts],
   );
   const windDirMap = useMemo(
-    () => (isWeather && weatherMetric === 'wind' && weatherHourKey && weatherForecasts.size >= OVERLAY_USABLE_ANCHORS)
+    () => windSamples.size >= OVERLAY_USABLE_ANCHORS
       ? buildWindDirs(weatherHourKey, weatherForecasts)
       : new Map(),
-    [isWeather, weatherMetric, weatherHourKey, weatherForecasts],
+    [weatherHourKey, weatherForecasts, windSamples.size],
   );
 
   const center = cityConfig.center;

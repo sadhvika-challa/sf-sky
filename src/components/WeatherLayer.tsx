@@ -21,7 +21,7 @@ import {
   type CityStats,
   type LabelCandidate,
 } from '../utils/labelStats';
-import { buildSamples } from '../utils/weatherSamples';
+import { buildSamples, hasSpatialSupport } from '../utils/weatherSamples';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 import { OVERLAY_USABLE_ANCHORS } from '../hooks/useNeighborhoodForecasts';
 
@@ -109,9 +109,12 @@ interface WeatherLayerProps {
 
 export default function WeatherLayer({ metric, hourKey, forecasts }: WeatherLayerProps) {
   const samples = useMemo(
-    () => forecasts.size >= OVERLAY_USABLE_ANCHORS
-      ? buildSamples(metric, hourKey, forecasts)
-      : new Map<number, SamplePoint>(),
+    () => {
+      const usable = buildSamples(metric, hourKey, forecasts);
+      return usable.size >= OVERLAY_USABLE_ANCHORS && hasSpatialSupport(usable)
+        ? usable
+        : new Map<number, SamplePoint>();
+    },
     [metric, hourKey, forecasts],
   );
 
