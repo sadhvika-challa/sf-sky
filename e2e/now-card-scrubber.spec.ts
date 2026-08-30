@@ -149,3 +149,85 @@ test('supports a positional scrub gesture in the narrow touch layout', async ({ 
   await expect(dialog).toBeVisible();
   await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
 });
+
+test('keeps the complete Now card reachable in the narrow touch layout', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-webkit', 'Narrow touch regression only');
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const nowPage = dialog.locator('[data-card-type="now"]');
+  await expect(nowPage.getByRole('button', { name: 'See breakdown' })).toBeAttached();
+
+  const reachability = await nowPage.evaluate((pageElement) => {
+    const scroller = pageElement.parentElement;
+    const scoreCard = pageElement.firstElementChild;
+    const breakdown = Array.from(pageElement.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('See breakdown'),
+    );
+    if (!scroller || !scoreCard || !breakdown) throw new Error('Now-card layout nodes missing');
+
+    const scrollerRect = scroller.getBoundingClientRect();
+    const cardRect = scoreCard.getBoundingClientRect();
+    const breakdownRect = breakdown.getBoundingClientRect();
+    const scrollerStyle = getComputedStyle(scroller);
+    const pageStyle = getComputedStyle(pageElement);
+    const cardStyle = getComputedStyle(scoreCard);
+    const clippedPixels = Math.max(0, Math.round(cardRect.bottom - scrollerRect.bottom));
+    const scrollerCanScroll =
+      (scrollerStyle.overflowY === 'auto' || scrollerStyle.overflowY === 'scroll') &&
+      scroller.scrollHeight > scroller.clientHeight;
+    const pageCanScroll =
+      (pageStyle.overflowY === 'auto' || pageStyle.overflowY === 'scroll') &&
+      pageElement.scrollHeight > pageElement.clientHeight;
+
+    return {
+      scroller: {
+        clientHeight: scroller.clientHeight,
+        scrollHeight: scroller.scrollHeight,
+        overflowY: scrollerStyle.overflowY,
+      },
+      page: {
+        clientHeight: pageElement.clientHeight,
+        scrollHeight: pageElement.scrollHeight,
+        overflowY: pageStyle.overflowY,
+      },
+      scoreCard: {
+        clientHeight: (scoreCard as HTMLElement).clientHeight,
+        scrollHeight: (scoreCard as HTMLElement).scrollHeight,
+        overflowY: cardStyle.overflowY,
+      },
+      clippedPixels,
+      breakdownVisibleInScroller: breakdownRect.bottom <= scrollerRect.bottom + 1,
+      hasVerticalScrollPath: scrollerCanScroll || pageCanScroll,
+    };
+  });
+
+  console.info(`[mobile-reachability] ${JSON.stringify(reachability)}`);
+  expect(
+    reachability.clippedPixels === 0 || reachability.hasVerticalScrollPath,
+    `Now card is clipped without a vertical scroll path: ${JSON.stringify(reachability)}`,
+  ).toBe(true);
+  expect(reachability.breakdownVisibleInScroller || reachability.hasVerticalScrollPath).toBe(true);
+
+  await nowPage.evaluate((pageElement) => {
+    pageElement.scrollTop = pageElement.scrollHeight;
+  });
+  const breakdownIsReachable = await nowPage.evaluate((pageElement) => {
+    const scroller = pageElement.parentElement;
+    const breakdown = Array.from(pageElement.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('See breakdown'),
+    );
+    if (!scroller || !breakdown) return false;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const breakdownRect = breakdown.getBoundingClientRect();
+    return breakdownRect.top >= scrollerRect.top - 1 && breakdownRect.bottom <= scrollerRect.bottom + 1;
+  });
+  expect(breakdownIsReachable).toBe(true);
+  const scrolledScreenshotPath = testInfo.outputPath('mobile-now-card-scrolled-bottom.png');
+  await page.screenshot({ path: scrolledScreenshotPath });
+  await testInfo.attach('mobile-now-card-scrolled-bottom', {
+    path: scrolledScreenshotPath,
+    contentType: 'image/png',
+  });
+});
