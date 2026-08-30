@@ -745,6 +745,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
               )}
               <div
                 className="absolute bottom-1.5 left-2.5 flex items-center gap-1 rounded-full bg-gray-900 px-2 py-1 text-white text-[9px] font-mono tracking-[1.25px] uppercase shadow-sm"
+                style={{ backgroundColor: '#111827' }}
                 aria-live="polite"
                 data-contrast-audit="weather-trust-status"
               >
