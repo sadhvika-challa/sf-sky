@@ -593,7 +593,7 @@ export default function MapView({
       maxZoom={17}
       zoomControl={false}
       className="w-full h-full"
-      attributionControl={false}
+      attributionControl
       preferCanvas
     >
       <TileLayer
@@ -604,6 +604,7 @@ export default function MapView({
         keepBuffer={4}
         updateWhenZooming={false}
         updateWhenIdle
+        attribution="&copy; OpenStreetMap contributors &copy; CARTO"
       />
 
       {userLocation && (

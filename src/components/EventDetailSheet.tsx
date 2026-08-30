@@ -6,6 +6,7 @@ import { allSpots } from '../data/all-spots';
 import { getEventKarlLine } from '../utils/karl-copy';
 import { computeNowBaseScore, type ViewMode } from '../utils/scoring';
 import type { LiveScoresMap } from '../hooks/useLiveScores';
+import { getCurrentPublicShareUrl } from '../platform/runtime';
 
 interface EventDetailSheetProps {
   event: CuratedEvent;
@@ -61,7 +62,7 @@ export default function EventDetailSheet({
     const shareData: ShareData = {
       title: event.name,
       text,
-      url: event.url ?? window.location.href,
+      url: event.url ?? getCurrentPublicShareUrl(),
     };
     try {
       if (navigator.share) {

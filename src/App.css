@@ -69,7 +69,21 @@ body {
 }
 
 .leaflet-control-attribution {
-  display: none !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  color: #4b5563 !important;
+  font-size: 9px !important;
+  line-height: 1.35 !important;
+  padding: 1px 4px !important;
+}
+
+.leaflet-bottom.leaflet-right {
+  /* The app's persistent collapsed decision sheet occupies the bottom of the
+     map. Keep map licensing visible immediately above it on web and native. */
+  bottom: calc(env(safe-area-inset-bottom) + 12.75rem);
+}
+
+.leaflet-control-attribution a {
+  color: #374151 !important;
 }
 
 /* Marker interaction */

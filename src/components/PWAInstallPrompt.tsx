@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isNativeRuntime } from '../platform/runtime';
 
 interface PWAInstallPromptProps {
   /**
@@ -101,6 +102,9 @@ function readInitialEligibility(): {
   iosBrowser: IOSBrowser;
 } {
   if (typeof window === 'undefined') {
+    return { eligible: false, platform: 'other', iosBrowser: 'other' };
+  }
+  if (isNativeRuntime()) {
     return { eligible: false, platform: 'other', iosBrowser: 'other' };
   }
   const platform = detectPlatform();
