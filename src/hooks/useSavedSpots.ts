@@ -4,8 +4,9 @@ import { browserKeyValueStore, type KeyValueStore } from '../platform/storage';
 import {
   FutureSavedSpotsVersionError,
   SAVED_SPOTS_STORAGE_KEY,
+  migrateSavedSpots,
   parseSavedSpots,
-  persistSavedSpots,
+  updateSavedSpot,
 } from '../utils/savedSpots';
 
 export type SavedSpotsError =
@@ -47,7 +48,6 @@ export class SavedSpotsController {
   private state: SavedSpotsState = INITIAL_STATE;
   private desired = new Set<string>();
   private committed = new Set<string>();
-  private opaqueSpotIds: string[] = [];
   private listeners = new Set<Listener>();
   private initializePromise: Promise<void> | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
@@ -102,7 +102,6 @@ export class SavedSpotsController {
 
       this.desired = new Set(parsed.spotIds);
       this.committed = new Set(parsed.spotIds);
-      this.opaqueSpotIds = [...parsed.opaqueSpotIds];
       this.publish(snapshot(
         parsed.kind === 'corrupt' ? 'error' : 'ready',
         this.desired,
@@ -111,14 +110,15 @@ export class SavedSpotsController {
 
       if (parsed.kind === 'loaded' && parsed.needsRewrite) {
         try {
-          await persistSavedSpots(
+          const migrated = await migrateSavedSpots(
             this.store,
-            parsed.spotIds,
-            parsed.opaqueSpotIds,
             this.knownIds,
             this.aliases,
             this.retiredIds,
           );
+          this.desired = new Set(migrated.spotIds);
+          this.committed = new Set(migrated.spotIds);
+          this.publish(snapshot('ready', this.desired, null));
         } catch (error) {
           if (error instanceof FutureSavedSpotsVersionError) {
             this.publish(snapshot('protected', new Set(), 'future-version'));
@@ -130,7 +130,6 @@ export class SavedSpotsController {
     } catch {
       this.desired = new Set();
       this.committed = new Set();
-      this.opaqueSpotIds = [];
       this.publish(snapshot('error', this.desired, 'read-failed'));
     }
   }
@@ -148,20 +147,17 @@ export class SavedSpotsController {
         if (parsed.kind === 'future-version') {
           this.desired = new Set();
           this.committed = new Set();
-          this.opaqueSpotIds = [];
           this.publish(snapshot('protected', this.desired, 'future-version'));
           return;
         }
         if (parsed.kind === 'corrupt') {
           this.desired = new Set();
           this.committed = new Set();
-          this.opaqueSpotIds = [];
           this.publish(snapshot('error', this.desired, 'read-failed'));
           return;
         }
         this.desired = new Set(parsed.spotIds);
         this.committed = new Set(parsed.spotIds);
-        this.opaqueSpotIds = [...parsed.opaqueSpotIds];
         this.publish(snapshot('ready', this.desired, null));
       } catch {
         this.publish(snapshot('error', this.desired, 'read-failed'));
@@ -181,28 +177,29 @@ export class SavedSpotsController {
     const alreadyDesired = this.desired.has(spotId);
     if (alreadyDesired === saved) {
       const pending = this.pendingTargets.get(`${spotId}:${saved}`);
-      return pending ?? true;
+      if (pending) return pending;
     }
 
     const target = new Set(this.desired);
     if (saved) target.add(spotId);
     else target.delete(spotId);
     this.desired = target;
-    this.publish(snapshot('ready', this.desired, null));
+    if (alreadyDesired !== saved) this.publish(snapshot('ready', this.desired, null));
 
     const targetKey = `${spotId}:${saved}`;
     const write = this.writeQueue.then(async () => {
       try {
-        await persistSavedSpots(
+        const durable = await updateSavedSpot(
           this.store,
-          [...target],
-          this.opaqueSpotIds,
+          spotId,
+          saved,
           this.knownIds,
           this.aliases,
           this.retiredIds,
         );
-        this.committed = new Set(target);
+        this.committed = new Set(durable.spotIds);
         if (this.desired === target) {
+          this.desired = new Set(durable.spotIds);
           this.publish(snapshot('ready', this.desired, null));
         }
         return true;

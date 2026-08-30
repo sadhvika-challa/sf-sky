@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SavedSpotsController } from '../../hooks/useSavedSpots';
-import { createBrowserKeyValueStore, StorageAccessError, type KeyValueStore } from '../../platform/storage';
+import { createBrowserKeyValueStore, StorageAccessError, type KeyValueStore, type KeyValueUpdate } from '../../platform/storage';
 import {
   SAVED_SPOTS_STORAGE_KEY,
   parseSavedSpots,
-  persistSavedSpots,
   serializeSavedSpots,
+  updateSavedSpot,
 } from '../savedSpots';
 
 const KNOWN = new Set(['sf-ocean-beach', 'sf-twin-peaks', 'austin-mount-bonnell']);
@@ -13,13 +13,35 @@ const ALIASES = { 'sf-twin-peaks-overlook': 'sf-twin-peaks' };
 const RETIRED = new Set(['retired-unknown']);
 
 class MemoryStore implements KeyValueStore {
+  readonly updateConsistency = 'in-process' as const;
   value: string | null = null;
   writes: string[] = [];
   failRead = false;
   failWrite = false;
+  private updateTail: Promise<void> = Promise.resolve();
+  private readsToHold = 0;
+  private releaseHeldReads: Promise<void> = Promise.resolve();
+  private releaseHeldReadsNow: () => void = () => undefined;
+  private allReadsHeld: Promise<void> = Promise.resolve();
+  private markAllReadsHeld: () => void = () => undefined;
+
+  holdNextReads(count: number) {
+    this.readsToHold = count;
+    this.releaseHeldReads = new Promise((resolve) => { this.releaseHeldReadsNow = resolve; });
+    this.allReadsHeld = new Promise((resolve) => { this.markAllReadsHeld = resolve; });
+    return {
+      allHeld: this.allReadsHeld,
+      release: () => this.releaseHeldReadsNow(),
+    };
+  }
 
   async get() {
     if (this.failRead) throw new Error('read failed');
+    if (this.readsToHold > 0) {
+      this.readsToHold -= 1;
+      if (this.readsToHold === 0) this.markAllReadsHeld();
+      await this.releaseHeldReads;
+    }
     return this.value;
   }
 
@@ -31,6 +53,23 @@ class MemoryStore implements KeyValueStore {
 
   async remove() {
     this.value = null;
+  }
+
+  async update<Result>(
+    _key: string,
+    updater: (current: string | null) => Promise<KeyValueUpdate<Result>> | KeyValueUpdate<Result>,
+  ): Promise<Result> {
+    const operation = this.updateTail.then(async () => {
+      if (this.failRead) throw new Error('read failed');
+      const update = await updater(this.value);
+      if (update.value !== undefined) {
+        if (update.value === null) await this.remove();
+        else await this.set(SAVED_SPOTS_STORAGE_KEY, update.value);
+      }
+      return update.result;
+    });
+    this.updateTail = operation.then(() => undefined, () => undefined);
+    return operation;
   }
 }
 
@@ -93,7 +132,7 @@ describe('saved-spots payload', () => {
       opaqueSpotIds: [],
       needsRewrite: false,
     });
-    await expect(persistSavedSpots(store, ['sf-ocean-beach'], [], KNOWN)).rejects.toThrow(
+    await expect(updateSavedSpot(store, 'sf-ocean-beach', true, KNOWN)).rejects.toThrow(
       'unsupported version 42',
     );
     expect(store.value).toBe(original);
@@ -220,6 +259,61 @@ describe('SavedSpotsController', () => {
       'other-release-spot',
     ]);
   });
+
+  it('preserves concurrent different-ID saves after both controllers read the same old snapshot', async () => {
+    const store = new MemoryStore();
+    store.value = serializeSavedSpots(['other-release-spot']);
+    const reads = store.holdNextReads(2);
+    const first = new SavedSpotsController(store, KNOWN, ALIASES, RETIRED);
+    const second = new SavedSpotsController(store, KNOWN, ALIASES, RETIRED);
+    const firstLoad = first.initialize();
+    const secondLoad = second.initialize();
+    await reads.allHeld;
+    reads.release();
+    await Promise.all([firstLoad, secondLoad]);
+
+    const [firstSaved, secondSaved] = await Promise.all([
+      first.setSaved('sf-ocean-beach', true),
+      second.setSaved('austin-mount-bonnell', true),
+    ]);
+    expect(firstSaved).toBe(true);
+    expect(secondSaved).toBe(true);
+    expect(parseSavedSpots(store.value, KNOWN, ALIASES, RETIRED)).toMatchObject({
+      kind: 'loaded',
+      spotIds: ['sf-ocean-beach', 'austin-mount-bonnell'],
+      opaqueSpotIds: ['other-release-spot'],
+    });
+
+    await Promise.all([first.rehydrate(), second.rehydrate()]);
+    expect(first.getSnapshot().savedSpotIds).toEqual([
+      'sf-ocean-beach',
+      'austin-mount-bonnell',
+    ]);
+    expect(second.getSnapshot().savedSpotIds).toEqual(first.getSnapshot().savedSpotIds);
+  });
+
+  it('uses durable commit order as the deterministic same-ID conflict rule', async () => {
+    const store = new MemoryStore();
+    store.value = serializeSavedSpots(['sf-twin-peaks']);
+    const first = new SavedSpotsController(store, KNOWN, ALIASES, RETIRED);
+    const second = new SavedSpotsController(store, KNOWN, ALIASES, RETIRED);
+    await Promise.all([first.initialize(), second.initialize()]);
+
+    const unsaveThenSave = await Promise.all([
+      first.setSaved('sf-twin-peaks', false),
+      second.setSaved('sf-twin-peaks', true),
+    ]);
+    expect(unsaveThenSave).toEqual([true, true]);
+    expect(parseSavedSpots(store.value, KNOWN).spotIds).toEqual(['sf-twin-peaks']);
+
+    await Promise.all([first.rehydrate(), second.rehydrate()]);
+    const saveThenUnsave = await Promise.all([
+      first.setSaved('sf-twin-peaks', true),
+      second.setSaved('sf-twin-peaks', false),
+    ]);
+    expect(saveThenUnsave).toEqual([true, true]);
+    expect(parseSavedSpots(store.value, KNOWN).spotIds).toEqual([]);
+  });
 });
 
 describe('guarded browser storage', () => {
@@ -285,5 +379,73 @@ describe('guarded browser storage', () => {
     dispatch(windowListeners, 'pageshow', {} as PageTransitionEvent);
     dispatch(documentListeners, 'visibilitychange', {} as Event);
     expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it('uses the injected Web Lock for cross-context read-modify-write serialization', async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    } as unknown as Storage;
+    let lockTail: Promise<void> = Promise.resolve();
+    const requestedNames: string[] = [];
+    const locks = {
+      request<Result>(
+        name: string,
+        _options: LockOptions,
+        callback: () => Promise<Result>,
+      ): Promise<Result> {
+        requestedNames.push(name);
+        const operation = lockTail.then(callback);
+        lockTail = operation.then(() => undefined, () => undefined);
+        return operation;
+      },
+    } as unknown as LockManager;
+    const firstStore = createBrowserKeyValueStore(
+      () => storage,
+      () => undefined,
+      () => locks,
+    );
+    const secondStore = createBrowserKeyValueStore(
+      () => storage,
+      () => undefined,
+      () => locks,
+    );
+    let releaseFirst: () => void = () => undefined;
+    let markFirstRead: () => void = () => undefined;
+    const firstRead = new Promise<void>((resolve) => { markFirstRead = resolve; });
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+
+    const first = firstStore.update('shared-key', async (current) => {
+      expect(current).toBeNull();
+      markFirstRead();
+      await firstGate;
+      return { value: 'first', result: 'first committed' };
+    });
+    await firstRead;
+    const second = secondStore.update('shared-key', (current) => {
+      expect(current).toBe('first');
+      return { value: 'second', result: 'second committed' };
+    });
+    releaseFirst();
+
+    await expect(first).resolves.toBe('first committed');
+    await expect(second).resolves.toBe('second committed');
+    expect(values.get('shared-key')).toBe('second');
+    expect(requestedNames).toEqual([
+      'soleil:key-value:shared-key',
+      'soleil:key-value:shared-key',
+    ]);
+    expect(firstStore.updateConsistency).toBe('cross-context');
+  });
+
+  it('labels the no-Web-Locks fallback as in-process consistency', () => {
+    const store = createBrowserKeyValueStore(
+      () => undefined,
+      () => undefined,
+      () => undefined,
+    );
+    expect(store.updateConsistency).toBe('in-process');
   });
 });

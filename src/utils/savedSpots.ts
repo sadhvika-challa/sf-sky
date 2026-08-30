@@ -152,36 +152,79 @@ export function serializeSavedSpots(spotIds: readonly string[]): string {
   return JSON.stringify(payload);
 }
 
-/** Read-before-write prevents an unknown future payload from being destroyed. */
-export async function persistSavedSpots(
+export interface DurableSavedSpots {
+  spotIds: string[];
+  opaqueSpotIds: string[];
+}
+
+function writableSavedSpots(
+  raw: string | null,
+  knownIds: ReadonlySet<string>,
+  aliases: Readonly<Record<string, string>>,
+  retiredIds: ReadonlySet<string>,
+): SavedSpotsParseResult {
+  const parsed = parseSavedSpots(raw, knownIds, aliases, retiredIds);
+  if (parsed.kind === 'future-version') {
+    throw new FutureSavedSpotsVersionError(parsed.version);
+  }
+  return parsed;
+}
+
+/**
+ * Normalizes legacy/current data inside the store's exclusive update. A
+ * concurrent operation is therefore observed rather than overwritten by the
+ * snapshot that originally caused migration.
+ */
+export async function migrateSavedSpots(
   store: KeyValueStore,
-  spotIds: readonly string[],
-  opaqueSpotIds: readonly string[],
   knownIds: ReadonlySet<string>,
   aliases: Readonly<Record<string, string>> = {},
   retiredIds: ReadonlySet<string> = new Set(),
-): Promise<void> {
-  const current = parseSavedSpots(
-    await store.get(SAVED_SPOTS_STORAGE_KEY),
-    knownIds,
-    aliases,
-    retiredIds,
-  );
-  if (current.kind === 'future-version') {
-    throw new FutureSavedSpotsVersionError(current.version);
+): Promise<DurableSavedSpots> {
+  return store.update(SAVED_SPOTS_STORAGE_KEY, (raw) => {
+    const current = writableSavedSpots(raw, knownIds, aliases, retiredIds);
+    const result = {
+      spotIds: [...current.spotIds],
+      opaqueSpotIds: [...current.opaqueSpotIds],
+    };
+    return {
+      value: current.kind === 'loaded' && current.needsRewrite
+        ? serializeSavedSpots([...result.spotIds, ...result.opaqueSpotIds])
+        : undefined,
+      result,
+    };
+  });
+}
+
+/**
+ * Applies one stable-ID intent against the latest durable value. Web storage
+ * uses a per-key Web Lock, so different pages cannot both replace an older
+ * snapshot. For the same ID, the later lock-ordered commit wins.
+ */
+export async function updateSavedSpot(
+  store: KeyValueStore,
+  spotId: string,
+  saved: boolean,
+  knownIds: ReadonlySet<string>,
+  aliases: Readonly<Record<string, string>> = {},
+  retiredIds: ReadonlySet<string> = new Set(),
+): Promise<DurableSavedSpots> {
+  if (!knownIds.has(spotId) || retiredIds.has(spotId)) {
+    throw new Error(`Cannot persist unknown or retired spot ID: ${spotId}`);
   }
-  const normalized = classifySavedSpotIds(
-    [
-      ...spotIds,
-      ...opaqueSpotIds,
-      ...(current.kind === 'loaded' ? current.opaqueSpotIds : []),
-    ],
-    knownIds,
-    aliases,
-    retiredIds,
-  );
-  await store.set(SAVED_SPOTS_STORAGE_KEY, serializeSavedSpots([
-    ...normalized.spotIds,
-    ...normalized.opaqueSpotIds,
-  ]));
+
+  return store.update(SAVED_SPOTS_STORAGE_KEY, (raw) => {
+    const current = writableSavedSpots(raw, knownIds, aliases, retiredIds);
+    const storedIds = current.kind === 'loaded'
+      ? [...current.spotIds, ...current.opaqueSpotIds]
+      : [];
+    const nextIds = saved
+      ? [...storedIds.filter((id) => id !== spotId), spotId]
+      : storedIds.filter((id) => id !== spotId);
+    const result = classifySavedSpotIds(nextIds, knownIds, aliases, retiredIds);
+    return {
+      value: serializeSavedSpots([...result.spotIds, ...result.opaqueSpotIds]),
+      result,
+    };
+  });
 }
