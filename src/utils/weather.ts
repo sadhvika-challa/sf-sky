@@ -1,3 +1,5 @@
+import { formatCanonicalHourKey, isCanonicalHourKey, parseCanonicalHourKey } from './timeline';
+
 // Open-Meteo client for SF Sky.
 // Fetches an hourly weather + air-quality forecast for a given lat/lng and
 // caches it in sessionStorage with a 30-minute TTL so we don't hammer the API
@@ -9,10 +11,11 @@ const AIR_QUALITY_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 const CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3h max, tightened by forecastTtlMs
 // Bump the version whenever the shape of HourlyForecast changes so we don't
 // hand stale entries (missing fields) to consumers after a deploy.
-const CACHE_PREFIX = 'weather:v4:';
+const CACHE_PREFIX = 'weather:v5:';
 
 const NEAR_EVENT_HOURS = 4;
 const NEAR_EVENT_TTL_MS = 45 * 60 * 1000;
+const CACHE_NAN_SENTINEL = '__soleil_nan__';
 
 export interface HourlyForecast {
   /** Total cloud cover, 0-100. */
@@ -117,8 +120,10 @@ export function getHourlyForecastCompleteness(
 }
 
 export interface SpotForecast {
-  /** ISO hour key (YYYY-MM-DDTHH) -> hourly forecast slice. */
+  /** Canonical UTC ISO hour key (YYYY-MM-DDTHH:00:00Z) -> forecast slice. */
   hours: Record<string, HourlyForecast>;
+  /** Configured IANA zone used for city-calendar presentation. */
+  timeZone: string;
   /** Wall-clock fetch time, ms since epoch. */
   fetchedAt: number;
 }
@@ -130,17 +135,41 @@ interface CachedEntry {
 
 const inflight = new Map<string, Promise<SpotForecast>>();
 
-function cacheKey(lat: number, lng: number): string {
-  return `${CACHE_PREFIX}${lat.toFixed(3)}:${lng.toFixed(3)}`;
+function cacheKey(lat: number, lng: number, timeZone: string): string {
+  return `${CACHE_PREFIX}${lat.toFixed(3)}:${lng.toFixed(3)}:${timeZone}`;
 }
 
-function readCache(key: string): SpotForecast | null {
+function isHourlyForecast(value: unknown): value is HourlyForecast {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return Object.keys(REQUIRED_FIELDS).length > 0 && [
+    'cloud', 'cloudLow', 'cloudMid', 'cloudHigh', 'visibilityKm', 'humidity',
+    'tempF', 'precipProb', 'pm25', 'aqi', 'windMph', 'gustMph', 'windDir',
+  ].every((field) => typeof record[field] === 'number');
+}
+
+export function isStructurallyValidSpotForecast(value: unknown): value is SpotForecast {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.fetchedAt !== 'number' || !Number.isFinite(record.fetchedAt) || typeof record.timeZone !== 'string') return false;
+  if (!record.hours || typeof record.hours !== 'object' || Array.isArray(record.hours)) return false;
+  return Object.entries(record.hours as Record<string, unknown>)
+    .every(([key, hourly]) => isCanonicalHourKey(key) && isHourlyForecast(hourly));
+}
+
+function readCache(key: string, expectedTimeZone: string): SpotForecast | null {
   if (typeof sessionStorage === 'undefined') return null;
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedEntry;
-    if (parsed.expiresAt < Date.now()) {
+    const parsed = JSON.parse(raw, (_field, value: unknown) =>
+      value === CACHE_NAN_SENTINEL ? NaN : value,
+    ) as CachedEntry;
+    if (!parsed || typeof parsed.expiresAt !== 'number' || parsed.expiresAt < Date.now()) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    if (!isStructurallyValidSpotForecast(parsed.forecast) || parsed.forecast.timeZone !== expectedTimeZone) {
       sessionStorage.removeItem(key);
       return null;
     }
@@ -154,28 +183,17 @@ function writeCache(key: string, forecast: SpotForecast): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
     const entry: CachedEntry = { forecast, expiresAt: Date.now() + CACHE_TTL_MS };
-    sessionStorage.setItem(key, JSON.stringify(entry));
+    sessionStorage.setItem(key, JSON.stringify(entry, (_field, value: unknown) =>
+      typeof value === 'number' && Number.isNaN(value) ? CACHE_NAN_SENTINEL : value,
+    ));
   } catch {
     // Quota exceeded or storage disabled — ignore, we'll just refetch.
   }
 }
 
-/**
- * Build the ISO hour key used to index `SpotForecast.hours`.
- * Open-Meteo with `timezone=auto` returns local-time strings like
- * "2026-04-18T19:00", so we format the date in the same shape using local time.
- */
-function isoHourKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const h = String(date.getHours()).padStart(2, '0');
-  return `${y}-${m}-${d}T${h}`;
-}
-
 interface OpenMeteoForecastResponse {
   hourly?: {
-    time?: string[];
+    time?: number[];
     cloud_cover?: number[];
     cloud_cover_low?: number[];
     cloud_cover_mid?: number[];
@@ -192,7 +210,7 @@ interface OpenMeteoForecastResponse {
 
 interface OpenMeteoAirQualityResponse {
   hourly?: {
-    time?: string[];
+    time?: number[];
     pm2_5?: number[];
     us_aqi?: number[];
   };
@@ -206,7 +224,7 @@ async function fetchJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-function buildForecastUrl(lat: number, lng: number): string {
+function buildForecastUrl(lat: number, lng: number, timeZone: string): string {
   const params = new URLSearchParams({
     latitude: lat.toFixed(4),
     longitude: lng.toFixed(4),
@@ -225,18 +243,20 @@ function buildForecastUrl(lat: number, lng: number): string {
     ].join(','),
     temperature_unit: 'fahrenheit',
     wind_speed_unit: 'mph',
-    timezone: 'auto',
+    timezone: timeZone,
+    timeformat: 'unixtime',
     forecast_days: '3',
   });
   return `${FORECAST_URL}?${params.toString()}`;
 }
 
-function buildAirQualityUrl(lat: number, lng: number): string {
+function buildAirQualityUrl(lat: number, lng: number, timeZone: string): string {
   const params = new URLSearchParams({
     latitude: lat.toFixed(4),
     longitude: lng.toFixed(4),
     hourly: ['pm2_5', 'us_aqi'].join(','),
-    timezone: 'auto',
+    timezone: timeZone,
+    timeformat: 'unixtime',
     forecast_days: '3',
   });
   return `${AIR_QUALITY_URL}?${params.toString()}`;
@@ -248,14 +268,17 @@ function pick(arr: number[] | undefined, i: number): number {
   return typeof v === 'number' ? v : NaN;
 }
 
-function hourKeyFromOpenMeteo(time: string): string {
-  // Open-Meteo returns "YYYY-MM-DDTHH:MM"; truncate to "YYYY-MM-DDTHH".
-  return time.length >= 13 ? time.slice(0, 13) : time;
+function hourKeyFromOpenMeteo(epochSeconds: number): string | null {
+  if (!Number.isFinite(epochSeconds) || !Number.isInteger(epochSeconds) || epochSeconds % 3_600 !== 0) return null;
+  const instant = new Date(epochSeconds * 1000);
+  return Number.isNaN(instant.getTime()) ? null : formatCanonicalHourKey(instant);
 }
 
-function mergeResponses(
+export function mergeOpenMeteoResponses(
   forecast: OpenMeteoForecastResponse,
   air: OpenMeteoAirQualityResponse | null,
+  timeZone: string,
+  fetchedAt = Date.now(),
 ): SpotForecast {
   try {
     const hours: Record<string, HourlyForecast> = {};
@@ -263,13 +286,28 @@ function mergeResponses(
 
     // Build an index of AQI hour -> array position for O(n) merging.
     const aqiIndex = new Map<string, number>();
+    const duplicateAqiKeys = new Set<string>();
     const aqiTimes = air?.hourly?.time ?? [];
     for (let i = 0; i < aqiTimes.length; i++) {
-      aqiIndex.set(hourKeyFromOpenMeteo(aqiTimes[i]), i);
+      const key = hourKeyFromOpenMeteo(aqiTimes[i]);
+      if (!key) continue;
+      if (aqiIndex.has(key)) {
+        aqiIndex.delete(key);
+        duplicateAqiKeys.add(key);
+      } else if (!duplicateAqiKeys.has(key)) {
+        aqiIndex.set(key, i);
+      }
+    }
+
+    const weatherKeyCounts = new Map<string, number>();
+    for (const time of times) {
+      const key = hourKeyFromOpenMeteo(time);
+      if (key) weatherKeyCounts.set(key, (weatherKeyCounts.get(key) ?? 0) + 1);
     }
 
     for (let i = 0; i < times.length; i++) {
       const key = hourKeyFromOpenMeteo(times[i]);
+      if (!key || weatherKeyCounts.get(key) !== 1) continue;
       const visibilityMeters = pick(forecast.hourly?.visibility, i);
       const aqiI = aqiIndex.get(key);
 
@@ -290,11 +328,11 @@ function mergeResponses(
       };
     }
 
-    return { hours, fetchedAt: Date.now() };
+    return { hours, timeZone, fetchedAt };
   } catch {
     // Malformed API response — return empty forecast so consumers
     // fall back to static base scores instead of crashing.
-    return { hours: {}, fetchedAt: Date.now() };
+    return { hours: {}, timeZone, fetchedAt };
   }
 }
 
@@ -317,11 +355,12 @@ export function formatUpdatedAgo(fetchedAt: number, now: number): string {
 export async function fetchSpotForecast(
   lat: number,
   lng: number,
+  timeZone: string,
   maxAgeMs?: number,
 ): Promise<SpotForecast> {
-  const key = cacheKey(lat, lng);
+  const key = cacheKey(lat, lng, timeZone);
 
-  const cached = readCache(key);
+  const cached = readCache(key, timeZone);
   if (cached) {
     if (maxAgeMs !== undefined && cached.fetchedAt + maxAgeMs < Date.now()) {
       // Cached entry is fresh per storage TTL but stale for this caller's
@@ -337,12 +376,12 @@ export async function fetchSpotForecast(
 
   const promise = (async () => {
     const [forecast, air] = await Promise.all([
-      fetchJson<OpenMeteoForecastResponse>(buildForecastUrl(lat, lng)),
+      fetchJson<OpenMeteoForecastResponse>(buildForecastUrl(lat, lng, timeZone)),
       // Air-quality endpoint occasionally fails or rate-limits separately;
       // don't let it block the main forecast.
-      fetchJson<OpenMeteoAirQualityResponse>(buildAirQualityUrl(lat, lng)).catch(() => null),
+      fetchJson<OpenMeteoAirQualityResponse>(buildAirQualityUrl(lat, lng, timeZone)).catch(() => null),
     ]);
-    const merged = mergeResponses(forecast, air);
+    const merged = mergeOpenMeteoResponses(forecast, air, timeZone);
     writeCache(key, merged);
     return merged;
   })();
@@ -389,15 +428,15 @@ function clamp01(n: number): number {
  * hour if the exact key isn't present (e.g. event date past the 3-day horizon).
  */
 export function getForecastAt(forecast: SpotForecast, when: Date): HourlyForecast | null {
-  const exactKey = isoHourKey(when);
+  const exactKey = formatCanonicalHourKey(when);
   const exact = forecast.hours[exactKey];
   if (exact) return exact;
 
   const target = when.getTime();
   let best: { key: string; diff: number } | null = null;
   for (const key of Object.keys(forecast.hours)) {
-    // Parse "YYYY-MM-DDTHH" as local time.
-    const parsed = new Date(`${key}:00:00`);
+    const parsed = parseCanonicalHourKey(key);
+    if (!parsed) continue;
     const diff = Math.abs(parsed.getTime() - target);
     if (!best || diff < best.diff) {
       best = { key, diff };
@@ -412,9 +451,9 @@ export function getForecastAt(forecast: SpotForecast, when: Date): HourlyForecas
  * forecast should call `fetchSpotForecast` directly to get its rejection.
  */
 export function prefetchSpotForecasts(
-  coords: ReadonlyArray<{ lat: number; lng: number }>,
+  coords: ReadonlyArray<{ lat: number; lng: number; timeZone: string }>,
 ): void {
   for (const c of coords) {
-    fetchSpotForecast(c.lat, c.lng).catch(() => {});
+    fetchSpotForecast(c.lat, c.lng, c.timeZone).catch(() => {});
   }
 }

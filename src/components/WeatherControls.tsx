@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef } from 'react';
 import SunCalc from 'suncalc';
 import {
   getScoreTypesForHours,
-  SF_LAT,
-  SF_LNG,
   type TimeOfDayType,
 } from '../utils/hourScoreType';
 import {
@@ -12,6 +10,15 @@ import {
   StargazingIcon,
   NowIcon,
 } from './icons/ScrubberIcons';
+import {
+  addCityCalendarDays,
+  cityCalendarParts,
+  formatCanonicalHourKey,
+  formatCanonicalHourLabel,
+  formatCityCalendarDate,
+  parseCanonicalHourKey,
+  isRepeatedLocalHourKey,
+} from '../utils/timeline';
 
 export interface EventMarker {
   type: 'sunrise' | 'sunset' | 'stargazing';
@@ -29,6 +36,9 @@ interface WeatherControlsProps {
   eventMarkers?: EventMarker[];
   /** Best score among currently visible spots for each hour key. */
   bestScorePerHour?: Map<string, number>;
+  timeZone: string;
+  center: [number, number];
+  now: Date;
 }
 
 const SCRUBBER_HOUR_LIMIT = 48;
@@ -117,6 +127,9 @@ export default function WeatherControls({
   onHourChange,
   nowIndex,
   bestScorePerHour,
+  timeZone,
+  center,
+  now,
 }: WeatherControlsProps) {
   const visibleKeys = useMemo(
     () => hourKeys.slice(0, SCRUBBER_HOUR_LIMIT),
@@ -124,18 +137,18 @@ export default function WeatherControls({
   );
 
   const scoreTypes = useMemo(
-    () => getScoreTypesForHours(visibleKeys),
-    [visibleKeys],
+    () => getScoreTypesForHours(visibleKeys, center[0], center[1]),
+    [center, visibleKeys],
   );
 
   const dayBoundaries = useMemo(
-    () => deriveDayBoundaries(visibleKeys),
-    [visibleKeys],
+    () => deriveDayBoundaries(visibleKeys, timeZone),
+    [visibleKeys, timeZone],
   );
 
   const sunEventMarkers = useMemo(
-    () => computeSunEventMarkers(visibleKeys, dayBoundaries),
-    [visibleKeys, dayBoundaries],
+    () => computeSunEventMarkers(visibleKeys, dayBoundaries, center, timeZone),
+    [visibleKeys, dayBoundaries, center, timeZone],
   );
 
   const sunEventByKey = useMemo(() => {
@@ -147,7 +160,9 @@ export default function WeatherControls({
   const selectedType = scoreTypes.get(hourKey) ?? 'now';
   const currentPalette = TIME_PALETTES[selectedType];
   const typeLabel = TYPE_LABELS[selectedType];
-  const contextLabel = hourKey ? formatContextLabel(hourKey) : '–';
+  const contextLabel = hourKey
+    ? formatContextLabel(hourKey, timeZone, now, isRepeatedLocalHourKey(hourKey, timeZone))
+    : '–';
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // Refs to each card so we can center the selected one on programmatic
@@ -227,6 +242,9 @@ export default function WeatherControls({
                     scoreType={type}
                     bestScore={bestScorePerHour?.get(key)}
                     palette={TIME_PALETTES[type]}
+                    timeZone={timeZone}
+                    repeated={isRepeatedLocalHourKey(key, timeZone)}
+                    now={now}
                     cardRef={(node) => {
                       if (node) cardRefs.current.set(key, node);
                       else cardRefs.current.delete(key);
@@ -255,6 +273,9 @@ interface HourCardProps {
   palette: TimePalette;
   cardRef: (node: HTMLButtonElement | null) => void;
   onClick: () => void;
+  timeZone: string;
+  repeated: boolean;
+  now: Date;
 }
 
 function HourCard({
@@ -266,8 +287,14 @@ function HourCard({
   palette,
   cardRef,
   onClick,
+  timeZone,
+  repeated,
+  now,
 }: HourCardProps) {
-  const timeLabel = isNow ? 'Now' : formatShortHour(hourKey);
+  const context = formatContextLabel(hourKey, timeZone, now, repeated);
+  const timeLabel = isNow
+    ? (repeated ? `Now · ${formatShortHour(hourKey, timeZone, true)}` : 'Now')
+    : formatShortHour(hourKey, timeZone, repeated);
 
   return (
     <button
@@ -275,7 +302,7 @@ function HourCard({
       type="button"
       onClick={onClick}
       aria-pressed={isSelected}
-      aria-label={`${isNow ? 'Now' : formatContextLabel(hourKey)}${
+      aria-label={`${isNow ? `Now, ${context}` : context}${
         bestScore !== undefined ? `, best score ${Math.round(bestScore)}` : ''
       }`}
       className="flex flex-col items-center gap-1 min-w-[48px] px-2 py-2.5 rounded-2xl border-[1.5px] transition-all duration-200 ease-out cursor-pointer"
@@ -313,11 +340,16 @@ function HourCard({
   );
 }
 
-function deriveDayBoundaries(hourKeys: string[]): number[] {
+function deriveDayBoundaries(hourKeys: string[], timeZone: string): number[] {
   const out: number[] = [];
+  let previous = '';
   for (let i = 0; i < hourKeys.length; i++) {
     const key = hourKeys[i];
-    if (key.endsWith('T00')) out.push(i);
+    const instant = parseCanonicalHourKey(key);
+    if (!instant) continue;
+    const day = formatCityCalendarDate(instant, timeZone);
+    if (previous && day !== previous) out.push(i);
+    previous = day;
   }
   return out;
 }
@@ -326,6 +358,7 @@ interface SunEventMarker {
   type: 'sunrise' | 'sunset';
   hourKey: string;
   time: Date;
+  timeZone: string;
 }
 
 /**
@@ -337,6 +370,8 @@ interface SunEventMarker {
 function computeSunEventMarkers(
   visibleKeys: string[],
   dayBoundaries: number[],
+  center: [number, number],
+  timeZone: string,
 ): SunEventMarker[] {
   if (visibleKeys.length === 0) return [];
 
@@ -346,9 +381,9 @@ function computeSunEventMarkers(
   const markers: SunEventMarker[] = [];
 
   for (const idx of dayAnchors) {
-    const anchor = new Date(`${visibleKeys[idx]}:00:00`);
-    if (Number.isNaN(anchor.getTime())) continue;
-    const times = SunCalc.getTimes(anchor, SF_LAT, SF_LNG);
+    const anchor = parseCanonicalHourKey(visibleKeys[idx]);
+    if (!anchor) continue;
+    const times = SunCalc.getTimes(anchor, center[0], center[1]);
     for (const type of ['sunrise', 'sunset'] as const) {
       const time = times[type];
       if (!time || Number.isNaN(time.getTime())) continue;
@@ -357,7 +392,7 @@ function computeSunEventMarkers(
       const dedupe = `${type}:${key}`;
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
-      markers.push({ type, hourKey: key, time });
+      markers.push({ type, hourKey: key, time, timeZone });
     }
   }
   return markers;
@@ -365,21 +400,15 @@ function computeSunEventMarkers(
 
 function nearestHourKey(d: Date): string {
   const rounded = new Date(d);
-  if (rounded.getMinutes() >= 30) rounded.setHours(rounded.getHours() + 1);
-  rounded.setMinutes(0, 0, 0);
-  const y = rounded.getFullYear();
-  const m = String(rounded.getMonth() + 1).padStart(2, '0');
-  const day = String(rounded.getDate()).padStart(2, '0');
-  const h = String(rounded.getHours()).padStart(2, '0');
-  return `${y}-${m}-${day}T${h}`;
+  if (rounded.getUTCMinutes() >= 30) rounded.setUTCHours(rounded.getUTCHours() + 1);
+  rounded.setUTCMinutes(0, 0, 0);
+  return formatCanonicalHourKey(rounded);
 }
 
-function formatEventTime(d: Date): string {
-  const h = d.getHours();
-  const m = String(d.getMinutes()).padStart(2, '0');
-  const suffix = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 || 12;
-  return `${h12}:${m}${suffix}`;
+function formatEventTime(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone, hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(d).replace(/\s/g, '').toLowerCase();
 }
 
 interface SunEventBadgeProps {
@@ -399,8 +428,8 @@ function SunEventBadge({ marker, onJump }: SunEventBadgeProps) {
   const palette = TIME_PALETTES[marker.type];
   const label =
     marker.type === 'sunrise'
-      ? `Sunrise ${formatEventTime(marker.time)}`
-      : `Sunset ${formatEventTime(marker.time)}`;
+      ? `Sunrise ${formatEventTime(marker.time, marker.timeZone)}`
+      : `Sunset ${formatEventTime(marker.time, marker.timeZone)}`;
   return (
     <button
       type="button"
@@ -428,47 +457,32 @@ function SunEventBadge({ marker, onJump }: SunEventBadgeProps) {
 }
 
 /** Compact hour like "8p", "12a", "2p" for a card's time label. */
-function formatShortHour(hourKey: string): string {
-  const parsed = new Date(`${hourKey}:00:00`);
-  if (Number.isNaN(parsed.getTime())) return hourKey;
-  const h = parsed.getHours();
-  const suffix = h >= 12 ? 'p' : 'a';
-  const h12 = h % 12 || 12;
-  return `${h12}${suffix}`;
+function formatShortHour(hourKey: string, timeZone: string, includeZone = false): string {
+  return formatCanonicalHourLabel(hourKey, timeZone, { includeZone })
+    .replace(':00', '')
+    .replace(/\s?(AM|PM)/i, (_, p: string) => p[0].toLowerCase());
 }
 
 /**
  * Date context for the header, e.g. "Tonight · 8:35pm", "Today · 2:15pm",
  * "Tomorrow · 6:12am".
  */
-function formatContextLabel(hourKey: string): string {
-  const parsed = new Date(`${hourKey}:00:00`);
-  if (Number.isNaN(parsed.getTime())) return hourKey;
+function formatContextLabel(hourKey: string, timeZone: string, now: Date, includeZone = false): string {
+  const parsed = parseCanonicalHourKey(hourKey);
+  if (!parsed) return hourKey;
 
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfTarget = new Date(
-    parsed.getFullYear(),
-    parsed.getMonth(),
-    parsed.getDate(),
-  );
-  const dayDiff = Math.round(
-    (startOfTarget.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000),
-  );
-
-  const hour = parsed.getHours();
+  const today = formatCityCalendarDate(now, timeZone);
+  const tomorrow = addCityCalendarDays(now, timeZone, 1);
+  const target = formatCityCalendarDate(parsed, timeZone);
+  const hour = cityCalendarParts(parsed, timeZone).hour;
   let dayWord: string;
-  if (dayDiff === 0) {
+  if (target === today) {
     // Evening hours read more naturally as "Tonight".
     dayWord = hour >= 18 ? 'Tonight' : 'Today';
-  } else if (dayDiff === 1) {
+  } else if (target === tomorrow) {
     dayWord = 'Tomorrow';
   } else {
-    dayWord = parsed.toLocaleDateString(undefined, { weekday: 'long' });
+    dayWord = parsed.toLocaleDateString(undefined, { weekday: 'long', timeZone });
   }
-
-  const m = String(parsed.getMinutes()).padStart(2, '0');
-  const suffix = hour >= 12 ? 'pm' : 'am';
-  const h12 = hour % 12 || 12;
-  return `${dayWord} · ${h12}:${m}${suffix}`;
+  return `${dayWord} · ${formatCanonicalHourLabel(hourKey, timeZone, { includeZone })}`;
 }

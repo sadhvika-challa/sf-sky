@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Spot } from '../data/spots';
 import { fetchSpotForecast, type SpotForecast } from '../utils/weather';
+import { getCityById } from '../data/cities';
 
 export interface SpotForecastState {
   forecast: SpotForecast | null;
@@ -31,7 +32,8 @@ export function useSpotForecast(spot: Spot | null): SpotForecastState {
     if (!spot) return;
     let cancelled = false;
     const key = spotKey(spot);
-    fetchSpotForecast(spot.lat, spot.lng)
+    const timeZone = getCityById(spot.city)?.timeZone ?? 'UTC';
+    fetchSpotForecast(spot.lat, spot.lng, timeZone)
       .then((forecast) => {
         if (cancelled) return;
         setState({ spotKey: key, forecast, error: null });

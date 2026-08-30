@@ -17,8 +17,8 @@ import {
 import { getUpcomingEventTimes } from '../utils/events';
 import { buildScoreEvidence, type ScoreEvidence } from '../utils/confidence';
 import {
-  formatHourKeyInTimeZone,
-  parseHourKeyInTimeZone,
+  formatCanonicalHourKey,
+  parseCanonicalHourKey,
 } from '../utils/timeline';
 
 export interface LiveSpotScores {
@@ -56,10 +56,9 @@ function staticScoreForMode(spot: Spot, viewMode: ViewMode): number {
 function exactHour(
   forecast: SpotForecast,
   instant: Date,
-  timeZone: string,
 ): HourlyForecast | null {
   if (Number.isNaN(instant.getTime())) return null;
-  return forecast.hours[formatHourKeyInTimeZone(instant, timeZone)] ?? null;
+  return forecast.hours[formatCanonicalHourKey(instant)] ?? null;
 }
 
 function unavailableReason(
@@ -77,16 +76,15 @@ function unavailableReason(
 export function canonicalScoresForSpot(
   spot: Spot,
   forecast: SpotForecast | null,
-  timeZone: string,
   currentHourKey: string,
   now: Date,
   loading = false,
   error: Error | null = null,
 ): CanonicalSpotScores {
-  const events = getUpcomingEventTimes(spot);
-  const sunriseHour = forecast ? exactHour(forecast, events.sunrise, timeZone) : null;
-  const sunsetHour = forecast ? exactHour(forecast, events.sunset, timeZone) : null;
-  const starHour = forecast ? exactHour(forecast, events.stargazing, timeZone) : null;
+  const events = getUpcomingEventTimes(spot, now);
+  const sunriseHour = forecast ? exactHour(forecast, events.sunrise) : null;
+  const sunsetHour = forecast ? exactHour(forecast, events.sunset) : null;
+  const starHour = forecast ? exactHour(forecast, events.stargazing) : null;
   const nowHour = forecast?.hours[currentHourKey] ?? null;
   const moonIllum = SunCalc.getMoonIllumination(events.stargazing).fraction;
 
@@ -233,7 +231,7 @@ export function useTimelineScores(
   useEffect(() => {
     let cancelled = false;
     for (const spot of spots) {
-      fetchSpotForecast(spot.lat, spot.lng)
+      fetchSpotForecast(spot.lat, spot.lng, timeZone)
         .then((forecast) => {
           if (cancelled) return;
           setForecasts((previous) => {
@@ -262,13 +260,13 @@ export function useTimelineScores(
     return () => {
       cancelled = true;
     };
-  }, [spots, refreshTick]);
+  }, [spots, refreshTick, timeZone]);
 
-  const currentHourKey = formatHourKeyInTimeZone(now, timeZone);
+  const currentHourKey = formatCanonicalHourKey(now);
   const selectedHourKey = hourKey || currentHourKey;
   const selectedInstant = useMemo(
-    () => hourKey ? parseHourKeyInTimeZone(hourKey, timeZone) : now,
-    [hourKey, now, timeZone],
+    () => hourKey ? parseCanonicalHourKey(hourKey) : now,
+    [hourKey, now],
   );
 
   const scores = useMemo<LiveScoresMap>(() => {
@@ -280,7 +278,6 @@ export function useTimelineScores(
       const canonical = canonicalScoresForSpot(
         spot,
         forecast,
-        timeZone,
         currentHourKey,
         now,
         loading,
@@ -309,7 +306,6 @@ export function useTimelineScores(
     selectedHourKey,
     selectedInstant,
     spots,
-    timeZone,
     viewMode,
   ]);
 

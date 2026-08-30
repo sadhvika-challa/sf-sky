@@ -10,7 +10,7 @@ import {
   getTierColor,
   type ScoreType,
 } from './scoring';
-import { formatHourKeyInTimeZone } from './timeline';
+import { formatCanonicalHourKey } from './timeline';
 
 /** Card types that get a sparkline (i.e. "now" is intentionally excluded). */
 export type SparkType = ScoreType;
@@ -80,7 +80,6 @@ export function computeSparkPoints(
   forecast: SpotForecast,
   eventInstant: Date,
   moonIllum: number,
-  timeZone: string,
 ): SparkPoint[] {
   const hours = deriveSparkHours(type, eventInstant);
   if (hours.length === 0) return [];
@@ -98,7 +97,7 @@ export function computeSparkPoints(
 
   const points: SparkPoint[] = [];
   for (let i = 0; i < hours.length; i++) {
-    const hourKey = formatHourKeyInTimeZone(hours[i], timeZone);
+    const hourKey = formatCanonicalHourKey(hours[i]);
     const hourly: HourlyForecast | undefined = forecast.hours[hourKey];
     if (!hourly) continue;
     const score = computeLiveScore(spot, type, hourly, moonIllum);

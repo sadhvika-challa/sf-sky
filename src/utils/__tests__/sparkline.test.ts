@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Spot } from '../../data/spots';
 import { computeSparkPoints, deriveSparkHours } from '../sparkline';
-import { formatHourKeyInTimeZone } from '../timeline';
+import { formatCanonicalHourKey } from '../timeline';
 import type { HourlyForecast, SpotForecast } from '../weather';
 
 const austinSpot: Spot = {
@@ -40,12 +40,11 @@ describe('sparkline city hour keys', () => {
     const eventInstant = new Date('2026-08-31T01:30:00.000Z');
     const hours: Record<string, HourlyForecast> = {};
     for (const instant of deriveSparkHours('sunset', eventInstant)) {
-      hours[formatHourKeyInTimeZone(instant, 'America/Chicago')] = clearHour;
+      hours[formatCanonicalHourKey(instant)] = clearHour;
     }
-    const forecast: SpotForecast = { hours, fetchedAt: eventInstant.getTime() };
+    const forecast: SpotForecast = { hours, timeZone: 'America/Chicago', fetchedAt: eventInstant.getTime() };
 
-    expect(formatHourKeyInTimeZone(eventInstant, 'America/Chicago')).toBe('2026-08-30T20');
-    expect(formatHourKeyInTimeZone(eventInstant, 'America/Los_Angeles')).toBe('2026-08-30T18');
+    expect(formatCanonicalHourKey(eventInstant)).toBe('2026-08-31T01:00:00Z');
     expect(
       computeSparkPoints(
         austinSpot,
@@ -53,7 +52,6 @@ describe('sparkline city hour keys', () => {
         forecast,
         eventInstant,
         0.4,
-        'America/Chicago',
       ),
     ).toHaveLength(5);
   });

@@ -26,7 +26,12 @@ import CitySheet from './components/CitySheet';
 import MapErrorBoundary from './components/MapErrorBoundary';
 import type { ScoreTier, ViewMode } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
-import { formatHourKeyInTimeZone, viewModeForHourKey } from './utils/timeline';
+import {
+  formatCanonicalHourKey,
+  isCanonicalHourKey,
+  resolveLegacyWallClockHour,
+  viewModeForHourKey,
+} from './utils/timeline';
 import {
   ONBOARDING_KEYS,
   isOnboardingDone,
@@ -161,21 +166,21 @@ function isCardType(value: string | null): value is CardType {
   return value === 'sunrise' || value === 'sunset' || value === 'stargazing';
 }
 
-function isHourKey(value: string | null): value is string {
-  return value !== null && /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(value);
-}
-
-function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType; hourKey?: string } {
+function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType; hourKey?: string; legacyHour?: string } {
   if (typeof window === 'undefined') return { spot: null };
   const params = new URLSearchParams(window.location.search);
   const spotParam = params.get('spot');
   const viewParam = params.get('view');
+  const instantParam = params.get('instant');
   const hourParam = params.get('hour');
   const spot = spotParam ? (allSpots.find((candidate) => candidate.id === spotParam) ?? null) : null;
   return {
     spot,
     cardType: isCardType(viewParam) ? viewParam : undefined,
-    hourKey: viewParam === 'now' && isHourKey(hourParam) ? hourParam : undefined,
+    hourKey: viewParam === 'now' && isCanonicalHourKey(instantParam) ? instantParam : undefined,
+    legacyHour: viewParam === 'now' && !isCanonicalHourKey(instantParam) && /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(hourParam ?? '')
+      ? hourParam ?? undefined
+      : undefined,
   };
 }
 
@@ -271,7 +276,31 @@ function App() {
   );
   const liveScores = timelineScores.scores;
   const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
-    useNeighborhoodForecasts(true);
+    useNeighborhoodForecasts(true, activeCityConfig.timeZone);
+
+  // Normalize deep links only after the selected spot's forecast is known.
+  // Canonical links must exist in that forecast. Legacy wall times resolve
+  // only when exactly one instant matches, so repeats and gaps stay at Now.
+  useEffect(() => {
+    if (!initialDeepLink.spot) return;
+    const forecast = timelineScores.forecasts.get(initialDeepLink.spot.id);
+    if (!forecast) return;
+    if (
+      initialDeepLink.hourKey &&
+      timelineHourKey === initialDeepLink.hourKey &&
+      !forecast.hours[initialDeepLink.hourKey]
+    ) {
+      queueMicrotask(() => setTimelineHourKey(''));
+      return;
+    }
+    if (!initialDeepLink.legacyHour || timelineHourKey) return;
+    const resolved = resolveLegacyWallClockHour(
+      initialDeepLink.legacyHour,
+      Object.keys(forecast.hours),
+      forecast.timeZone,
+    );
+    if (resolved) queueMicrotask(() => setTimelineHourKey(resolved));
+  }, [initialDeepLink, timelineHourKey, timelineScores.forecasts]);
 
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
 
@@ -279,12 +308,12 @@ function App() {
   // scrubber can mark the live hour. The app's scrubbing convention uses
   // '' for live-now, so tapping the Now card maps back to '' (see below).
   const { resolvedNowKey, nowIndex } = useMemo(() => {
-    const candidate = formatHourKeyInTimeZone(now, activeCityConfig.timeZone);
+    const candidate = formatCanonicalHourKey(now);
     const key = weatherHourKeys.includes(candidate)
       ? candidate
       : (weatherHourKeys[0] ?? '');
     return { resolvedNowKey: key, nowIndex: weatherHourKeys.indexOf(key) };
-  }, [activeCityConfig.timeZone, now, weatherHourKeys]);
+  }, [now, weatherHourKeys]);
 
   // Stable 24h range for legend labels — computed once from all hours, never
   // changes as the user scrubs the timeline.
@@ -301,7 +330,7 @@ function App() {
   // Visible-area average for the legend marker position.
   const visibleMetricAvg = useMemo(() => {
     if (!weatherOverlay) return undefined;
-    const hourKey = timelineHourKey || formatHourKeyInTimeZone(now, activeCityConfig.timeZone);
+    const hourKey = timelineHourKey || formatCanonicalHourKey(now);
     const samples = buildSamples(weatherMetric, hourKey, weatherForecasts);
     if (samples.size === 0) return undefined;
 
@@ -316,7 +345,7 @@ function App() {
       count++;
     }
     return count > 0 ? sum / count : undefined;
-  }, [activeCityConfig.timeZone, mapBounds, now, timelineHourKey, weatherForecasts, weatherMetric, weatherOverlay]);
+  }, [mapBounds, now, timelineHourKey, weatherForecasts, weatherMetric, weatherOverlay]);
 
   const handleReset = useCallback(() => {
     // Tier filters only — category selections are managed by
@@ -637,7 +666,7 @@ function App() {
           weatherOverlay={weatherOverlay}
           cityConfig={activeCityConfig}
           weatherMetric={weatherMetric}
-          weatherHourKey={timelineHourKey || formatHourKeyInTimeZone(now, activeCityConfig.timeZone)}
+          weatherHourKey={timelineHourKey || formatCanonicalHourKey(now)}
           weatherForecasts={weatherForecasts}
           tapSpotHintActive={showTapSpotHint && !selectedSpot}
           onTapSpotAnchorChange={setTapSpotAnchor}
@@ -731,6 +760,9 @@ function App() {
               handleTimelineHourChange(key === resolvedNowKey ? '' : key)
             }
             nowIndex={nowIndex}
+            timeZone={activeCityConfig.timeZone}
+            center={activeCityConfig.center}
+            now={now}
           />
         </div>
       )}
@@ -799,6 +831,7 @@ function App() {
             !timelineScores.forecastErrors.has(selectedSpot.id)
           }
           forecastError={timelineScores.forecastErrors.get(selectedSpot.id) ?? null}
+          now={now}
         />
       )}
 

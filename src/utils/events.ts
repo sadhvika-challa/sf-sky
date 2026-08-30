@@ -136,9 +136,8 @@ export function resolveViewMode(scrubbedTime: Date, lat: number, lng: number): V
  * Used both by `ScorePanel` (for card ordering) and by `useLiveScores` (to
  * decide which forecast hour to score against).
  */
-export function getUpcomingEventTimes(spot: Spot): UpcomingEvents {
-  const now = new Date();
-  const today = new Date();
+export function getUpcomingEventTimes(spot: Spot, now: Date): UpcomingEvents {
+  const today = new Date(now);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 

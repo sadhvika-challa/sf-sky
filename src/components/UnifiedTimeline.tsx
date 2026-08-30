@@ -1,7 +1,13 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ViewMode } from '../utils/scoring';
 import type { EventTimes } from '../utils/events';
-import { formatHourKeyInTimeZone, parseHourKeyInTimeZone } from '../utils/timeline';
+import {
+  formatCanonicalHourLabel,
+  formatCityCalendarDate,
+  formatInstantTimeLabel,
+  parseCanonicalHourKey,
+  isRepeatedLocalHourInstant,
+} from '../utils/timeline';
 
 interface UnifiedTimelineProps {
   hourKeys: string[];
@@ -11,6 +17,7 @@ interface UnifiedTimelineProps {
   eventTimes: EventTimes;
   timeZone: string;
   loading?: boolean;
+  now: Date;
 }
 
 const ZONE_COLORS: Record<ViewMode, string> = {
@@ -36,24 +43,24 @@ function formatTime(date: Date, timeZone: string, includeMinutes = true): string
   }).format(date).toLowerCase().replace(/\s/g, '');
 }
 
-function formatSelectedTime(hourKey: string, timeZone: string): string {
-  if (!hourKey) return `Now · ${formatTime(new Date(), timeZone, false)}`;
-  const instant = parseHourKeyInTimeZone(hourKey, timeZone);
+function formatSelectedTime(hourKey: string, timeZone: string, now: Date): string {
+  if (!hourKey) return `Now · ${formatInstantTimeLabel(now, timeZone)}`;
+  const instant = parseCanonicalHourKey(hourKey);
   if (!instant) return 'Forecast hour unavailable';
-  const todayKey = formatHourKeyInTimeZone(new Date(), timeZone).slice(0, 10);
-  const selectedDate = hourKey.slice(0, 10);
-  const date = new Date(`${selectedDate}T12:00:00Z`);
+  const todayKey = formatCityCalendarDate(now, timeZone);
+  const selectedDate = formatCityCalendarDate(instant, timeZone);
   const dayLabel = selectedDate === todayKey
     ? 'Today'
-    : new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(date);
-  return `${dayLabel} · ${formatTime(instant, timeZone)}`;
+    : new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }).format(instant);
+  const includeZone = isRepeatedLocalHourInstant(instant, timeZone);
+  return `${dayLabel} · ${formatCanonicalHourLabel(hourKey, timeZone, { includeZone })}`;
 }
 
-function nearestHourKeyForTime(eventTime: Date, hourKeys: string[], timeZone: string): string {
+function nearestHourKeyForTime(eventTime: Date, hourKeys: string[]): string {
   let best = '';
   let bestDiff = Infinity;
   for (const key of hourKeys) {
-    const instant = parseHourKeyInTimeZone(key, timeZone);
+    const instant = parseCanonicalHourKey(key);
     if (!instant) continue;
     const diff = Math.abs(instant.getTime() - eventTime.getTime());
     if (diff < bestDiff) {
@@ -72,6 +79,7 @@ export default function UnifiedTimeline({
   eventTimes,
   timeZone,
   loading = false,
+  now,
 }: UnifiedTimelineProps) {
   const railRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -112,11 +120,11 @@ export default function UnifiedTimeline({
   }, [disabled, keyForIndex, max, onHourChange]);
 
   const jumpToEvent = useCallback((event: 'sunrise' | 'sunset') => {
-    const key = nearestHourKeyForTime(eventTimes[event], hourKeys, timeZone);
+    const key = nearestHourKeyForTime(eventTimes[event], hourKeys);
     if (key) onHourChange(key);
-  }, [eventTimes, hourKeys, onHourChange, timeZone]);
+  }, [eventTimes, hourKeys, onHourChange]);
 
-  const valueText = `${VIEW_MODE_LABELS[viewMode]}, ${formatSelectedTime(hourKey, timeZone)}`;
+  const valueText = `${VIEW_MODE_LABELS[viewMode]}, ${formatSelectedTime(hourKey, timeZone, now)}`;
 
   return (
     <div
@@ -132,7 +140,7 @@ export default function UnifiedTimeline({
           {VIEW_MODE_LABELS[viewMode]}
         </span>
         <span className="font-mono text-[11px] tabular-nums text-[#9a9488]" aria-live="polite">
-          {formatSelectedTime(hourKey, timeZone)}
+          {formatSelectedTime(hourKey, timeZone, now)}
         </span>
       </div>
 

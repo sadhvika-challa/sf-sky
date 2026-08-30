@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clampPercentage,
   getHourlyForecastCompleteness,
+  fetchSpotForecast,
+  mergeOpenMeteoResponses,
+  isStructurallyValidSpotForecast,
   type HourlyForecast,
 } from '../weather';
+
+afterEach(() => vi.restoreAllMocks());
 
 function hour(overrides: Partial<HourlyForecast> = {}): HourlyForecast {
   return {
@@ -105,5 +110,92 @@ describe('clampPercentage', () => {
     expect(clampPercentage(42.6)).toBe(43);
     expect(clampPercentage(130)).toBe(100);
     expect(clampPercentage(NaN)).toBe(0);
+  });
+});
+
+describe('Unix-time forecast ingestion', () => {
+  it('rejects legacy or malformed cached forecast shapes', () => {
+    expect(isStructurallyValidSpotForecast({
+      hours: { '2026-11-01T01': hour() },
+      timeZone: 'America/Chicago',
+      fetchedAt: 1234,
+    })).toBe(false);
+    expect(isStructurallyValidSpotForecast({
+      hours: { '2026-11-01T06:00:00Z': hour() },
+      fetchedAt: 1234,
+    })).toBe(false);
+    expect(isStructurallyValidSpotForecast({
+      hours: { '2026-11-01T06:00:00Z': hour() },
+      timeZone: 'America/Chicago',
+      fetchedAt: 1234,
+    })).toBe(true);
+  });
+
+  it('preserves both repeated local hours and merges AQ by absolute instant', () => {
+    const first = Date.parse('2026-11-01T06:00:00Z') / 1000;
+    const second = Date.parse('2026-11-01T07:00:00Z') / 1000;
+    const weather = {
+      hourly: {
+        time: [first, second],
+        cloud_cover: [11, 22], cloud_cover_low: [1, 2], cloud_cover_mid: [3, 4],
+        cloud_cover_high: [5, 6], visibility: [10_000, 20_000],
+        relative_humidity_2m: [60, 70], temperature_2m: [51, 52],
+        precipitation_probability: [7, 8], wind_speed_10m: [9, 10],
+        wind_gusts_10m: [11, 12], wind_direction_10m: [180, 190],
+      },
+    };
+    const air = { hourly: { time: [second, first], pm2_5: [72, 61], us_aqi: [172, 161] } };
+    const result = mergeOpenMeteoResponses(weather, air, 'America/Chicago', 1234);
+
+    expect(Object.keys(result.hours)).toEqual(['2026-11-01T06:00:00Z', '2026-11-01T07:00:00Z']);
+    expect(result.hours['2026-11-01T06:00:00Z']).toMatchObject({ cloud: 11, pm25: 61, aqi: 161 });
+    expect(result.hours['2026-11-01T07:00:00Z']).toMatchObject({ cloud: 22, pm25: 72, aqi: 172 });
+    expect(result).toMatchObject({ timeZone: 'America/Chicago', fetchedAt: 1234 });
+  });
+
+  it('rejects malformed and duplicate source epochs without overwriting an hour', () => {
+    const valid = Date.parse('2026-11-01T06:00:00Z') / 1000;
+    const next = valid + 3_600;
+    const result = mergeOpenMeteoResponses({
+      hourly: {
+        time: [valid, valid, next, next + 1, 1.5, NaN],
+        cloud_cover: [10, 99, 20, 30, 40, 50],
+      },
+    }, {
+      hourly: {
+        time: [next, next, valid + 1],
+        pm2_5: [4, 99, 8],
+        us_aqi: [18, 199, 28],
+      },
+    }, 'America/Chicago', 1234);
+
+    expect(result.hours['2026-11-01T06:00:00Z']).toBeUndefined();
+    expect(result.hours['2026-11-01T07:00:00Z']).toMatchObject({ cloud: 20 });
+    expect(result.hours['2026-11-01T07:00:00Z'].pm25).toBeNaN();
+    expect(Object.keys(result.hours)).toEqual(['2026-11-01T07:00:00Z']);
+  });
+
+  it('sends Unix-time requests with the configured zone and isolates inflight identity by zone', async () => {
+    const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const isAir = url.hostname.startsWith('air-quality');
+      return new Response(JSON.stringify({
+        hourly: isAir
+          ? { time: [epoch], pm2_5: [4], us_aqi: [18] }
+          : { time: [epoch], cloud_cover: [20] },
+      }), { status: 200 });
+    });
+
+    await Promise.all([
+      fetchSpotForecast(30.3, -97.78, 'America/Chicago'),
+      fetchSpotForecast(30.3, -97.78, 'America/Los_Angeles'),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const urls = fetchMock.mock.calls.map(([input]) => new URL(String(input)));
+    expect(urls.every((url) => url.searchParams.get('timeformat') === 'unixtime')).toBe(true);
+    expect(urls.filter((url) => url.searchParams.get('timezone') === 'America/Chicago')).toHaveLength(2);
+    expect(urls.filter((url) => url.searchParams.get('timezone') === 'America/Los_Angeles')).toHaveLength(2);
   });
 });

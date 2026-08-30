@@ -102,7 +102,7 @@ function applyFogClass(overlay: L.ImageOverlay, isFog: boolean): void {
 
 interface WeatherLayerProps {
   metric: WeatherMetric;
-  /** ISO hour key ("YYYY-MM-DDTHH") to render. Empty string = no render yet. */
+  /** Canonical UTC ISO hour key to render. Empty string = no render yet. */
   hourKey: string;
   forecasts: Map<number, SpotForecast>;
 }

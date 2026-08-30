@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer';
 
 export const FIXED_NOW = new Date('2026-08-29T18:15:00-07:00');
 export const OCEAN_BEACH_COORDINATES = '37.7594,-122.5107';
-export const FIRST_FUTURE_HOUR_KEY = '2026-08-29T19';
+export const FIRST_FUTURE_HOUR_KEY = '2026-08-30T02:00:00Z';
 
 const ONBOARDING_KEYS = [
   'onboarding:v2:welcome',
@@ -20,24 +20,26 @@ const TRANSPARENT_PNG = Buffer.from(
   'base64',
 );
 
-function localHourStrings(): string[] {
-  const values: string[] = [];
-  const start = Date.UTC(2026, 7, 29, 0);
+function hourlyEpochSeconds(): number[] {
+  const values: number[] = [];
+  // Midnight PDT on August 29. Open-Meteo returns Unix seconds in UTC even
+  // when the requested timezone controls its forecast-day boundaries.
+  const start = Date.UTC(2026, 7, 29, 7);
   for (let index = 0; index < 72; index += 1) {
-    values.push(new Date(start + index * 3_600_000).toISOString().slice(0, 13) + ':00');
+    values.push((start + index * 3_600_000) / 1_000);
   }
   return values;
 }
 
-const hourStrings = localHourStrings();
+const hourSeconds = hourlyEpochSeconds();
 
 function valuesForHours(build: (index: number) => number): number[] {
-  return hourStrings.map((_, index) => build(index));
+  return hourSeconds.map((_, index) => build(index));
 }
 
 const forecastResponse = {
   hourly: {
-    time: hourStrings,
+    time: hourSeconds,
     cloud_cover: valuesForHours((index) => (index * 17) % 101),
     cloud_cover_low: valuesForHours((index) => (index * 11) % 80),
     cloud_cover_mid: valuesForHours((index) => (index * 7) % 70),
@@ -54,7 +56,7 @@ const forecastResponse = {
 
 const airQualityResponse = {
   hourly: {
-    time: hourStrings,
+    time: hourSeconds,
     pm2_5: valuesForHours((index) => 4 + (index % 8)),
     us_aqi: valuesForHours((index) => 18 + (index % 9) * 3),
   },
@@ -64,17 +66,20 @@ function coordinates(url: URL): string {
   return `${url.searchParams.get('latitude')},${url.searchParams.get('longitude')}`;
 }
 
-function cacheKey(coordinateKey: string): string {
+function cacheKey(coordinateKey: string, timeZone = 'America/Los_Angeles'): string {
   const [latitude, longitude] = coordinateKey.split(',').map(Number);
-  return `weather:v4:${latitude.toFixed(3)}:${longitude.toFixed(3)}`;
+  return `weather:v5:${latitude.toFixed(3)}:${longitude.toFixed(3)}:${timeZone}`;
 }
 
 function filteredHourlyResponse(
-  source: Record<string, string[] | number[]>,
+  source: Record<string, number[]>,
   omittedHours: Set<string>,
-): Record<string, string[] | number[]> {
+): Record<string, number[]> {
   const keepIndices = source.time
-    .map((time, index) => ({ time: String(time).slice(0, 13), index }))
+    .map((time, index) => ({
+      time: new Date(time * 1_000).toISOString().replace('.000Z', 'Z'),
+      index,
+    }))
     .filter(({ time }) => !omittedHours.has(time))
     .map(({ index }) => index);
   return Object.fromEntries(
@@ -106,21 +111,24 @@ function airQualityFixture(harness: WeatherHarness, coordinateKey: string): unkn
 }
 
 function cachedHours(partialMetrics = false): Record<string, Record<string, number>> {
-  return Object.fromEntries(hourStrings.map((time, index) => [time.slice(0, 13), {
-    cloud: forecastResponse.hourly.cloud_cover[index],
-    cloudLow: forecastResponse.hourly.cloud_cover_low[index],
-    cloudMid: forecastResponse.hourly.cloud_cover_mid[index],
-    cloudHigh: forecastResponse.hourly.cloud_cover_high[index],
-    visibilityKm: partialMetrics ? Number.NaN : forecastResponse.hourly.visibility[index] / 1_000,
-    humidity: forecastResponse.hourly.relative_humidity_2m[index],
-    tempF: partialMetrics ? Number.NaN : forecastResponse.hourly.temperature_2m[index],
-    precipProb: forecastResponse.hourly.precipitation_probability[index],
-    windMph: partialMetrics ? Number.NaN : forecastResponse.hourly.wind_speed_10m[index],
-    gustMph: forecastResponse.hourly.wind_gusts_10m[index],
-    windDir: forecastResponse.hourly.wind_direction_10m[index],
-    pm25: airQualityResponse.hourly.pm2_5[index],
-    aqi: airQualityResponse.hourly.us_aqi[index],
-  }]));
+  return Object.fromEntries(hourSeconds.map((time, index) => [
+    new Date(time * 1_000).toISOString().replace('.000Z', 'Z'),
+    {
+      cloud: forecastResponse.hourly.cloud_cover[index],
+      cloudLow: forecastResponse.hourly.cloud_cover_low[index],
+      cloudMid: forecastResponse.hourly.cloud_cover_mid[index],
+      cloudHigh: forecastResponse.hourly.cloud_cover_high[index],
+      visibilityKm: partialMetrics ? Number.NaN : forecastResponse.hourly.visibility[index] / 1_000,
+      humidity: forecastResponse.hourly.relative_humidity_2m[index],
+      tempF: partialMetrics ? Number.NaN : forecastResponse.hourly.temperature_2m[index],
+      precipProb: forecastResponse.hourly.precipitation_probability[index],
+      windMph: partialMetrics ? Number.NaN : forecastResponse.hourly.wind_speed_10m[index],
+      gustMph: forecastResponse.hourly.wind_gusts_10m[index],
+      windDir: forecastResponse.hourly.wind_direction_10m[index],
+      pm25: airQualityResponse.hourly.pm2_5[index],
+      aqi: airQualityResponse.hourly.us_aqi[index],
+    },
+  ]));
 }
 
 export interface WeatherRequestLog {
@@ -142,11 +150,22 @@ export interface WeatherHarness {
   missingHourKeysByCoordinates: Map<string, Set<string>>;
   partialMetricCoordinates: Set<string>;
   emptyForecastCoordinates: Set<string>;
+  hourlyByCoordinates: Map<string, {
+    forecast: Record<string, number[]>;
+    airQuality: Record<string, number[]>;
+  }>;
+  defaultHourly?: {
+    forecast: Record<string, number[]>;
+    airQuality: Record<string, number[]>;
+  };
   deferForecast: (coordinateKey: string) => DeferredForecast;
 }
 
-export async function installDeterministicBrowserState(page: Page): Promise<void> {
-  await page.clock.install({ time: FIXED_NOW });
+export async function installDeterministicBrowserState(
+  page: Page,
+  now: Date = FIXED_NOW,
+): Promise<void> {
+  await page.clock.install({ time: now });
   await page.addInitScript((keys: string[]) => {
     for (const key of keys) window.localStorage.setItem(key, '1');
     window.localStorage.setItem('karl-pwa:dismissed-at', String(Date.now()));
@@ -172,6 +191,7 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     missingHourKeysByCoordinates: new Map<string, Set<string>>(),
     partialMetricCoordinates: new Set<string>(),
     emptyForecastCoordinates: new Set<string>(),
+    hourlyByCoordinates: new Map(),
     deferForecast: (coordinateKey) => {
       if (deferredForecasts.has(coordinateKey)) {
         throw new Error(`Forecast is already deferred for ${coordinateKey}`);
@@ -204,7 +224,13 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
         return;
       }
-      await route.fulfill({ status: 200, contentType: 'application/json', json: forecastFixture(harness, coordinateKey) });
+      const override = harness.hourlyByCoordinates.get(coordinateKey)?.forecast
+        ?? harness.defaultHourly?.forecast;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        json: override ? { hourly: override } : forecastFixture(harness, coordinateKey),
+      });
       return;
     }
     if (url.hostname === 'air-quality-api.open-meteo.com' && url.pathname === '/v1/air-quality') {
@@ -213,7 +239,13 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
         return;
       }
-      await route.fulfill({ status: 200, contentType: 'application/json', json: airQualityFixture(harness, coordinateKey) });
+      const override = harness.hourlyByCoordinates.get(coordinateKey)?.airQuality
+        ?? harness.defaultHourly?.airQuality;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        json: override ? { hourly: override } : airQualityFixture(harness, coordinateKey),
+      });
       return;
     }
     requests.unhandledOpenMeteo.push(route.request().url());
@@ -240,6 +272,7 @@ export async function seedCachedForecast(
   const value = {
     forecast: {
       hours: cachedHours(options.partialMetrics),
+      timeZone: 'America/Los_Angeles',
       fetchedAt: options.fetchedAt,
     },
     expiresAt: options.expiresAt,
