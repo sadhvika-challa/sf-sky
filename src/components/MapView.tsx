@@ -17,6 +17,7 @@ import WeatherLayer from './WeatherLayer';
 import WindParticleLayer from './WindParticleLayer';
 import type { WeatherMetric } from '../utils/interpolate';
 import type { SpotForecast } from '../utils/weather';
+import { parseCanonicalHourKey } from '../utils/timeline';
 import type { ScoreEvidence } from '../utils/confidence';
 import { buildSamples, buildWindDirs } from '../utils/weatherSamples';
 
@@ -510,13 +511,12 @@ function EventMarkerLayer({
   hourKey,
   onSelectEvent,
 }: {
-  /** Scrubbed timeline hour, format `YYYY-MM-DDTHH`. */
+  /** Scrubbed timeline hour as a canonical UTC ISO key. */
   hourKey: string;
   onSelectEvent: (event: CuratedEvent) => void;
 }) {
   const events = useMemo(() => {
-    // hourKey is `YYYY-MM-DDTHH`; treat it as local wall time.
-    const at = hourKey ? new Date(`${hourKey}:00:00`) : new Date();
+    const at = hourKey ? (parseCanonicalHourKey(hourKey) ?? new Date()) : new Date();
     return getEventsAtHour(at);
   }, [hourKey]);
 

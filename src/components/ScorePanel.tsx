@@ -7,7 +7,7 @@ import { getScoreTier, getSpectrumColor, tierColors, type ScoreTier, type ViewMo
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
-import { parseHourKeyInTimeZone, SCORE_CARD_ORDER } from '../utils/timeline';
+import { parseCanonicalHourKey, SCORE_CARD_ORDER } from '../utils/timeline';
 import type { SpotForecast } from '../utils/weather';
 import { scoreEvidenceAccessibilityLabel } from '../utils/confidence';
 
@@ -19,10 +19,10 @@ interface CardInfo {
   eventTime: Date;
 }
 
-function getNextEvents(spot: Spot, scrubHourKey: string, timeZone: string): CardInfo[] {
+function getNextEvents(spot: Spot, scrubHourKey: string): CardInfo[] {
   const now = new Date();
   const selectedInstant = scrubHourKey
-    ? (parseHourKeyInTimeZone(scrubHourKey, timeZone) ?? now)
+    ? (parseCanonicalHourKey(scrubHourKey) ?? now)
     : now;
   const today = new Date(now);
   const tomorrow = new Date(today);
@@ -361,7 +361,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const cards = getNextEvents(spot, timelineHourKey, timeZone);
+  const cards = getNextEvents(spot, timelineHourKey);
   // The Now card remains the sheet's primary card. Its score uses the active
   // mode field from the same live map that drives the selected map pin.
   const primary = cards[0];

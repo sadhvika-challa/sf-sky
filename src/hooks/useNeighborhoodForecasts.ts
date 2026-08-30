@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { neighborhoods, type Neighborhood } from '../data/neighborhoods';
 import { fetchSpotForecast, type SpotForecast } from '../utils/weather';
+import { formatCanonicalHourKey } from '../utils/timeline';
 
 export type NeighborhoodForecasts = Map<number, SpotForecast>;
 
 export interface NeighborhoodForecastState {
   /** id -> forecast. Empty until at least one fetch resolves. */
   forecasts: NeighborhoodForecasts;
-  /** Sorted ISO hour keys ("YYYY-MM-DDTHH") usable by the time scrubber. */
+  /** Sorted canonical UTC hour keys usable by the time scrubber. */
   hourKeys: string[];
 }
 
@@ -26,7 +27,7 @@ const EMPTY_STATE: NeighborhoodForecastState = {
  * Gated on `enabled` so we don't pay the cost when the user never opens
  * Weather mode.
  */
-export function useNeighborhoodForecasts(enabled: boolean): NeighborhoodForecastState {
+export function useNeighborhoodForecasts(enabled: boolean, timeZone: string): NeighborhoodForecastState {
   const [forecasts, setForecasts] = useState<NeighborhoodForecasts>(() => new Map());
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export function useNeighborhoodForecasts(enabled: boolean): NeighborhoodForecast
     let cancelled = false;
 
     for (const n of neighborhoods) {
-      fetchSpotForecast(n.lat, n.lng)
+      fetchSpotForecast(n.lat, n.lng, timeZone)
         .then((forecast) => {
           if (cancelled) return;
           setForecasts((prev) => {
@@ -56,7 +57,7 @@ export function useNeighborhoodForecasts(enabled: boolean): NeighborhoodForecast
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, timeZone]);
 
   const hourKeys = useMemo(() => deriveHourKeys(forecasts), [forecasts]);
 
@@ -87,20 +88,11 @@ function deriveHourKeys(forecasts: NeighborhoodForecasts): string[] {
     for (const k of Object.keys(f.hours)) set.add(k);
   }
   const sorted = Array.from(set).sort();
-  const nowIdx = sorted.indexOf(currentHourKey());
+  const nowIdx = sorted.indexOf(formatCanonicalHourKey(new Date()));
   const startIdx = nowIdx <= BACKWARD_HOUR_BUFFER ? 0 : nowIdx - BACKWARD_HOUR_BUFFER;
   const FORWARD_HOURS = 24;
   const endIdx = Math.min(sorted.length, startIdx + BACKWARD_HOUR_BUFFER + FORWARD_HOURS + 1);
   return sorted.slice(startIdx, endIdx);
-}
-
-function currentHourKey(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  return `${y}-${m}-${day}T${h}`;
 }
 
 export function getNeighborhoods(): ReadonlyArray<Neighborhood> {

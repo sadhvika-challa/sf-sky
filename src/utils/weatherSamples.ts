@@ -13,6 +13,7 @@ import {
   type SpotForecast,
 } from './weather';
 import { type SamplePoint, type WeatherMetric } from './interpolate';
+import { parseCanonicalHourKey } from './timeline';
 
 /**
  * For each neighborhood, look up the value at `hourKey` from its forecast
@@ -82,8 +83,8 @@ export function pickMetric(metric: WeatherMetric, h: HourlyForecast): number {
 function nearestHourly(forecast: SpotForecast, hourKey: string): HourlyForecast | null {
   // Reuse the time-aware lookup in weather.ts so partial hour ranges still
   // surface a value rather than falling back to NaN.
-  const parsed = new Date(`${hourKey}:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
+  const parsed = parseCanonicalHourKey(hourKey);
+  if (!parsed) return null;
   return getForecastAt(forecast, parsed);
 }
 

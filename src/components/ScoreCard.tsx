@@ -13,9 +13,10 @@ import UnifiedTimeline from './UnifiedTimeline';
 import { computeEventTimes } from '../utils/events';
 import {
   deriveSpotTimelineHourKeys,
-  formatHourKeyInTimeZone,
+  formatCanonicalHourKey,
+  formatCityCalendarDate,
   normalizeTimelineHourKey,
-  parseHourKeyInTimeZone,
+  parseCanonicalHourKey,
 } from '../utils/timeline';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
@@ -51,13 +52,10 @@ function formatTime(date: Date, timeZone: string): { time: string; period: strin
 
 function formatDateShort(date: Date, timeZone: string): string {
   const now = new Date();
-  const dateKey = formatHourKeyInTimeZone(date, timeZone).slice(0, 10);
-  const todayKey = formatHourKeyInTimeZone(now, timeZone).slice(0, 10);
+  const dateKey = formatCityCalendarDate(date, timeZone);
+  const todayKey = formatCityCalendarDate(now, timeZone);
   if (dateKey === todayKey) return 'Today';
-  const tomorrowKey = formatHourKeyInTimeZone(
-    new Date(now.getTime() + 24 * 60 * 60 * 1000),
-    timeZone,
-  ).slice(0, 10);
+  const tomorrowKey = formatCityCalendarDate(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone);
   if (dateKey === tomorrowKey) return 'Tomorrow';
   return date.toLocaleDateString('en-US', { timeZone, month: 'short', day: 'numeric' });
 }
@@ -511,7 +509,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
       eventInstant = new Date();
       eventTimeData = formatTime(eventInstant, timeZone);
     } else {
-      eventInstant = parseHourKeyInTimeZone(scrubHourKey, timeZone) ?? new Date();
+      eventInstant = parseCanonicalHourKey(scrubHourKey) ?? new Date();
       eventTimeData = formatTime(eventInstant, timeZone);
     }
   } else if (type === 'sunrise') {
@@ -528,12 +526,12 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const moonIllum = SunCalc.getMoonIllumination(eventInstant);
 
   const exactHourKey = type === 'now'
-    ? (scrubHourKey || formatHourKeyInTimeZone(eventInstant, timeZone))
+    ? (scrubHourKey || formatCanonicalHourKey(eventInstant))
     : '';
   const hourly: HourlyForecast | null = forecast && !Number.isNaN(eventInstant.getTime())
     ? (forecast.hours[type === 'now'
         ? exactHourKey
-        : formatHourKeyInTimeZone(eventInstant, timeZone)] ?? null)
+        : formatCanonicalHourKey(eventInstant)] ?? null)
     : null;
 
   const breakdown: ScoreBreakdown | null = hourly && displayType !== 'now'
@@ -558,7 +556,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   })();
 
   const sparkPoints: SparkPoint[] = forecast && type !== 'now'
-    ? computeSparkPoints(spot, type, forecast, eventInstant, moonIllum.fraction, timeZone)
+    ? computeSparkPoints(spot, type, forecast, eventInstant, moonIllum.fraction)
     : [];
   // Reserve space for the sparkline while the forecast is still resolving so
   // the metrics strip below doesn't jump when data lands. If we already know
@@ -575,7 +573,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const gradient = getSkyGradient(displayType, score);
 
   const timelineHourKeys = forecast
-    ? deriveSpotTimelineHourKeys(Object.keys(forecast.hours), new Date(), timeZone)
+    ? deriveSpotTimelineHourKeys(Object.keys(forecast.hours), new Date())
     : [];
   const eventTimes = computeEventTimes(new Date(), spot.lat, spot.lng);
 
@@ -593,7 +591,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
       ? 'selected hour'
       : typeTitle[type].toLowerCase();
     const hourParam = type === 'now' && scrubHourKey
-      ? `&hour=${encodeURIComponent(scrubHourKey)}`
+      ? `&instant=${encodeURIComponent(scrubHourKey)}`
       : '';
     const url = `${window.location.origin}/?spot=${spot.id}&view=${type}${hourParam}`;
     const title = `Soleil \u00b7 ${spot.name}`;

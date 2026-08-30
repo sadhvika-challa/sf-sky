@@ -8,7 +8,7 @@ import {
 } from '../../hooks/useTimelineScores';
 import { getUpcomingEventTimes } from '../events';
 import { computeLiveScore, computeScoreAtTime, computeNowScore } from '../scoring';
-import { formatHourKeyInTimeZone, parseHourKeyInTimeZone } from '../timeline';
+import { formatCanonicalHourKey, parseCanonicalHourKey } from '../timeline';
 import type { HourlyForecast, SpotForecast } from '../weather';
 
 const TIME_ZONE = 'America/Los_Angeles';
@@ -52,9 +52,9 @@ function forecast(defaultHour = hour()): SpotForecast {
   const hours: Record<string, HourlyForecast> = {};
   for (let offset = -24; offset <= 72; offset += 1) {
     const instant = new Date(NOW.getTime() + offset * 3_600_000);
-    hours[formatHourKeyInTimeZone(instant, TIME_ZONE)] = defaultHour;
+    hours[formatCanonicalHourKey(instant)] = defaultHour;
   }
-  return { hours, fetchedAt: NOW.getTime() };
+  return { hours, timeZone: TIME_ZONE, fetchedAt: NOW.getTime() };
 }
 
 afterEach(() => {
@@ -69,8 +69,7 @@ describe('timeline score contract', () => {
     const canonical = canonicalScoresForSpot(
       spot,
       source,
-      TIME_ZONE,
-      formatHourKeyInTimeZone(NOW, TIME_ZONE),
+      formatCanonicalHourKey(NOW),
       NOW,
     );
     const events = getUpcomingEventTimes(spot);
@@ -89,15 +88,14 @@ describe('timeline score contract', () => {
       vi.useFakeTimers();
       vi.setSystemTime(NOW);
       const source = forecast();
-      const selectedKey = '2026-08-30T05';
-      const selectedInstant = parseHourKeyInTimeZone(selectedKey, TIME_ZONE)!;
+      const selectedKey = '2026-08-30T05:00:00Z';
+      const selectedInstant = parseCanonicalHourKey(selectedKey)!;
       const selectedWeather = hour({ cloud: 91, cloudLow: 88, visibilityKm: 2 });
       source.hours[selectedKey] = selectedWeather;
       const canonical = canonicalScoresForSpot(
         spot,
         source,
-        TIME_ZONE,
-        formatHourKeyInTimeZone(NOW, TIME_ZONE),
+        formatCanonicalHourKey(NOW),
         NOW,
       );
       const before = {
@@ -136,15 +134,14 @@ describe('timeline score contract', () => {
     const canonical = canonicalScoresForSpot(
       spot,
       source,
-      TIME_ZONE,
-      formatHourKeyInTimeZone(NOW, TIME_ZONE),
+      formatCanonicalHourKey(NOW),
       NOW,
     );
     const active = activeScoreForSpot(
       spot,
       source,
-      '2026-09-10T12',
-      parseHourKeyInTimeZone('2026-09-10T12', TIME_ZONE),
+      '2026-09-10T12:00:00Z',
+      parseCanonicalHourKey('2026-09-10T12:00:00Z'),
       'sunset',
       NOW,
       false,
@@ -163,8 +160,8 @@ describe('timeline score contract', () => {
 
   it('keeps a partial selected-hour forecast distinct from a curated estimate', () => {
     const source = forecast();
-    const selectedKey = '2026-08-30T05';
-    const selectedInstant = parseHourKeyInTimeZone(selectedKey, TIME_ZONE)!;
+    const selectedKey = '2026-08-30T05:00:00Z';
+    const selectedInstant = parseCanonicalHourKey(selectedKey)!;
     source.hours[selectedKey] = hour({ windMph: NaN });
     const active = activeScoreForSpot(
       spot,

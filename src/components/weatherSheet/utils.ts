@@ -7,6 +7,7 @@ import { type SpotForecast } from '../../utils/weather';
 import { type WeatherMetric } from '../../utils/interpolate';
 import { buildSamples } from '../../utils/weatherSamples';
 import { computeCityStats } from '../../utils/labelStats';
+import { formatCanonicalHourLabel } from '../../utils/timeline';
 
 /** Number of forward hours every expanded sheet visualizes. */
 export const HOURLY_STRIP_LENGTH = 12;
@@ -48,11 +49,9 @@ export function neighborhoodName(id: number): string {
 }
 
 export function shortHourLabel(hourKey: string): string {
-  const parsed = new Date(`${hourKey}:00:00`);
-  if (Number.isNaN(parsed.getTime())) return hourKey;
-  return parsed
-    .toLocaleTimeString(undefined, { hour: 'numeric' })
-    .replace(/\s?(AM|PM)/, (_, p) => p.toLowerCase());
+  return formatCanonicalHourLabel(hourKey, 'America/Los_Angeles')
+    .replace(':00', '')
+    .replace(/\s?(AM|PM)/i, (_, p: string) => p.toLowerCase());
 }
 
 /**
