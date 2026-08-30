@@ -51,6 +51,7 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   await expect(slider).not.toHaveAttribute('aria-valuetext', /Now ·/);
   await expect(nowCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
   await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
+  await expect(nowCard.getByRole('heading', { level: 3 })).toHaveText('NOW · SELECTED HOUR');
   await expect(dialog).toBeVisible();
   await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
   await expect(tablist.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute('aria-selected', 'true');

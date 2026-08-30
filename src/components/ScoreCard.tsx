@@ -589,7 +589,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const dots = dotColors[type];
 
   const handleShare = async () => {
-    const eventLabel = typeTitle[type].toLowerCase();
+    const eventLabel = type === 'now' && scrubHourKey
+      ? 'selected hour'
+      : typeTitle[type].toLowerCase();
     const url = `${window.location.origin}/?spot=${spot.id}&view=${type}`;
     const title = `Soleil \u00b7 ${spot.name}`;
     const text = score >= 60
@@ -770,7 +772,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                 <div className="min-w-0">
                   <h3 className="font-mono text-[13px] tracking-[2.5px] text-gray-700 uppercase font-semibold leading-tight">
                     {type === 'now'
-                      ? (scrubHourKey ? `NOW · ${typeTitle[displayType]}` : typeTitle[type])
+                      ? (scrubHourKey
+                          ? `NOW · ${displayType === 'now' ? 'SELECTED HOUR' : typeTitle[displayType]}`
+                          : typeTitle[type])
                       : <>{dateLabel}&apos;s {typeTitle[type]}</>}
                   </h3>
                   <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1 truncate">
