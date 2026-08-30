@@ -22,18 +22,20 @@ interface SavedSpotsHarnessWindow extends Window {
   __soleilSavedSpotsHarness?: {
     getSavedSpotIds: () => readonly string[];
     setSaved: (spotId: string, saved: boolean) => Promise<boolean>;
-    getUpdateConsistency: () => 'cross-context' | 'in-process';
+    getUpdateConsistency: () => 'cross-context' | 'in-process' | 'unavailable';
     rehydrate: () => Promise<void>;
     startSync: () => void;
+    armUpdateGate: () => void;
+    releaseUpdate: () => void;
+    updateRequested: () => boolean;
     unsubscribe: () => void;
   };
-  __soleilSavedSpotsLockHeld?: boolean;
-  __soleilReleaseSavedSpotsLock?: () => void;
   __soleilSavedSpotsOperationSettled?: boolean;
 }
 
 const SAVED_SPOTS_KEY = 'soleil:saved-spots';
-const SAVED_SPOTS_LOCK = `soleil:key-value:${SAVED_SPOTS_KEY}`;
+const SAVED_SPOTS_DATABASE = 'soleil-device-storage';
+const SAVED_SPOTS_OBJECT_STORE = 'key-values';
 
 const FAILURE_COPY: Readonly<Record<
   Exclude<SimulatedLocationMode, 'allowed' | 'unsupported'>,
@@ -236,17 +238,53 @@ test('labels reduced-accuracy results and all derived distances as approximate',
 
 async function mountSavedSpotsIntegration(
   page: Page,
-  options: { subscribe?: boolean } = {},
+  options: { subscribe?: boolean; gateUpdates?: boolean } = {},
 ): Promise<void> {
-  await page.evaluate(async ({ subscribe, storageKey }) => {
-    const [{ SavedSpotsController }, { browserKeyValueStore }, { KNOWN_SPOT_IDS, SPOT_ID_ALIASES }] =
+  await page.evaluate(async ({ subscribe, gateUpdates, storageKey }) => {
+    const [
+      { SavedSpotsController },
+      { savedSpotsKeyValueStore },
+      { KNOWN_SPOT_IDS, SPOT_ID_ALIASES },
+    ] =
       await Promise.all([
         import('/src/hooks/useSavedSpots.ts'),
-        import('/src/platform/storage.ts'),
+        import('/src/platform/indexedDbStorage.ts'),
         import('/src/data/spotIdentity.ts'),
       ]);
+    let updateRequested = false;
+    let releaseUpdate = () => undefined;
+    let updateGate: Promise<void> | null = null;
+    const armUpdateGate = () => {
+      updateRequested = false;
+      updateGate = new Promise<void>((resolve) => { releaseUpdate = resolve; });
+    };
+    if (gateUpdates) armUpdateGate();
+    const store = gateUpdates
+      ? {
+          get updateConsistency() { return savedSpotsKeyValueStore.updateConsistency; },
+          get: savedSpotsKeyValueStore.get,
+          set: savedSpotsKeyValueStore.set,
+          remove: savedSpotsKeyValueStore.remove,
+          subscribe: savedSpotsKeyValueStore.subscribe,
+          async update<Result>(
+            key: string,
+            updater: (current: string | null) => {
+              value?: string | null;
+              result: Result;
+            },
+          ): Promise<Result> {
+            const gate = updateGate;
+            if (gate) {
+              updateRequested = true;
+              await gate;
+              updateGate = null;
+            }
+            return savedSpotsKeyValueStore.update(key, updater);
+          },
+        }
+      : savedSpotsKeyValueStore;
     const controller = new SavedSpotsController(
-      browserKeyValueStore,
+      store,
       KNOWN_SPOT_IDS,
       SPOT_ID_ALIASES,
     );
@@ -254,7 +292,7 @@ async function mountSavedSpotsIntegration(
     let unsubscribe = () => undefined;
     const startSync = () => {
       unsubscribe();
-      unsubscribe = browserKeyValueStore.subscribe?.(storageKey, () => {
+      unsubscribe = store.subscribe?.(storageKey, () => {
         void controller.rehydrate();
       }) ?? (() => undefined);
     };
@@ -262,12 +300,19 @@ async function mountSavedSpotsIntegration(
     (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness = {
       getSavedSpotIds: () => controller.getSnapshot().savedSpotIds,
       setSaved: (spotId, saved) => controller.setSaved(spotId, saved),
-      getUpdateConsistency: () => browserKeyValueStore.updateConsistency,
+      getUpdateConsistency: () => store.updateConsistency,
       rehydrate: () => controller.rehydrate(),
       startSync,
+      armUpdateGate,
+      releaseUpdate: () => releaseUpdate(),
+      updateRequested: () => updateRequested,
       unsubscribe: () => unsubscribe(),
     };
-  }, { subscribe: options.subscribe !== false, storageKey: SAVED_SPOTS_KEY });
+  }, {
+    subscribe: options.subscribe !== false,
+    gateUpdates: options.gateUpdates === true,
+    storageKey: SAVED_SPOTS_KEY,
+  });
 }
 
 async function savedSpotIds(page: Page): Promise<readonly string[]> {
@@ -280,7 +325,7 @@ test('propagates a saved-spot write to another page without reload', async ({ co
   await installLocationHarness(page, 'unsupported');
   await installWeatherHarness(page);
   await page.goto('/');
-  await page.evaluate(() => window.localStorage.removeItem('soleil:saved-spots'));
+  await resetSavedSpotsStorage(page);
 
   const secondPage = await context.newPage();
   try {
@@ -305,14 +350,14 @@ test('propagates a saved-spot write to another page without reload', async ({ co
 
 async function savedSpotsUpdateConsistency(
   page: Page,
-): Promise<'cross-context' | 'in-process'> {
+): Promise<'cross-context' | 'in-process' | 'unavailable'> {
   return page.evaluate(() =>
     (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness
       ?.getUpdateConsistency() ?? 'in-process',
   );
 }
 
-async function durableSavedSpotIds(page: Page): Promise<string[]> {
+async function mirroredSavedSpotIds(page: Page): Promise<string[]> {
   return page.evaluate((key) => {
     const raw = window.localStorage.getItem(key);
     if (!raw) return [];
@@ -322,33 +367,41 @@ async function durableSavedSpotIds(page: Page): Promise<string[]> {
   }, SAVED_SPOTS_KEY);
 }
 
-function holdSavedSpotsLock(page: Page): Promise<boolean> {
-  return page.evaluate(async (lockName) => {
-    if (!navigator.locks) return false;
-    await navigator.locks.request(lockName, { mode: 'exclusive' }, async () => {
-      (window as SavedSpotsHarnessWindow).__soleilSavedSpotsLockHeld = true;
-      await new Promise<void>((resolve) => {
-        (window as SavedSpotsHarnessWindow).__soleilReleaseSavedSpotsLock = resolve;
-      });
+async function authoritativeSavedSpotIds(page: Page): Promise<string[]> {
+  return page.evaluate(async ({ databaseName, objectStoreName, key }) => {
+    const raw = await new Promise<string | null>((resolve, reject) => {
+      const open = indexedDB.open(databaseName, 1);
+      open.onerror = () => reject(open.error ?? new Error('IndexedDB open failed.'));
+      open.onsuccess = () => {
+        const database = open.result;
+        const transaction = database.transaction(objectStoreName, 'readonly');
+        const request = transaction.objectStore(objectStoreName).get(key);
+        request.onerror = () => reject(request.error ?? new Error('IndexedDB read failed.'));
+        request.onsuccess = () => resolve((request.result as string | null | undefined) ?? null);
+        transaction.oncomplete = () => database.close();
+      };
     });
-    return true;
-  }, SAVED_SPOTS_LOCK);
-}
-
-async function releaseSavedSpotsLock(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const harnessWindow = window as SavedSpotsHarnessWindow;
-    harnessWindow.__soleilReleaseSavedSpotsLock?.();
-    delete harnessWindow.__soleilReleaseSavedSpotsLock;
-    harnessWindow.__soleilSavedSpotsLockHeld = false;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { spotIds?: unknown };
+    if (!Array.isArray(parsed.spotIds)) throw new Error('Saved-spots payload is malformed.');
+    return parsed.spotIds.filter((id): id is string => typeof id === 'string').sort();
+  }, {
+    databaseName: SAVED_SPOTS_DATABASE,
+    objectStoreName: SAVED_SPOTS_OBJECT_STORE,
+    key: SAVED_SPOTS_KEY,
   });
 }
 
-async function pendingSavedSpotsLocks(page: Page): Promise<number> {
-  return page.evaluate(async (lockName) => {
-    const snapshot = await navigator.locks.query();
-    return snapshot.pending.filter((lock) => lock.name === lockName).length;
-  }, SAVED_SPOTS_LOCK);
+async function resetSavedSpotsStorage(page: Page): Promise<void> {
+  await page.evaluate(async ({ databaseName, key }) => {
+    window.localStorage.removeItem(key);
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(databaseName);
+      request.onerror = () => reject(request.error ?? new Error('IndexedDB delete failed.'));
+      request.onblocked = () => reject(new Error('IndexedDB delete was blocked.'));
+      request.onsuccess = () => resolve();
+    });
+  }, { databaseName: SAVED_SPOTS_DATABASE, key: SAVED_SPOTS_KEY });
 }
 
 async function rehydrateSavedSpots(page: Page): Promise<void> {
@@ -386,10 +439,28 @@ async function operationSettled(page: Page): Promise<boolean> {
   );
 }
 
+async function updateRequested(page: Page): Promise<boolean> {
+  return page.evaluate(() =>
+    (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness?.updateRequested() === true,
+  );
+}
+
+async function releaseUpdate(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness?.releaseUpdate(),
+  );
+}
+
+async function armUpdateGate(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    (window as SavedSpotsHarnessWindow).__soleilSavedSpotsHarness?.armUpdateGate(),
+  );
+}
+
 async function mountUnsynchronizedPages(page: Page, secondPage: Page): Promise<void> {
   await Promise.all([
-    mountSavedSpotsIntegration(page, { subscribe: false }),
-    mountSavedSpotsIntegration(secondPage, { subscribe: false }),
+    mountSavedSpotsIntegration(page, { subscribe: false, gateUpdates: true }),
+    mountSavedSpotsIntegration(secondPage, { subscribe: false, gateUpdates: true }),
   ]);
   const consistencies = await Promise.all([
     savedSpotsUpdateConsistency(page),
@@ -405,7 +476,7 @@ test('preserves concurrent different-ID saves before either page can rehydrate',
   await installLocationHarness(page, 'unsupported');
   await installWeatherHarness(page);
   await page.goto('/');
-  await page.evaluate((key) => window.localStorage.removeItem(key), SAVED_SPOTS_KEY);
+  await resetSavedSpotsStorage(page);
 
   const secondPage = await context.newPage();
   try {
@@ -415,24 +486,19 @@ test('preserves concurrent different-ID saves before either page can rehydrate',
     await secondPage.goto('/');
     await mountUnsynchronizedPages(page, secondPage);
 
-    const heldLock = holdSavedSpotsLock(page);
-    await expect.poll(() => page.evaluate(() =>
-      (window as SavedSpotsHarnessWindow).__soleilSavedSpotsLockHeld === true,
-    )).toBe(true);
-
     const twinPeaksSave = beginSavedSpotOperation(page, 'sf-twin-peaks', true);
-    await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(1);
     const oceanBeachSave = beginSavedSpotOperation(secondPage, 'sf-ocean-beach', true);
-    await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(2);
+    await expect.poll(() => updateRequested(page)).toBe(true);
+    await expect.poll(() => updateRequested(secondPage)).toBe(true);
     expect(await operationSettled(page)).toBe(false);
     expect(await operationSettled(secondPage)).toBe(false);
 
-    await releaseSavedSpotsLock(page);
-    expect(await heldLock).toBe(true);
+    await Promise.all([releaseUpdate(page), releaseUpdate(secondPage)]);
     expect(await Promise.all([twinPeaksSave, oceanBeachSave])).toEqual([true, true]);
 
     const expected = ['sf-ocean-beach', 'sf-twin-peaks'];
-    expect(await durableSavedSpotIds(page)).toEqual(expected);
+    expect(await authoritativeSavedSpotIds(page)).toEqual(expected);
+    expect(await mirroredSavedSpotIds(page)).toEqual(expected);
 
     await Promise.all([startSavedSpotsSync(page), startSavedSpotsSync(secondPage)]);
     await expect.poll(() => savedSpotIds(page).then((ids) => [...ids].sort())).toEqual(expected);
@@ -446,7 +512,7 @@ test('uses later durable commit as the same-ID save-versus-unsave rule', async (
   await installLocationHarness(page, 'unsupported');
   await installWeatherHarness(page);
   await page.goto('/');
-  await page.evaluate((key) => window.localStorage.removeItem(key), SAVED_SPOTS_KEY);
+  await resetSavedSpotsStorage(page);
 
   const secondPage = await context.newPage();
   try {
@@ -459,33 +525,37 @@ test('uses later durable commit as the same-ID save-versus-unsave rule', async (
     const runConflict = async (
       first: { page: Page; saved: boolean },
       second: { page: Page; saved: boolean },
+      firstExpected: string[],
       expected: string[],
     ) => {
-      const heldLock = holdSavedSpotsLock(page);
-      await expect.poll(() => page.evaluate(() =>
-        (window as SavedSpotsHarnessWindow).__soleilSavedSpotsLockHeld === true,
-      )).toBe(true);
-
       const firstCommit = beginSavedSpotOperation(first.page, 'sf-twin-peaks', first.saved);
-      await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(1);
       const secondCommit = beginSavedSpotOperation(second.page, 'sf-twin-peaks', second.saved);
-      await expect.poll(() => pendingSavedSpotsLocks(page)).toBe(2);
+      await expect.poll(() => updateRequested(first.page)).toBe(true);
+      await expect.poll(() => updateRequested(second.page)).toBe(true);
+      expect(await operationSettled(first.page)).toBe(false);
+      expect(await operationSettled(second.page)).toBe(false);
 
-      await releaseSavedSpotsLock(page);
-      expect(await heldLock).toBe(true);
-      expect(await Promise.all([firstCommit, secondCommit])).toEqual([true, true]);
-      expect(await durableSavedSpotIds(page)).toEqual(expected);
+      await releaseUpdate(first.page);
+      expect(await firstCommit).toBe(true);
+      expect(await authoritativeSavedSpotIds(page)).toEqual(firstExpected);
+      await releaseUpdate(second.page);
+      expect(await secondCommit).toBe(true);
+      expect(await authoritativeSavedSpotIds(page)).toEqual(expected);
+      expect(await mirroredSavedSpotIds(page)).toEqual(expected);
       await Promise.all([rehydrateSavedSpots(page), rehydrateSavedSpots(secondPage)]);
     };
 
     await runConflict(
       { page, saved: true },
       { page: secondPage, saved: false },
+      ['sf-twin-peaks'],
       [],
     );
+    await Promise.all([armUpdateGate(page), armUpdateGate(secondPage)]);
     await runConflict(
       { page, saved: false },
       { page: secondPage, saved: true },
+      [],
       ['sf-twin-peaks'],
     );
 

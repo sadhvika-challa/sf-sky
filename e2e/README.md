@@ -103,14 +103,15 @@ the same browser context without reload. This proves the web cross-page
 storage event path without inventing hidden user-facing controls. Visible save
 and unsave journeys remain a gate for the later saved-spots UI slice.
 
-The same two-page fixture also holds the production per-key Web Lock before
-issuing writes. Both pages therefore begin their save intent before either can
-commit or rehydrate. Different-ID saves must produce one durable union, then
-both controllers must converge on that union. Same-ID save and unsave intents
-are queued in both lock orders. The later lock-ordered durable commit wins, and
-neither operation may report success while it is still waiting for the lock.
-Browsers without Web Locks expose the adapter's documented in-process
-consistency level and do not claim cross-page atomicity.
+The same two-page fixture gates both controller updates before either starts
+its IndexedDB transaction. Both pages therefore begin their save intent before
+either can commit or rehydrate. Different-ID saves must produce one union in
+the authoritative `soleil-device-storage` database, mirror that union to the
+legacy local-storage key, and converge both controllers. Same-ID save and
+unsave intents are released in both transaction orders. The later durable
+transaction wins, and neither operation may report success while it is still
+gated. IndexedDB-unavailable environments fail closed instead of claiming
+cross-page atomicity from a weaker storage mechanism.
 
 ## Interaction stability and physical-device gate
 
