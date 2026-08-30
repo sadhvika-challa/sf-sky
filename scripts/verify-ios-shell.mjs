@@ -65,6 +65,9 @@ const checks = [
   ['no App Transport Security exception', !info.includes('NSAppTransportSecurity')],
   ['no background modes', !info.includes('UIBackgroundModes')],
   ['no committed Apple team', !project.includes('DEVELOPMENT_TEAM')],
+  ['automatic signing retained', (project.match(/CODE_SIGN_STYLE = Automatic;/g) ?? []).length === 2],
+  ['no committed signing identity', !project.includes('CODE_SIGN_IDENTITY')],
+  ['no committed provisioning profile', !/PROVISIONING_PROFILE(?:_SPECIFIER)?\s*=/.test(project)],
   ['service worker retained for PWA', webManifest.includes('"display": "standalone"') && serviceWorker.length > 0],
   ['service worker disabled only in native',
     mainSource.includes("'serviceWorker' in navigator")
