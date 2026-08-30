@@ -353,15 +353,18 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     requests.failed.push(`${endpoint}:${coordinateKey}:${mode.kind}`);
     if (mode.kind === 'http') {
       await route.fulfill({ status: mode.status, contentType: 'application/json', body: '{}' });
+      finishRequest(route.request(), 'finished');
       return true;
     }
     if (mode.kind === 'offline') {
       await route.abort('internetdisconnected');
+      finishRequest(route.request(), 'aborted', 'internet disconnected');
       return true;
     }
     await new Promise<void>((resolve) => timeoutFailureWaiters.push(resolve));
     try {
       await route.abort('timedout');
+      finishRequest(route.request(), 'aborted', 'timed out');
     } catch {
       // The application timeout may have already cancelled the intercepted request.
     }
@@ -384,6 +387,7 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
       if (await applyFailure(route, 'forecast', coordinateKey)) return;
       if (harness.failCoordinates.has(coordinateKey)) {
         await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+        finishRequest(route.request(), 'finished');
         return;
       }
       const override = harness.hourlyByCoordinates.get(coordinateKey)?.forecast
@@ -393,6 +397,7 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         contentType: 'application/json',
         json: override ? { hourly: override } : forecastFixture(harness, coordinateKey),
       });
+      finishRequest(route.request(), 'finished');
       return;
     }
     if (url.hostname === 'air-quality-api.open-meteo.com' && url.pathname === '/v1/air-quality') {
@@ -402,6 +407,7 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
       if (await applyFailure(route, 'airQuality', coordinateKey)) return;
       if (harness.failCoordinates.has(coordinateKey) || harness.failAirQualityCoordinates.has(coordinateKey)) {
         await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+        finishRequest(route.request(), 'finished');
         return;
       }
       const override = harness.hourlyByCoordinates.get(coordinateKey)?.airQuality
@@ -411,6 +417,7 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
         contentType: 'application/json',
         json: override ? { hourly: override } : airQualityFixture(harness, coordinateKey),
       });
+      finishRequest(route.request(), 'finished');
       return;
     }
     requests.unhandledOpenMeteo.push(route.request().url());
