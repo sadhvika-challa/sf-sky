@@ -1164,6 +1164,7 @@ function App() {
           The banner steps aside whenever a spot panel or event sheet is open. */}
       {!weatherOverlay && !selectedSpot && !selectedEvent && !happeningDismissed && (
         <HappeningBanner
+          city={activeCityId}
           onSelectEvent={handleSelectEvent}
           onDismiss={() => setHappeningDismissed(true)}
         />
@@ -1198,7 +1199,7 @@ function App() {
 
       {!weatherOverlay && showScrollCardsHint && selectedSpot && (
         <OnboardingHint
-          message="Swipe to see all 3 cards"
+          message="Swipe to see all 4 cards"
           arrow="swipe"
           positionClassName="bottom-[calc(min(82dvh,680px)-1rem)] left-1/2 -translate-x-1/2"
           onDismiss={handleDismissScrollCardsHint}

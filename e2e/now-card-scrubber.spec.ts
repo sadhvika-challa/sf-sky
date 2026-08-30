@@ -206,9 +206,13 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   const trustStatusViolations = trustStatusContrast.violations.filter(
     (result) => result.id === 'color-contrast',
   );
+  const trustStatusBackground = await nowCard
+    .locator('[data-contrast-audit="weather-trust-status"]')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
   expect(seriousViolations).toEqual([]);
   expect(trustStatusViolations).toEqual([]);
   expect(unresolvedContrast).toEqual([]);
+  expect(trustStatusBackground).not.toBe('rgba(0, 0, 0, 0)');
   console.info(
     `[axe:${testInfo.project.name}:expanded-sheet] serious-or-critical=` +
     JSON.stringify(seriousViolations.map((violation) => ({ id: violation.id, nodes: violation.nodes.length }))),
