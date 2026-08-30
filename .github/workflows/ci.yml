@@ -67,9 +67,6 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     env:
-      IOS_ARCHIVE_PATH: ${{ runner.temp }}/Soleil.xcarchive
-      IOS_ARCHIVE_REPORT: ${{ runner.temp }}/ios-archive-verification.json
-      IOS_ARCHIVE_RESULT: ${{ runner.temp }}/SoleilArchive.xcresult
       IOS_BUILD_NUMBER: "1"
       IOS_MARKETING_VERSION: "1.0"
 
@@ -107,26 +104,26 @@ jobs:
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath "$IOS_ARCHIVE_PATH" \
-            -resultBundlePath "$IOS_ARCHIVE_RESULT" \
+            -archivePath "$RUNNER_TEMP/Soleil.xcarchive" \
+            -resultBundlePath "$RUNNER_TEMP/SoleilArchive.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             archive
 
       - name: Verify unsigned iOS archive contents
         run: |
           npm run ios:archive:verify -- \
-            --archive "$IOS_ARCHIVE_PATH" \
+            --archive "$RUNNER_TEMP/Soleil.xcarchive" \
             --bundle-id com.sadhvika.soleil \
             --marketing-version "$IOS_MARKETING_VERSION" \
             --build-number "$IOS_BUILD_NUMBER" \
             --device-families 1,2 \
-            --report "$IOS_ARCHIVE_REPORT"
+            --report "$RUNNER_TEMP/ios-archive-verification.json"
 
       - name: Verify generated native state is committed
         run: git diff --exit-code
 
       - name: Package unsigned archive
-        run: ditto -c -k --sequesterRsrc --keepParent "$IOS_ARCHIVE_PATH" "${IOS_ARCHIVE_PATH}.zip"
+        run: ditto -c -k --sequesterRsrc --keepParent "$RUNNER_TEMP/Soleil.xcarchive" "$RUNNER_TEMP/Soleil.xcarchive.zip"
 
       - name: Upload archive verification evidence
         if: always()
