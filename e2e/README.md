@@ -79,6 +79,30 @@ time-zone abbreviation. Repeated fall-back hours remain distinguishable,
 including the first `1:00 AM PDT` and second `1:00 AM PST` occurrences in San
 Francisco.
 
+## Location and device-storage contracts
+
+Desktop Chromium and mobile WebKit exercise location as an explicit privacy
+choice. The geolocation provider is instrumented before application code loads,
+and its call count remains zero through launch until the user selects **Use my
+location**. The allowed journey asserts exactly one provider call, a restored
+map marker, and distance-bearing Search results. Reduced-accuracy coordinates
+remain labeled as approximate in the location status, marker identity, and
+derived distance copy.
+
+Denied, timeout, and unavailable responses each expose their distinct status
+and recover through the public **Retry** action. Unsupported browsers explain
+that city browsing remains available without exposing a futile retry. A denied
+journey also switches to Austin through the public Settings and city sheet,
+proving that location failure does not block manual browsing.
+
+Saved spots do not yet have a product UI in this release slice. The browser
+acceptance test therefore uses an explicit integration fixture built from the
+production `SavedSpotsController`, browser storage adapter, catalog IDs, and
+storage subscription. A save from one real page must update another page in
+the same browser context without reload. This proves the web cross-page
+storage event path without inventing hidden user-facing controls. Visible save
+and unsave journeys remain a gate for the later saved-spots UI slice.
+
 ## Interaction stability and physical-device gate
 
 Pointer tests wait for the spot sheet's animations and geometry to settle
