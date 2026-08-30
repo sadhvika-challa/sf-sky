@@ -703,6 +703,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                   </span>
                   <span className="font-mono text-[9px] text-gray-500 uppercase tracking-[1.5px]">
                     {tempUnit === 'C' ? 'km' : 'mi'}
+                    {userLocation?.precision === 'approximate' ? ' approx.' : ''}
                   </span>
                 </div>
 
@@ -851,7 +852,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
               </div>
               <p className="font-mono text-[10px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
                 {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime, timeZone)}
-                {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`}
+                {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}${userLocation?.precision === 'approximate' ? ' approx.' : ''}`}
               </p>
             </div>
             <span

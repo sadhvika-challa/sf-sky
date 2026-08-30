@@ -258,7 +258,7 @@ export default function SearchOverlay({
             {results.map((r) => {
               const distance =
                 r.distanceMi !== null
-                  ? ` · ${tempUnit === 'C' ? (r.distanceMi * 1.60934).toFixed(1) : r.distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`
+                  ? ` · ${tempUnit === 'C' ? (r.distanceMi * 1.60934).toFixed(1) : r.distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}${userLocation?.precision === 'approximate' ? ' approx.' : ''}`
                   : '';
               const karlType: ScoreType = r.nextType === 'now' ? 'sunset' : r.nextType;
               const karl = getKarlComment(r.score, karlType, r.spot.id, undefined, city);
