@@ -63,7 +63,7 @@ App Store privacy answers remain a human release gate. They must be reviewed aga
 ## Known gates before TestFlight
 
 - Install and select a full Xcode toolchain, then compile and run on the target iPhone.
-- Replace the generated Capacitor placeholder icon and splash assets. The current PWA artwork has transparency and is not accepted as a final opaque 1024 by 1024 App Store icon without design work.
+- Replace the provisional generated icon and splash assets with approved Soleil artwork. The committed native icon is technically opaque, but it is placeholder artwork and has not completed App Store visual review. The current PWA artwork includes transparency, so it should not be reused directly as the final 1024 by 1024 App Store icon.
 - Enroll in the Apple Developer Program before TestFlight or App Store distribution.
 - Select the signing team and create the App Store Connect app record as explicit human actions.
 - Verify location allow, deny, approximate, retry, and Settings recovery on a physical iPhone.
