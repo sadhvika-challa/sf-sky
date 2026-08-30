@@ -4,7 +4,7 @@ import { toBlob } from 'html-to-image';
 import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
-import { fogDensity, getForecastAt, type HourlyForecast, type SpotForecast } from '../utils/weather';
+import { fogDensity, type HourlyForecast, type SpotForecast } from '../utils/weather';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
@@ -13,6 +13,7 @@ import { computeEventTimes } from '../utils/events';
 import {
   deriveSpotTimelineHourKeys,
   formatHourKeyInTimeZone,
+  nearestForecastAtCityInstant,
   normalizeTimelineHourKey,
   parseHourKeyInTimeZone,
 } from '../utils/timeline';
@@ -48,14 +49,17 @@ function formatTime(date: Date, timeZone: string): { time: string; period: strin
   return { time: str, period: '' };
 }
 
-function formatDateShort(date: Date): string {
+function formatDateShort(date: Date, timeZone: string): string {
   const now = new Date();
-  const isToday = date.getDate() === now.getDate() && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-  if (isToday) return 'Today';
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (date.getDate() === tomorrow.getDate() && date.getMonth() === tomorrow.getMonth()) return 'Tomorrow';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const dateKey = formatHourKeyInTimeZone(date, timeZone).slice(0, 10);
+  const todayKey = formatHourKeyInTimeZone(now, timeZone).slice(0, 10);
+  if (dateKey === todayKey) return 'Today';
+  const tomorrowKey = formatHourKeyInTimeZone(
+    new Date(now.getTime() + 24 * 60 * 60 * 1000),
+    timeZone,
+  ).slice(0, 10);
+  if (dateKey === tomorrowKey) return 'Tomorrow';
+  return date.toLocaleDateString('en-US', { timeZone, month: 'short', day: 'numeric' });
 }
 
 function formatFullDate(date: Date, timeZone: string): string {
@@ -501,7 +505,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
 
   const times = SunCalc.getTimes(eventDate, spot.lat, spot.lng);
   const displayType: CardType = type === 'now' ? (scrubViewMode ?? 'now') : type;
-  const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventDate);
+  const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventDate, timeZone);
   let eventInstant: Date;
 
   let eventTimeData: { time: string; period: string };
@@ -530,7 +534,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     ? (scrubHourKey || formatHourKeyInTimeZone(eventInstant, timeZone))
     : '';
   const hourly: HourlyForecast | null = forecast && !Number.isNaN(eventInstant.getTime())
-    ? (type === 'now' ? (forecast.hours[exactHourKey] ?? null) : getForecastAt(forecast, eventInstant))
+    ? (type === 'now'
+        ? (forecast.hours[exactHourKey] ?? null)
+        : nearestForecastAtCityInstant(forecast, eventInstant, timeZone))
     : null;
 
   const breakdown: ScoreBreakdown | null = hourly && displayType !== 'now'

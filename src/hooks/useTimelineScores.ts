@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import SunCalc from 'suncalc';
 import type { Spot } from '../data/spots';
-import { fetchSpotForecast, type HourlyForecast, type SpotForecast } from '../utils/weather';
+import { fetchSpotForecast, type SpotForecast } from '../utils/weather';
 import {
   computeLiveScore,
   computeNowScore,
@@ -10,7 +10,11 @@ import {
   type ViewMode,
 } from '../utils/scoring';
 import { getUpcomingEventTimes } from '../utils/events';
-import { formatHourKeyInTimeZone, parseHourKeyInTimeZone } from '../utils/timeline';
+import {
+  formatHourKeyInTimeZone,
+  nearestForecastAtCityInstant,
+  parseHourKeyInTimeZone,
+} from '../utils/timeline';
 
 export interface LiveSpotScores {
   /** Canonical score for the next sunrise event. */
@@ -63,49 +67,6 @@ function staticScores(spot: Spot, viewMode: ViewMode): LiveSpotScores {
   };
 }
 
-interface ForecastIndexEntry {
-  key: string;
-  instantMs: number;
-}
-
-const forecastIndexCache = new WeakMap<SpotForecast, Map<string, ForecastIndexEntry[]>>();
-
-function forecastTimeIndex(forecast: SpotForecast, timeZone: string): ForecastIndexEntry[] {
-  let byTimeZone = forecastIndexCache.get(forecast);
-  if (!byTimeZone) {
-    byTimeZone = new Map();
-    forecastIndexCache.set(forecast, byTimeZone);
-  }
-  const cached = byTimeZone.get(timeZone);
-  if (cached) return cached;
-  const index: ForecastIndexEntry[] = [];
-  for (const key of Object.keys(forecast.hours)) {
-    const instant = parseHourKeyInTimeZone(key, timeZone);
-    if (instant) index.push({ key, instantMs: instant.getTime() });
-  }
-  byTimeZone.set(timeZone, index);
-  return index;
-}
-
-function nearestForecastAtInstant(
-  forecast: SpotForecast,
-  instant: Date,
-  timeZone: string,
-): HourlyForecast | null {
-  const exact = forecast.hours[formatHourKeyInTimeZone(instant, timeZone)];
-  if (exact) return exact;
-  let nearestKey = '';
-  let nearestDiff = Infinity;
-  for (const entry of forecastTimeIndex(forecast, timeZone)) {
-    const diff = Math.abs(entry.instantMs - instant.getTime());
-    if (diff < nearestDiff) {
-      nearestKey = entry.key;
-      nearestDiff = diff;
-    }
-  }
-  return nearestKey ? forecast.hours[nearestKey] : null;
-}
-
 /** Compute canonical event scores without reference to the scrubbed hour. */
 export function canonicalScoresForSpot(
   spot: Spot,
@@ -117,13 +78,13 @@ export function canonicalScoresForSpot(
   const moonIllum = SunCalc.getMoonIllumination(events.stargazing).fraction;
   const sunriseHour = Number.isNaN(events.sunrise.getTime())
     ? null
-    : nearestForecastAtInstant(forecast, events.sunrise, timeZone);
+    : nearestForecastAtCityInstant(forecast, events.sunrise, timeZone);
   const sunsetHour = Number.isNaN(events.sunset.getTime())
     ? null
-    : nearestForecastAtInstant(forecast, events.sunset, timeZone);
+    : nearestForecastAtCityInstant(forecast, events.sunset, timeZone);
   const starHour = Number.isNaN(events.stargazing.getTime())
     ? null
-    : nearestForecastAtInstant(forecast, events.stargazing, timeZone);
+    : nearestForecastAtCityInstant(forecast, events.stargazing, timeZone);
   const nowHour = forecast.hours[currentHourKey] ?? null;
   return {
     sunrise: sunriseHour ? computeLiveScore(spot, 'sunrise', sunriseHour) : spot.sunrise,

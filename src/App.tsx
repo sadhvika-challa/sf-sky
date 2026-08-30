@@ -755,6 +755,9 @@ function App() {
         onSuggestSpot={handleSuggestFromSearch}
         city={activeCityId}
         viewMode={viewMode}
+        timelineHourKey={timelineHourKey}
+        timeZone={activeCityConfig.timeZone}
+        timelineNow={now}
       />
 
       <SuggestSpotOverlay

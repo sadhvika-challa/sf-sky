@@ -5,6 +5,7 @@ import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
 import { getKarlComment } from '../utils/karl-copy';
 import { getSpectrumColor, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
+import { formatActiveTimelineLabel } from '../utils/timeline';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -16,6 +17,9 @@ interface SearchOverlayProps {
   onSuggestSpot: (seed: string) => void;
   city: City;
   viewMode: ViewMode;
+  timelineHourKey: string;
+  timeZone: string;
+  timelineNow: Date;
 }
 
 interface RankedSpot {
@@ -79,6 +83,9 @@ export default function SearchOverlay({
   onSuggestSpot,
   city,
   viewMode,
+  timelineHourKey,
+  timeZone,
+  timelineNow,
 }: SearchOverlayProps) {
   const [tempUnit] = useTempUnit();
   const [query, setQuery] = useState('');
@@ -130,6 +137,12 @@ export default function SearchOverlay({
   const ranked = useMemo(
     () => buildRanking(spotList, liveScores, userLocation, viewMode),
     [spotList, liveScores, userLocation, viewMode],
+  );
+  const activeTimelineLabel = formatActiveTimelineLabel(
+    timelineHourKey,
+    viewMode,
+    timeZone,
+    timelineNow,
   );
 
   const trimmed = query.trim().toLowerCase();
@@ -204,9 +217,7 @@ export default function SearchOverlay({
         {!hasQuery && (
           <div className="px-4 pt-4 pb-2">
             <p className="font-mono text-[10px] tracking-[2px] uppercase text-gray-500">
-              {viewMode === 'now'
-                ? (city === 'sf' ? 'Right now per Karl' : 'Right now')
-                : `Best for ${TYPE_LABEL[viewMode]}`}
+              Scores for {activeTimelineLabel}
             </p>
           </div>
         )}

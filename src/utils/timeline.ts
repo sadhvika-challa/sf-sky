@@ -1,10 +1,19 @@
 import type { ViewMode } from './scoring';
 import { resolveViewMode } from './events';
+import type { HourlyForecast, SpotForecast } from './weather';
 
 export const SCORE_CARD_ORDER = ['now', 'sunrise', 'sunset', 'stargazing'] as const;
 
 const HOUR_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/;
 const hourKeyFormatters = new Map<string, Intl.DateTimeFormat>();
+const displayTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+const displayDateFormatters = new Map<string, Intl.DateTimeFormat>();
+const forecastIndexCache = new WeakMap<SpotForecast, Map<string, ForecastIndexEntry[]>>();
+
+interface ForecastIndexEntry {
+  key: string;
+  instantMs: number;
+}
 
 interface HourKeyParts {
   year: number;
@@ -93,6 +102,101 @@ export function parseHourKeyInTimeZone(hourKey: string, timeZone: string): Date 
 export function formatHourKeyInTimeZone(date: Date, timeZone: string): string {
   const parts = zonedParts(date, timeZone);
   return `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}T${String(parts.hour).padStart(2, '0')}`;
+}
+
+function displayTimeFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = displayTimeFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    displayTimeFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function displayDateFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = displayDateFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      month: 'short',
+      day: 'numeric',
+    });
+    displayDateFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function forecastTimeIndex(forecast: SpotForecast, timeZone: string): ForecastIndexEntry[] {
+  let byTimeZone = forecastIndexCache.get(forecast);
+  if (!byTimeZone) {
+    byTimeZone = new Map();
+    forecastIndexCache.set(forecast, byTimeZone);
+  }
+  const cached = byTimeZone.get(timeZone);
+  if (cached) return cached;
+  const index: ForecastIndexEntry[] = [];
+  for (const key of Object.keys(forecast.hours)) {
+    const instant = parseHourKeyInTimeZone(key, timeZone);
+    if (instant) index.push({ key, instantMs: instant.getTime() });
+  }
+  byTimeZone.set(timeZone, index);
+  return index;
+}
+
+/** Find the closest forecast slice using city-local hour keys. */
+export function nearestForecastAtCityInstant(
+  forecast: SpotForecast,
+  instant: Date,
+  timeZone: string,
+): HourlyForecast | null {
+  const exact = forecast.hours[formatHourKeyInTimeZone(instant, timeZone)];
+  if (exact) return exact;
+  let nearestKey = '';
+  let nearestDiff = Infinity;
+  for (const entry of forecastTimeIndex(forecast, timeZone)) {
+    const diff = Math.abs(entry.instantMs - instant.getTime());
+    if (diff < nearestDiff) {
+      nearestKey = entry.key;
+      nearestDiff = diff;
+    }
+  }
+  return nearestKey ? forecast.hours[nearestKey] : null;
+}
+
+const VIEW_MODE_NAMES: Record<ViewMode, string> = {
+  now: 'Now',
+  sunrise: 'Sunrise',
+  sunset: 'Sunset',
+  stargazing: 'Stargazing',
+};
+
+/** Shared truthful label for search results scored at the active timeline hour. */
+export function formatActiveTimelineLabel(
+  hourKey: string,
+  viewMode: ViewMode,
+  timeZone: string,
+  now: Date,
+): string {
+  if (hourKey === '') return 'Right now';
+  const instant = parseHourKeyInTimeZone(hourKey, timeZone);
+  if (!instant) return `${VIEW_MODE_NAMES[viewMode]} · selected hour unavailable`;
+  const selectedDate = hourKey.slice(0, 10);
+  const todayDate = formatHourKeyInTimeZone(now, timeZone).slice(0, 10);
+  const tomorrowDate = formatHourKeyInTimeZone(
+    new Date(now.getTime() + 24 * 60 * 60 * 1000),
+    timeZone,
+  ).slice(0, 10);
+  const dateLabel = selectedDate === todayDate
+    ? 'Today'
+    : selectedDate === tomorrowDate
+      ? 'Tomorrow'
+      : displayDateFormatter(timeZone).format(instant);
+  return `${VIEW_MODE_NAMES[viewMode]} · ${dateLabel} at ${displayTimeFormatter(timeZone).format(instant)}`;
 }
 
 /** Preserve '' as the canonical live state and reject unavailable forecast keys. */
