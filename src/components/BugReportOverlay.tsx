@@ -10,11 +10,11 @@ const RECIPIENT = 'sadhvikac1@gmail.com';
 /**
  * We auto-append URL / UA / timestamp so Karl has enough breadcrumbs to
  * reproduce without having to ping the reporter back. Kept out of the
- * visible form so the user only sees one field — same lightweight feel
+ * visible form so the user only sees one field, with the same lightweight feel
  * as the "suggest a spot" flow.
  */
 function buildMailto(description: string): string {
-  const subject = 'Soleil — Bug report';
+  const subject = 'Soleil - Bug report';
   const lines = [
     'What happened:',
     description || '(none provided)',
@@ -81,8 +81,8 @@ export default function BugReportOverlay({ open, onClose }: BugReportOverlayProp
     e.preventDefault();
     const trimmed = description.trim();
     if (!trimmed) return;
-    // Hand off to the user's mail client. We can't observe whether they
-    // actually send the message, so we optimistically show the success state.
+    // Hand off to the user's mail client. We cannot observe whether they
+    // actually send the message, so the next state only confirms the handoff.
     window.location.href = buildMailto(trimmed);
     setSubmitted(true);
   }
@@ -121,7 +121,7 @@ export default function BugReportOverlay({ open, onClose }: BugReportOverlayProp
         {submitted ? (
           <div className="max-w-md mx-auto text-center pt-10">
             <p className="font-serif text-lg italic text-gray-700 leading-snug">
-              Karl's on it. He'll squint at the logs.
+              Draft opened. Send it in your email app to contact support.
             </p>
             <button
               type="button"

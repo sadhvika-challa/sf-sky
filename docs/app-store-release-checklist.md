@@ -18,8 +18,10 @@ This checklist separates repository readiness from actions that require Sadhvika
 | Signing | No team ID, certificate, provisioning profile, credential, or upload secret is committed. | Select a team and use Xcode-managed signing locally. Keep all signing material out of the repository. |
 | Artwork | Native icon and splash assets are provisional. | Approve final Soleil artwork and validate the opaque 1024 by 1024 App Store icon. |
 | Public web origin | Native sharing currently uses `https://go-outside-six.vercel.app` unless `VITE_PUBLIC_WEB_ORIGIN` overrides it. | Approve the permanent public origin. If it changes, coordinate app sharing, web metadata, Universal Links, and App Store metadata. |
-| Privacy and support pages | Proposed URLs are not published. | Publish and verify public pages before submission. Suggested paths are `https://sadhvika.com/soleil/privacy` and `https://sadhvika.com/soleil/support`, but these are not commitments until live. |
+| Map provider authorization | Soleil currently requests CARTO raster basemaps without an API key. CARTO's current terms require each customer to use a unique key. | Obtain and configure an approved CARTO key, or approve and validate a replacement provider, before either public web/PWA deployment or TestFlight release approval. Strict release preflight detects the current production URL directly and remains blocked while it is present. |
+| Privacy and support pages | Proposed URLs are not published, and a fixed support-email retention period is not yet approved. | Approve the operator retention practice, publish, and verify the public pages before submission. Suggested paths are `https://sadhvika.com/soleil/privacy` and `https://sadhvika.com/soleil/support`, but these are not commitments until live. |
 | Privacy | The app declares When In Use location and a UserDefaults required-reason API. | Complete the production vendor and retention audit, generate Xcode's privacy report, and submit truthful App Privacy answers. |
+| Web fonts | Soleil now bundles the used Fontsource webfont subsets and their license notices. | Confirm the exact production build makes no automatic Google Fonts request. |
 | Export compliance | No repository value makes a legal export-compliance attestation. | The account holder must answer App Store Connect's encryption questions for the exact binary. |
 
 ## Gate 1: Make the product-scope decisions
@@ -30,6 +32,7 @@ This checklist separates repository readiness from actions that require Sadhvika
   - Keeping iPad support requires iPad layout, orientation, accessibility, screenshot, and TestFlight evidence.
 - [ ] Confirm whether iOS 15 remains the minimum supported version.
 - [ ] Approve the permanent release website origin.
+- [ ] Approve the production map-provider contract. The current CARTO integration needs a unique API key under CARTO's current terms. Do not deploy this integration to the public web/PWA or approve it for TestFlight while the strict release preflight reports the unkeyed URL.
 - [ ] Approve the final icon, splash treatment, and screenshot visual direction.
 - [ ] Approve the App Store category. Draft recommendation: primary `Weather`, secondary `Travel`.
 - [ ] Decide whether version `1.0` or `1.0.0` is the intended first public version. Do not change it after submitting that version for review without a release reason.
@@ -91,7 +94,7 @@ SOLEIL_PUBLIC_ORIGIN_APPROVAL=approved \
 npm run ios:release:verify
 ```
 
-  Strict preflight also requires eligible repository state and removal of the legacy signing identity through the supported Xcode version. An attestation cannot bypass an ineligible icon, splash, origin, privacy structure, or device-family setting. This command verifies only the gates it names. It does not attest to enrollment, export compliance, App Store metadata, archive validation, signing, physical-device acceptance, or TestFlight acceptance.
+  Strict preflight also requires eligible repository state, an authorized production map integration for both public web/PWA deployment and TestFlight, and removal of the legacy signing identity through the supported Xcode version. The map-provider gate reads the production map source and cannot be bypassed by an attestation while an unkeyed CARTO raster URL remains. An attestation cannot bypass an ineligible icon, splash, origin, privacy structure, or device-family setting. This command verifies only the gates it names. It does not attest to enrollment, export compliance, App Store metadata, archive validation, signing, physical-device acceptance, or TestFlight acceptance.
 - [ ] Confirm generated native web assets have no uncommitted drift.
 - [ ] In Xcode, select Sadhvika's team and use automatic signing.
 - [ ] Confirm Release configuration, bundle identifier, marketing version, build number, deployment target, and device family.

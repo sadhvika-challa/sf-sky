@@ -3,10 +3,16 @@ import { createRoot } from 'react-dom/client'
 import 'leaflet/dist/leaflet.css'
 import App from './App.tsx'
 import { isNativeRuntime } from './platform/runtime.ts'
+import PublicPage from './public/PublicPage.tsx'
+import { matchPublicRoute } from './public/routes.ts'
+
+const publicRoute = matchPublicRoute(window.location.pathname)
+
+document.documentElement.classList.toggle('soleil-public-page', publicRoute !== null)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {publicRoute ? <PublicPage route={publicRoute} /> : <App />}
   </StrictMode>,
 )
 
