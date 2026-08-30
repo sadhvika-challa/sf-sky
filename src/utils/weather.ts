@@ -15,6 +15,7 @@ const CACHE_PREFIX = 'weather:v5:';
 
 const NEAR_EVENT_HOURS = 4;
 const NEAR_EVENT_TTL_MS = 45 * 60 * 1000;
+const CACHE_NAN_SENTINEL = '__soleil_nan__';
 
 export interface HourlyForecast {
   /** Total cloud cover, 0-100. */
@@ -161,7 +162,9 @@ function readCache(key: string, expectedTimeZone: string): SpotForecast | null {
   try {
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedEntry;
+    const parsed = JSON.parse(raw, (_field, value: unknown) =>
+      value === CACHE_NAN_SENTINEL ? NaN : value,
+    ) as CachedEntry;
     if (!parsed || typeof parsed.expiresAt !== 'number' || parsed.expiresAt < Date.now()) {
       sessionStorage.removeItem(key);
       return null;
@@ -180,7 +183,9 @@ function writeCache(key: string, forecast: SpotForecast): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
     const entry: CachedEntry = { forecast, expiresAt: Date.now() + CACHE_TTL_MS };
-    sessionStorage.setItem(key, JSON.stringify(entry));
+    sessionStorage.setItem(key, JSON.stringify(entry, (_field, value: unknown) =>
+      typeof value === 'number' && Number.isNaN(value) ? CACHE_NAN_SENTINEL : value,
+    ));
   } catch {
     // Quota exceeded or storage disabled — ignore, we'll just refetch.
   }
@@ -264,7 +269,7 @@ function pick(arr: number[] | undefined, i: number): number {
 }
 
 function hourKeyFromOpenMeteo(epochSeconds: number): string | null {
-  if (!Number.isFinite(epochSeconds)) return null;
+  if (!Number.isFinite(epochSeconds) || !Number.isInteger(epochSeconds) || epochSeconds % 3_600 !== 0) return null;
   const instant = new Date(epochSeconds * 1000);
   return Number.isNaN(instant.getTime()) ? null : formatCanonicalHourKey(instant);
 }
@@ -281,15 +286,28 @@ export function mergeOpenMeteoResponses(
 
     // Build an index of AQI hour -> array position for O(n) merging.
     const aqiIndex = new Map<string, number>();
+    const duplicateAqiKeys = new Set<string>();
     const aqiTimes = air?.hourly?.time ?? [];
     for (let i = 0; i < aqiTimes.length; i++) {
       const key = hourKeyFromOpenMeteo(aqiTimes[i]);
-      if (key) aqiIndex.set(key, i);
+      if (!key) continue;
+      if (aqiIndex.has(key)) {
+        aqiIndex.delete(key);
+        duplicateAqiKeys.add(key);
+      } else if (!duplicateAqiKeys.has(key)) {
+        aqiIndex.set(key, i);
+      }
+    }
+
+    const weatherKeyCounts = new Map<string, number>();
+    for (const time of times) {
+      const key = hourKeyFromOpenMeteo(time);
+      if (key) weatherKeyCounts.set(key, (weatherKeyCounts.get(key) ?? 0) + 1);
     }
 
     for (let i = 0; i < times.length; i++) {
       const key = hourKeyFromOpenMeteo(times[i]);
-      if (!key) continue;
+      if (!key || weatherKeyCounts.get(key) !== 1) continue;
       const visibilityMeters = pick(forecast.hourly?.visibility, i);
       const aqiI = aqiIndex.get(key);
 

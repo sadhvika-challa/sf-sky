@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SCORE_CARD_ORDER,
-  canonicalKeysRepeatLocalHour,
+  addCityCalendarDays,
   deriveSpotTimelineHourKeys,
   describeActiveForecastTrust,
   formatActiveTimelineLabel,
@@ -13,6 +13,7 @@ import {
   nearestForecastAtCityInstant,
   parseCanonicalHourKey,
   resolveLegacyWallClockHour,
+  isRepeatedLocalHourKey,
   viewModeForHourKey,
 } from '../timeline';
 import type { HourlyForecast, SpotForecast } from '../weather';
@@ -59,16 +60,36 @@ describe('canonical timeline identity', () => {
   });
 
   it.each([
-    ['America/Chicago', '2026-11-01T06:00:00Z', '2026-11-01T07:00:00Z', 'CDT', 'CST'],
-    ['America/Los_Angeles', '2026-11-01T08:00:00Z', '2026-11-01T09:00:00Z', 'PDT', 'PST'],
-  ])('keeps both repeated %s hours distinct and labels their zones', (zone, first, second, firstAbbr, secondAbbr) => {
+    ['Chicago and Austin', 'America/Chicago', '2026-11-01T06:00:00Z', '2026-11-01T07:00:00Z', 'CDT', 'CST'],
+    ['San Francisco and Santa Cruz', 'America/Los_Angeles', '2026-11-01T08:00:00Z', '2026-11-01T09:00:00Z', 'PDT', 'PST'],
+  ])('keeps both repeated hours distinct for %s', (_cities, zone, first, second, firstAbbr, secondAbbr) => {
     const keys = [first, second];
     expect(formatLegacyWallHour(parseCanonicalHourKey(first)!, zone)).toBe('2026-11-01T01');
     expect(formatLegacyWallHour(parseCanonicalHourKey(second)!, zone)).toBe('2026-11-01T01');
-    expect(canonicalKeysRepeatLocalHour(first, keys, zone)).toBe(true);
+    expect(isRepeatedLocalHourKey(first, zone)).toBe(true);
     expect(formatCanonicalHourLabel(first, zone, { includeZone: true })).toContain(firstAbbr);
     expect(formatCanonicalHourLabel(second, zone, { includeZone: true })).toContain(secondAbbr);
-    expect(resolveLegacyWallClockHour('2026-11-01T01', keys, zone)).toBe(first);
+    expect(resolveLegacyWallClockHour('2026-11-01T01', keys, zone)).toBeNull();
+  });
+
+  it.each([
+    ['Chicago and Austin spring', 'America/Chicago', '2026-03-08T06:00:00Z', '2026-03-08T00', '2026-03-09T00'],
+    ['Chicago and Austin fall', 'America/Chicago', '2026-11-01T05:00:00Z', '2026-11-01T00', '2026-11-01T22'],
+    ['San Francisco and Santa Cruz spring', 'America/Los_Angeles', '2026-03-08T08:00:00Z', '2026-03-08T00', '2026-03-09T00'],
+    ['San Francisco and Santa Cruz fall', 'America/Los_Angeles', '2026-11-01T07:00:00Z', '2026-11-01T00', '2026-11-01T22'],
+  ])('returns 24 consecutive real instants across %s', (_name, zone, start, firstWall, lastWall) => {
+    const startMs = Date.parse(start);
+    const keys = Array.from({ length: 25 }, (_, index) => formatCanonicalHourKey(new Date(startMs + index * 3_600_000)));
+    const selected = deriveSpotTimelineHourKeys(keys, new Date(startMs - 1));
+    expect(selected).toHaveLength(24);
+    expect(selected.every((key, index) => index === 0 || Date.parse(key) - Date.parse(selected[index - 1]) === 3_600_000)).toBe(true);
+    expect(formatLegacyWallHour(parseCanonicalHourKey(selected[0])!, zone)).toBe(firstWall);
+    expect(formatLegacyWallHour(parseCanonicalHourKey(selected[23])!, zone)).toBe(lastWall);
+  });
+
+  it('adds Tomorrow by city calendar across the spring transition eve', () => {
+    expect(addCityCalendarDays(new Date('2026-03-08T07:30:00Z'), 'America/Los_Angeles', 1)).toBe('2026-03-08');
+    expect(addCityCalendarDays(new Date('2026-03-08T07:30:00Z'), 'America/Chicago', 1)).toBe('2026-03-09');
   });
 
   it.each([
@@ -103,6 +124,13 @@ describe('canonical timeline identity', () => {
     expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', now)).toBe('Right now');
     expect(formatActiveTimelineLabel('2026-08-31T01:00:00Z', 'sunset', 'America/Chicago', now))
       .toBe('Sunset · Today at 8:00 PM');
+  });
+
+  it('includes the zone in live and selected Search labels during a repeated hour', () => {
+    expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', new Date('2026-11-01T06:15:00Z')))
+      .toBe('Right now · 1:15 AM CDT');
+    expect(formatActiveTimelineLabel('2026-11-01T07:00:00Z', 'now', 'America/Chicago', new Date('2026-11-01T06:15:00Z')))
+      .toContain('1:00 AM CST');
   });
 
   it('describes active Search trust without overstating fallback estimates', () => {

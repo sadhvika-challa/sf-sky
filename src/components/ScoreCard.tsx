@@ -13,10 +13,11 @@ import UnifiedTimeline from './UnifiedTimeline';
 import { computeEventTimes } from '../utils/events';
 import {
   deriveSpotTimelineHourKeys,
+  addCityCalendarDays,
   formatCanonicalHourKey,
   formatCityCalendarDate,
+  formatInstantTimeLabel,
   normalizeTimelineHourKey,
-  parseCanonicalHourKey,
 } from '../utils/timeline';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
@@ -24,7 +25,7 @@ type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 interface ScoreCardProps {
   spot: Spot;
   type: CardType;
-  eventDate: Date;
+  eventInstant: Date;
   city: City;
   scrubHourKey?: string;
   scrubViewMode?: 'now' | 'sunrise' | 'sunset' | 'stargazing';
@@ -36,26 +37,21 @@ interface ScoreCardProps {
   forecast: SpotForecast | null;
   forecastLoading: boolean;
   forecastError: Error | null;
+  now: Date;
 }
 
 function formatTime(date: Date, timeZone: string): { time: string; period: string } {
-  const str = date.toLocaleTimeString('en-US', {
-    timeZone,
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-  const parts = str.match(/^([\d:]+)\s*(AM|PM)$/i);
-  if (parts) return { time: parts[1], period: parts[2].toLowerCase() };
+  const str = formatInstantTimeLabel(date, timeZone);
+  const parts = str.match(/^([\d:]+)\s*(AM|PM)(?:\s+(.+))?$/i);
+  if (parts) return { time: parts[1], period: `${parts[2].toLowerCase()}${parts[3] ? ` ${parts[3]}` : ''}` };
   return { time: str, period: '' };
 }
 
-function formatDateShort(date: Date, timeZone: string): string {
-  const now = new Date();
+function formatDateShort(date: Date, timeZone: string, now: Date): string {
   const dateKey = formatCityCalendarDate(date, timeZone);
   const todayKey = formatCityCalendarDate(now, timeZone);
   if (dateKey === todayKey) return 'Today';
-  const tomorrowKey = formatCityCalendarDate(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone);
+  const tomorrowKey = addCityCalendarDays(now, timeZone, 1);
   if (dateKey === tomorrowKey) return 'Tomorrow';
   return date.toLocaleDateString('en-US', { timeZone, month: 'short', day: 'numeric' });
 }
@@ -493,35 +489,14 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error, now }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
 
-  const times = SunCalc.getTimes(eventDate, spot.lat, spot.lng);
   const displayType: CardType = type === 'now' ? (scrubViewMode ?? 'now') : type;
-  const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventDate, timeZone);
-  let eventInstant: Date;
-
-  let eventTimeData: { time: string; period: string };
-  if (type === 'now') {
-    if (!scrubHourKey) {
-      eventInstant = new Date();
-      eventTimeData = formatTime(eventInstant, timeZone);
-    } else {
-      eventInstant = parseCanonicalHourKey(scrubHourKey) ?? new Date();
-      eventTimeData = formatTime(eventInstant, timeZone);
-    }
-  } else if (type === 'sunrise') {
-    eventInstant = times.sunrise;
-    eventTimeData = formatTime(times.sunrise, timeZone);
-  } else if (type === 'sunset') {
-    eventInstant = times.sunset;
-    eventTimeData = formatTime(times.sunset, timeZone);
-  } else {
-    eventInstant = times.nauticalDusk;
-    eventTimeData = formatTime(times.nauticalDusk, timeZone);
-  }
+  const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventInstant, timeZone, now);
+  const eventTimeData = formatTime(eventInstant, timeZone);
   const fullDate = formatFullDate(eventInstant, timeZone);
   const moonIllum = SunCalc.getMoonIllumination(eventInstant);
 
@@ -573,9 +548,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const gradient = getSkyGradient(displayType, score);
 
   const timelineHourKeys = forecast
-    ? deriveSpotTimelineHourKeys(Object.keys(forecast.hours), new Date())
+    ? deriveSpotTimelineHourKeys(Object.keys(forecast.hours), now)
     : [];
-  const eventTimes = computeEventTimes(new Date(), spot.lat, spot.lng);
+  const eventTimes = computeEventTimes(now, spot.lat, spot.lng);
 
   const tempF = hourly && Number.isFinite(hourly.tempF) ? hourly.tempF : null;
   const [tempUnit, setTempUnit] = useTempUnit();
@@ -595,7 +570,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
       : '';
     const url = `${window.location.origin}/?spot=${spot.id}&view=${type}${hourParam}`;
     const title = `Soleil \u00b7 ${spot.name}`;
-    const timeContext = type === 'now' && scrubHourKey
+    const timeContext = type === 'now'
       ? ` at ${eventTimeData.time} ${eventTimeData.period}`
       : '';
     const text = score >= 60
@@ -725,7 +700,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   type="button"
                   onClick={handleShare}
                   className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
-                  aria-label={`Share ${type === 'now' && scrubHourKey ? 'selected hour' : typeTitle[type].toLowerCase()} card for ${spot.name}`}
+                  aria-label={`Share ${type === 'now' && scrubHourKey ? 'selected hour' : typeTitle[type].toLowerCase()} card for ${spot.name}${type === 'now' ? ` at ${formatInstantTimeLabel(eventInstant, timeZone)}` : ''}`}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 3v12" />
@@ -836,6 +811,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                     eventTimes={eventTimes}
                     timeZone={timeZone}
                     loading={loading}
+                    now={now}
                   />
                 </div>
               )}

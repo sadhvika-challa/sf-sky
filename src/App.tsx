@@ -178,7 +178,7 @@ function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType; hourKe
     spot,
     cardType: isCardType(viewParam) ? viewParam : undefined,
     hourKey: viewParam === 'now' && isCanonicalHourKey(instantParam) ? instantParam : undefined,
-    legacyHour: viewParam === 'now' && /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(hourParam ?? '')
+    legacyHour: viewParam === 'now' && !isCanonicalHourKey(instantParam) && /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(hourParam ?? '')
       ? hourParam ?? undefined
       : undefined,
   };
@@ -278,13 +278,22 @@ function App() {
   const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
     useNeighborhoodForecasts(true, activeCityConfig.timeZone);
 
-  // Legacy links carried an ambiguous city-local wall hour. Resolve only
-  // after the selected spot's canonical forecast is available. A repeated
-  // fall hour chooses the earlier occurrence; a spring gap stays at Now.
+  // Normalize deep links only after the selected spot's forecast is known.
+  // Canonical links must exist in that forecast. Legacy wall times resolve
+  // only when exactly one instant matches, so repeats and gaps stay at Now.
   useEffect(() => {
-    if (!initialDeepLink.legacyHour || timelineHourKey || !initialDeepLink.spot) return;
+    if (!initialDeepLink.spot) return;
     const forecast = timelineScores.forecasts.get(initialDeepLink.spot.id);
     if (!forecast) return;
+    if (
+      initialDeepLink.hourKey &&
+      timelineHourKey === initialDeepLink.hourKey &&
+      !forecast.hours[initialDeepLink.hourKey]
+    ) {
+      queueMicrotask(() => setTimelineHourKey(''));
+      return;
+    }
+    if (!initialDeepLink.legacyHour || timelineHourKey) return;
     const resolved = resolveLegacyWallClockHour(
       initialDeepLink.legacyHour,
       Object.keys(forecast.hours),
@@ -753,6 +762,7 @@ function App() {
             nowIndex={nowIndex}
             timeZone={activeCityConfig.timeZone}
             center={activeCityConfig.center}
+            now={now}
           />
         </div>
       )}
@@ -821,6 +831,7 @@ function App() {
             !timelineScores.forecastErrors.has(selectedSpot.id)
           }
           forecastError={timelineScores.forecastErrors.get(selectedSpot.id) ?? null}
+          now={now}
         />
       )}
 

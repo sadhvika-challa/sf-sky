@@ -153,6 +153,28 @@ describe('Unix-time forecast ingestion', () => {
     expect(result).toMatchObject({ timeZone: 'America/Chicago', fetchedAt: 1234 });
   });
 
+  it('rejects malformed and duplicate source epochs without overwriting an hour', () => {
+    const valid = Date.parse('2026-11-01T06:00:00Z') / 1000;
+    const next = valid + 3_600;
+    const result = mergeOpenMeteoResponses({
+      hourly: {
+        time: [valid, valid, next, next + 1, 1.5, NaN],
+        cloud_cover: [10, 99, 20, 30, 40, 50],
+      },
+    }, {
+      hourly: {
+        time: [next, next, valid + 1],
+        pm2_5: [4, 99, 8],
+        us_aqi: [18, 199, 28],
+      },
+    }, 'America/Chicago', 1234);
+
+    expect(result.hours['2026-11-01T06:00:00Z']).toBeUndefined();
+    expect(result.hours['2026-11-01T07:00:00Z']).toMatchObject({ cloud: 20 });
+    expect(result.hours['2026-11-01T07:00:00Z'].pm25).toBeNaN();
+    expect(Object.keys(result.hours)).toEqual(['2026-11-01T07:00:00Z']);
+  });
+
   it('sends Unix-time requests with the configured zone and isolates inflight identity by zone', async () => {
     const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {

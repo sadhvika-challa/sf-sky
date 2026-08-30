@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import SunCalc from 'suncalc';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
@@ -10,59 +9,34 @@ import ScoreCard from './ScoreCard';
 import { parseCanonicalHourKey, SCORE_CARD_ORDER } from '../utils/timeline';
 import type { SpotForecast } from '../utils/weather';
 import { scoreEvidenceAccessibilityLabel } from '../utils/confidence';
+import { getUpcomingEventTimes } from '../utils/events';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
 interface CardInfo {
   type: CardType;
-  eventDate: Date;
   eventTime: Date;
 }
 
-function getNextEvents(spot: Spot, scrubHourKey: string): CardInfo[] {
-  const now = new Date();
+function getNextEvents(spot: Spot, scrubHourKey: string, now: Date): CardInfo[] {
   const selectedInstant = scrubHourKey
     ? (parseCanonicalHourKey(scrubHourKey) ?? now)
     : now;
-  const today = new Date(now);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const todayTimes = SunCalc.getTimes(today, spot.lat, spot.lng);
-  const tomorrowTimes = SunCalc.getTimes(tomorrow, spot.lat, spot.lng);
+  const events = getUpcomingEventTimes(spot, now);
 
   const cardsMap = new Map<CardType, CardInfo>();
 
   // Now
-  cardsMap.set('now', { type: 'now', eventDate: selectedInstant, eventTime: selectedInstant });
+  cardsMap.set('now', { type: 'now', eventTime: selectedInstant });
 
   // Sunrise
-  if (todayTimes.sunrise > now) {
-    cardsMap.set('sunrise', { type: 'sunrise', eventDate: today, eventTime: todayTimes.sunrise });
-  } else {
-    cardsMap.set('sunrise', { type: 'sunrise', eventDate: tomorrow, eventTime: tomorrowTimes.sunrise });
-  }
+  cardsMap.set('sunrise', { type: 'sunrise', eventTime: events.sunrise });
 
   // Sunset
-  if (todayTimes.sunset > now) {
-    cardsMap.set('sunset', { type: 'sunset', eventDate: today, eventTime: todayTimes.sunset });
-  } else {
-    cardsMap.set('sunset', { type: 'sunset', eventDate: tomorrow, eventTime: tomorrowTimes.sunset });
-  }
+  cardsMap.set('sunset', { type: 'sunset', eventTime: events.sunset });
 
   // Stargazing
-  const todayDusk = todayTimes.nauticalDusk;
-  const todayStarEnd = new Date(todayDusk.getTime() + 3 * 60 * 60 * 1000);
-  if (todayStarEnd > now) {
-    cardsMap.set('stargazing', {
-      type: 'stargazing',
-      eventDate: today,
-      eventTime: todayDusk > now ? todayDusk : now,
-    });
-  } else {
-    const tomorrowDusk = tomorrowTimes.nauticalDusk;
-    cardsMap.set('stargazing', { type: 'stargazing', eventDate: tomorrow, eventTime: tomorrowDusk });
-  }
+  cardsMap.set('stargazing', { type: 'stargazing', eventTime: events.stargazing });
 
   return SCORE_CARD_ORDER.map((type) => cardsMap.get(type)!);
 }
@@ -311,6 +285,7 @@ interface ScorePanelProps {
   forecast: SpotForecast | null;
   forecastLoading: boolean;
   forecastError: Error | null;
+  now: Date;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -339,7 +314,7 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError, now }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
@@ -361,7 +336,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const cards = getNextEvents(spot, timelineHourKey);
+  const cards = getNextEvents(spot, timelineHourKey, now);
   // The Now card remains the sheet's primary card. Its score uses the active
   // mode field from the same live map that drives the selected map pin.
   const primary = cards[0];
@@ -802,7 +777,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     <ScoreCard
                       spot={spot}
                       type={card.type}
-                      eventDate={card.eventDate}
+                      eventInstant={card.eventTime}
                       city={city}
                       scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
                       scrubViewMode={card.type === 'now' ? viewMode : undefined}
@@ -816,6 +791,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                       forecast={forecast}
                       forecastLoading={forecastLoading}
                       forecastError={forecastError}
+                      now={now}
                     />
                   </div>
                 </div>

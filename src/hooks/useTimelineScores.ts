@@ -81,7 +81,7 @@ export function canonicalScoresForSpot(
   loading = false,
   error: Error | null = null,
 ): CanonicalSpotScores {
-  const events = getUpcomingEventTimes(spot);
+  const events = getUpcomingEventTimes(spot, now);
   const sunriseHour = forecast ? exactHour(forecast, events.sunrise) : null;
   const sunsetHour = forecast ? exactHour(forecast, events.sunset) : null;
   const starHour = forecast ? exactHour(forecast, events.stargazing) : null;

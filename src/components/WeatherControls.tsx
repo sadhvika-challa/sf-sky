@@ -11,12 +11,13 @@ import {
   NowIcon,
 } from './icons/ScrubberIcons';
 import {
-  canonicalKeysRepeatLocalHour,
+  addCityCalendarDays,
   cityCalendarParts,
   formatCanonicalHourKey,
   formatCanonicalHourLabel,
   formatCityCalendarDate,
   parseCanonicalHourKey,
+  isRepeatedLocalHourKey,
 } from '../utils/timeline';
 
 export interface EventMarker {
@@ -37,6 +38,7 @@ interface WeatherControlsProps {
   bestScorePerHour?: Map<string, number>;
   timeZone: string;
   center: [number, number];
+  now: Date;
 }
 
 const SCRUBBER_HOUR_LIMIT = 48;
@@ -127,6 +129,7 @@ export default function WeatherControls({
   bestScorePerHour,
   timeZone,
   center,
+  now,
 }: WeatherControlsProps) {
   const visibleKeys = useMemo(
     () => hourKeys.slice(0, SCRUBBER_HOUR_LIMIT),
@@ -158,7 +161,7 @@ export default function WeatherControls({
   const currentPalette = TIME_PALETTES[selectedType];
   const typeLabel = TYPE_LABELS[selectedType];
   const contextLabel = hourKey
-    ? formatContextLabel(hourKey, timeZone, canonicalKeysRepeatLocalHour(hourKey, visibleKeys, timeZone))
+    ? formatContextLabel(hourKey, timeZone, now, isRepeatedLocalHourKey(hourKey, timeZone))
     : '–';
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -240,7 +243,8 @@ export default function WeatherControls({
                     bestScore={bestScorePerHour?.get(key)}
                     palette={TIME_PALETTES[type]}
                     timeZone={timeZone}
-                    repeated={canonicalKeysRepeatLocalHour(key, visibleKeys, timeZone)}
+                    repeated={isRepeatedLocalHourKey(key, timeZone)}
+                    now={now}
                     cardRef={(node) => {
                       if (node) cardRefs.current.set(key, node);
                       else cardRefs.current.delete(key);
@@ -271,6 +275,7 @@ interface HourCardProps {
   onClick: () => void;
   timeZone: string;
   repeated: boolean;
+  now: Date;
 }
 
 function HourCard({
@@ -284,8 +289,12 @@ function HourCard({
   onClick,
   timeZone,
   repeated,
+  now,
 }: HourCardProps) {
-  const timeLabel = isNow ? 'Now' : formatShortHour(hourKey, timeZone, repeated);
+  const context = formatContextLabel(hourKey, timeZone, now, repeated);
+  const timeLabel = isNow
+    ? (repeated ? `Now · ${formatShortHour(hourKey, timeZone, true)}` : 'Now')
+    : formatShortHour(hourKey, timeZone, repeated);
 
   return (
     <button
@@ -293,7 +302,7 @@ function HourCard({
       type="button"
       onClick={onClick}
       aria-pressed={isSelected}
-      aria-label={`${isNow ? 'Now' : formatContextLabel(hourKey, timeZone, repeated)}${
+      aria-label={`${isNow ? `Now, ${context}` : context}${
         bestScore !== undefined ? `, best score ${Math.round(bestScore)}` : ''
       }`}
       className="flex flex-col items-center gap-1 min-w-[48px] px-2 py-2.5 rounded-2xl border-[1.5px] transition-all duration-200 ease-out cursor-pointer"
@@ -458,13 +467,12 @@ function formatShortHour(hourKey: string, timeZone: string, includeZone = false)
  * Date context for the header, e.g. "Tonight · 8:35pm", "Today · 2:15pm",
  * "Tomorrow · 6:12am".
  */
-function formatContextLabel(hourKey: string, timeZone: string, includeZone = false): string {
+function formatContextLabel(hourKey: string, timeZone: string, now: Date, includeZone = false): string {
   const parsed = parseCanonicalHourKey(hourKey);
   if (!parsed) return hourKey;
 
-  const now = new Date();
   const today = formatCityCalendarDate(now, timeZone);
-  const tomorrow = formatCityCalendarDate(new Date(now.getTime() + 86_400_000), timeZone);
+  const tomorrow = addCityCalendarDays(now, timeZone, 1);
   const target = formatCityCalendarDate(parsed, timeZone);
   const hour = cityCalendarParts(parsed, timeZone).hour;
   let dayWord: string;

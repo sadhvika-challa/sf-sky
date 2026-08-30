@@ -66,14 +66,21 @@ export function formatLegacyWallHour(date: Date, timeZone: string): string {
   return `${formatCityCalendarDate(date, timeZone)}T${String(p.hour).padStart(2, '0')}`;
 }
 
-/** Resolve an old wall-clock link. Repeated hours choose the earlier instant. */
+/** Resolve an old wall-clock link only when it identifies exactly one instant. */
 export function resolveLegacyWallClockHour(legacyHour: string, availableKeys: readonly string[], timeZone: string): CanonicalHourKey | null {
   if (!validCalendarParts(LEGACY_WALL_HOUR_PATTERN.exec(legacyHour))) return null;
   const matches = availableKeys.filter(isCanonicalHourKey).filter((key) => {
     const instant = parseCanonicalHourKey(key);
     return instant !== null && formatLegacyWallHour(instant, timeZone) === legacyHour;
   }).sort();
-  return (matches[0] as CanonicalHourKey | undefined) ?? null;
+  return matches.length === 1 ? matches[0] as CanonicalHourKey : null;
+}
+
+/** Add calendar days in a city without assuming every local day is 24 hours. */
+export function addCityCalendarDays(date: Date, timeZone: string, days: number): string {
+  const parts = cityCalendarParts(date, timeZone);
+  const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 12));
+  return `${String(shifted.getUTCFullYear()).padStart(4, '0')}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}`;
 }
 
 function displayTimeFormatter(timeZone: string, includeZone: boolean): Intl.DateTimeFormat {
@@ -103,14 +110,26 @@ export function formatCanonicalHourLabel(hourKey: string, timeZone: string, opti
   return instant ? displayTimeFormatter(timeZone, options.includeZone ?? false).format(instant) : hourKey;
 }
 
-export function canonicalKeysRepeatLocalHour(hourKey: string, availableKeys: readonly string[], timeZone: string): boolean {
-  const instant = parseCanonicalHourKey(hourKey);
-  if (!instant) return false;
+/** Detect a repeated city-local hour from neighboring real instants. */
+export function isRepeatedLocalHourInstant(instant: Date, timeZone: string): boolean {
+  if (Number.isNaN(instant.getTime())) return false;
   const wall = formatLegacyWallHour(instant, timeZone);
-  return availableKeys.filter((key) => {
-    const candidate = parseCanonicalHourKey(key);
-    return candidate !== null && formatLegacyWallHour(candidate, timeZone) === wall;
-  }).length > 1;
+  return [-3_600_000, 3_600_000].some((delta) =>
+    formatLegacyWallHour(new Date(instant.getTime() + delta), timeZone) === wall,
+  );
+}
+
+export function isRepeatedLocalHourKey(hourKey: string, timeZone: string): boolean {
+  const instant = parseCanonicalHourKey(hourKey);
+  return instant !== null && isRepeatedLocalHourInstant(instant, timeZone);
+}
+
+export function formatInstantTimeLabel(
+  instant: Date,
+  timeZone: string,
+  includeZone = isRepeatedLocalHourInstant(instant, timeZone),
+): string {
+  return displayTimeFormatter(timeZone, includeZone).format(instant);
 }
 
 function forecastTimeIndex(forecast: SpotForecast): Array<{ key: string; instantMs: number }> {
@@ -140,14 +159,18 @@ export function nearestForecastAtCityInstant(forecast: SpotForecast, instant: Da
 const VIEW_MODE_NAMES: Record<ViewMode, string> = { now: 'Now', sunrise: 'Sunrise', sunset: 'Sunset', stargazing: 'Stargazing' };
 
 export function formatActiveTimelineLabel(hourKey: string, viewMode: ViewMode, timeZone: string, now: Date): string {
-  if (hourKey === '') return 'Right now';
+  if (hourKey === '') {
+    return isRepeatedLocalHourInstant(now, timeZone)
+      ? `Right now · ${formatInstantTimeLabel(now, timeZone)}`
+      : 'Right now';
+  }
   const instant = parseCanonicalHourKey(hourKey);
   if (!instant) return `${VIEW_MODE_NAMES[viewMode]} · selected hour unavailable`;
   const selectedDate = formatCityCalendarDate(instant, timeZone);
   const todayDate = formatCityCalendarDate(now, timeZone);
-  const tomorrowDate = formatCityCalendarDate(new Date(now.getTime() + 86_400_000), timeZone);
+  const tomorrowDate = addCityCalendarDays(now, timeZone, 1);
   const dateLabel = selectedDate === todayDate ? 'Today' : selectedDate === tomorrowDate ? 'Tomorrow' : displayDateFormatter(timeZone).format(instant);
-  return `${VIEW_MODE_NAMES[viewMode]} · ${dateLabel} at ${displayTimeFormatter(timeZone, false).format(instant)}`;
+  return `${VIEW_MODE_NAMES[viewMode]} · ${dateLabel} at ${displayTimeFormatter(timeZone, isRepeatedLocalHourInstant(instant, timeZone)).format(instant)}`;
 }
 
 export function describeActiveForecastTrust(activeStates: readonly boolean[]): string {

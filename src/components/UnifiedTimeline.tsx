@@ -2,10 +2,11 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ViewMode } from '../utils/scoring';
 import type { EventTimes } from '../utils/events';
 import {
-  canonicalKeysRepeatLocalHour,
   formatCanonicalHourLabel,
   formatCityCalendarDate,
+  formatInstantTimeLabel,
   parseCanonicalHourKey,
+  isRepeatedLocalHourInstant,
 } from '../utils/timeline';
 
 interface UnifiedTimelineProps {
@@ -16,6 +17,7 @@ interface UnifiedTimelineProps {
   eventTimes: EventTimes;
   timeZone: string;
   loading?: boolean;
+  now: Date;
 }
 
 const ZONE_COLORS: Record<ViewMode, string> = {
@@ -41,16 +43,16 @@ function formatTime(date: Date, timeZone: string, includeMinutes = true): string
   }).format(date).toLowerCase().replace(/\s/g, '');
 }
 
-function formatSelectedTime(hourKey: string, hourKeys: string[], timeZone: string): string {
-  if (!hourKey) return `Now · ${formatTime(new Date(), timeZone, false)}`;
+function formatSelectedTime(hourKey: string, timeZone: string, now: Date): string {
+  if (!hourKey) return `Now · ${formatInstantTimeLabel(now, timeZone)}`;
   const instant = parseCanonicalHourKey(hourKey);
   if (!instant) return 'Forecast hour unavailable';
-  const todayKey = formatCityCalendarDate(new Date(), timeZone);
+  const todayKey = formatCityCalendarDate(now, timeZone);
   const selectedDate = formatCityCalendarDate(instant, timeZone);
   const dayLabel = selectedDate === todayKey
     ? 'Today'
     : new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }).format(instant);
-  const includeZone = canonicalKeysRepeatLocalHour(hourKey, hourKeys, timeZone);
+  const includeZone = isRepeatedLocalHourInstant(instant, timeZone);
   return `${dayLabel} · ${formatCanonicalHourLabel(hourKey, timeZone, { includeZone })}`;
 }
 
@@ -77,6 +79,7 @@ export default function UnifiedTimeline({
   eventTimes,
   timeZone,
   loading = false,
+  now,
 }: UnifiedTimelineProps) {
   const railRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -121,7 +124,7 @@ export default function UnifiedTimeline({
     if (key) onHourChange(key);
   }, [eventTimes, hourKeys, onHourChange]);
 
-  const valueText = `${VIEW_MODE_LABELS[viewMode]}, ${formatSelectedTime(hourKey, hourKeys, timeZone)}`;
+  const valueText = `${VIEW_MODE_LABELS[viewMode]}, ${formatSelectedTime(hourKey, timeZone, now)}`;
 
   return (
     <div
@@ -137,7 +140,7 @@ export default function UnifiedTimeline({
           {VIEW_MODE_LABELS[viewMode]}
         </span>
         <span className="font-mono text-[11px] tabular-nums text-[#9a9488]" aria-live="polite">
-          {formatSelectedTime(hourKey, hourKeys, timeZone)}
+          {formatSelectedTime(hourKey, timeZone, now)}
         </span>
       </div>
 
