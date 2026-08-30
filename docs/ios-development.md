@@ -122,7 +122,7 @@ The shell intentionally contains no Apple team ID, signing certificate, provisio
 
 The Xcode target retains automatic signing so a developer can select their own team locally after enrollment. The repository does not pin a signing identity. CI disables signing only for its unsigned archive command.
 
-Before preparing a release candidate, run `npm run ios:release:verify`. Development mode reports unresolved human gates without hiding them. Strict candidate mode requires the intended version and build plus explicit approval inputs for the gates it evaluates. Run `npm run ios:release:verify -- --help` for the exact inputs. It does not replace the [App Store release checklist](./app-store-release-checklist.md) or [TestFlight acceptance checklist](./testflight-acceptance.md), which cover account, policy, archive, and physical-device evidence that repository checks cannot provide.
+Before preparing a release candidate, run `npm run ios:release:verify`. Development mode reports unresolved human gates without hiding them. Strict candidate mode requires the intended version and build, the exact full source commit, a clean worktree, and explicit approval inputs for the gates it evaluates. Use `--report` to retain a machine-readable result that includes the source binding, dependency-lock digests, checks, and gate state. Run `npm run ios:release:verify -- --help` for the exact inputs. It does not replace the [App Store release checklist](./app-store-release-checklist.md) or [TestFlight acceptance checklist](./testflight-acceptance.md), which cover account, policy, archive, and physical-device evidence that repository checks cannot provide.
 
 ## Physical iPhone location acceptance
 
