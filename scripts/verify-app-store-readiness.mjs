@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { inspectMapProviderContract } from './map-provider-contract.mjs';
 
 const root = new URL('../', import.meta.url);
+const rootPath = fileURLToPath(root);
 const paths = {
   capacitor: 'capacitor.config.ts',
   iconContents: 'ios/App/App/Assets.xcassets/AppIcon.appiconset/Contents.json',
@@ -31,6 +35,8 @@ const parseArguments = (args) => {
   const options = {
     expectedBuild: process.env.SOLEIL_BUILD_NUMBER,
     expectedMarketing: process.env.SOLEIL_MARKETING_VERSION,
+    report: process.env.SOLEIL_PREFLIGHT_REPORT ? resolve(process.env.SOLEIL_PREFLIGHT_REPORT) : undefined,
+    sourceCommit: process.env.SOLEIL_SOURCE_COMMIT,
     strict: process.env.SOLEIL_RELEASE_CANDIDATE === '1',
     approvals: {
       artwork: isApproved(process.env.SOLEIL_ARTWORK_APPROVAL),
@@ -55,10 +61,20 @@ const parseArguments = (args) => {
       if (!value || value.startsWith('--')) throw new Error('--build-number requires a value.');
       options.expectedBuild = value;
       index += 1;
+    } else if (argument === '--source-commit') {
+      const value = args[index + 1];
+      if (!value || value.startsWith('--')) throw new Error('--source-commit requires a value.');
+      options.sourceCommit = value;
+      index += 1;
+    } else if (argument === '--report') {
+      const value = args[index + 1];
+      if (!value || value.startsWith('--')) throw new Error('--report requires a value.');
+      options.report = resolve(value);
+      index += 1;
     } else if (argument === '--help') {
-      console.log('Usage: npm run ios:release:verify -- [--strict] [--marketing-version 1.0.0] [--build-number 1]');
-      console.log('Strict mode requires both intended versions and every applicable human gate to resolve.');
-      console.log('Version environment: SOLEIL_RELEASE_CANDIDATE=1 SOLEIL_MARKETING_VERSION=1.0.0 SOLEIL_BUILD_NUMBER=1');
+      console.log('Usage: npm run ios:release:verify -- [--strict] [--marketing-version 1.0.0] [--build-number 1] [--source-commit SHA] [--report PATH]');
+      console.log('Strict mode requires intended versions, a matching full source commit, a clean worktree, an external JSON report path, and every applicable human gate to resolve.');
+      console.log('Candidate environment: SOLEIL_RELEASE_CANDIDATE=1 SOLEIL_MARKETING_VERSION=1.0.0 SOLEIL_BUILD_NUMBER=1 SOLEIL_SOURCE_COMMIT=<full SHA> SOLEIL_PREFLIGHT_REPORT=<path>');
       console.log('Nonsecret attestations use the exact value "approved":');
       console.log('  SOLEIL_DEVICE_FAMILY_APPROVAL, SOLEIL_MAP_PROVIDER_APPROVAL,');
       console.log('  SOLEIL_PRIVACY_AUDIT_APPROVAL,');
@@ -76,6 +92,8 @@ const parseArguments = (args) => {
 const options = parseArguments(process.argv.slice(2));
 const readText = (path) => readFile(new URL(path, root), 'utf8');
 const readBytes = (path) => readFile(new URL(path, root));
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const git = (...args) => execFileSync('git', ['-C', rootPath, ...args], { encoding: 'utf8' }).trim();
 const readSourceTree = async (relativeDirectory) => {
   const directory = new URL(`${relativeDirectory}/`, root);
   const entries = await readdir(directory, { withFileTypes: true });
@@ -107,6 +125,42 @@ const staticChecks = [];
 const humanGates = [];
 const check = (label, passed, detail) => staticChecks.push({ label, passed, detail });
 const gate = (label, resolved, detail) => humanGates.push({ label, resolved, detail });
+
+const headCommit = git('rev-parse', 'HEAD');
+const worktreeStatus = git('status', '--porcelain=v1', '--untracked-files=all');
+const fullSourceCommit = typeof options.sourceCommit === 'string' && /^[0-9a-f]{40}$/.test(options.sourceCommit);
+const sourceCommitMatches = fullSourceCommit && options.sourceCommit === headCommit;
+const cleanWorktree = worktreeStatus.length === 0;
+const reportRelativePath = options.report ? relative(rootPath, options.report) : null;
+const reportOutsideWorktree = Boolean(
+  options.report
+  && (reportRelativePath === '..' || reportRelativePath?.startsWith(`..${sep}`)),
+);
+
+if (options.strict) {
+  check(
+    'Strict candidate writes a machine-readable report outside the worktree',
+    reportOutsideWorktree,
+    options.report
+      ? `Report path: ${options.report}`
+      : 'Supply --report or SOLEIL_PREFLIGHT_REPORT with a path outside the repository.',
+  );
+  check(
+    'Strict candidate source commit is an explicit full SHA',
+    fullSourceCommit,
+    options.sourceCommit ? `Found: ${options.sourceCommit}` : 'Supply --source-commit or SOLEIL_SOURCE_COMMIT.',
+  );
+  check(
+    'Strict candidate source commit matches checked-out HEAD',
+    sourceCommitMatches,
+    `Claimed: ${options.sourceCommit ?? 'none'}; HEAD: ${headCommit}`,
+  );
+  check(
+    'Strict candidate starts from a clean Git worktree',
+    cleanWorktree,
+    cleanWorktree ? 'The tracked and untracked worktree is clean.' : worktreeStatus,
+  );
+}
 
 const capture = (source, expression, label) => {
   const match = source.match(expression);
@@ -340,6 +394,48 @@ gate(
 const failedStatic = staticChecks.filter(({ passed }) => !passed);
 const unresolvedGates = humanGates.filter(({ resolved }) => !resolved);
 const symbol = (passed) => (passed ? 'PASS' : 'FAIL');
+const passed = failedStatic.length === 0 && (!options.strict || unresolvedGates.length === 0);
+
+if (options.report) {
+  const [packageLock, swiftPackageLock] = await Promise.all([
+    readBytes('package-lock.json'),
+    readBytes('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
+  ]);
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    mode: options.strict ? 'strict-release-candidate' : 'development',
+    passed,
+    source: {
+      claimedCommit: options.sourceCommit ?? null,
+      headCommit,
+      fullClaim: fullSourceCommit,
+      matchesHead: sourceCommitMatches,
+      cleanWorktree,
+      worktreeStatus: worktreeStatus ? worktreeStatus.split('\n') : [],
+    },
+    dependencies: {
+      packageLockSha256: sha256(packageLock),
+      swiftPackageResolvedSha256: sha256(swiftPackageLock),
+    },
+    intendedVersion: {
+      marketing: options.expectedMarketing ?? null,
+      build: options.expectedBuild ?? null,
+    },
+    approvals: options.approvals,
+    staticChecks,
+    humanGates,
+    summary: {
+      staticChecks: staticChecks.length,
+      staticFailures: failedStatic.length,
+      humanGates: humanGates.length,
+      unresolvedHumanGates: unresolvedGates.length,
+    },
+  };
+  await mkdir(dirname(options.report), { recursive: true });
+  await writeFile(options.report, `${JSON.stringify(report, null, 2)}\n`);
+  console.log(`\nMachine-readable report: ${options.report}`);
+}
 
 console.log('\nSoleil App Store release preflight');
 console.log(`Mode: ${options.strict ? 'strict release candidate' : 'development'}`);
@@ -356,7 +452,7 @@ for (const result of humanGates) {
   console.log(`[${result.resolved ? 'RESOLVED' : 'OPEN'}] ${result.label}${result.detail ? `: ${result.detail}` : ''}`);
 }
 
-if (failedStatic.length > 0 || (options.strict && unresolvedGates.length > 0)) {
+if (!passed) {
   console.error(`\nPreflight failed with ${failedStatic.length} static failure(s)${options.strict ? ` and ${unresolvedGates.length} open human gate(s)` : ''}.`);
   process.exitCode = 1;
 } else {
