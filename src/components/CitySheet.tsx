@@ -119,20 +119,27 @@ export default function CitySheet({
   const [homeSetFeedback, setHomeSetFeedback] = useState<string | null>(null);
 
   useEffect(() => {
+    let mountFrame: number | undefined;
+    let visibleFrame: number | undefined;
+    let exitTimer: ReturnType<typeof setTimeout> | undefined;
     if (open) {
-      setMounted(true);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => setVisible(true));
+      mountFrame = requestAnimationFrame(() => {
+        setMounted(true);
+        visibleFrame = requestAnimationFrame(() => setVisible(true));
       });
-    } else if (mounted) {
-      setVisible(false);
-      const t = setTimeout(() => {
+    } else {
+      mountFrame = requestAnimationFrame(() => setVisible(false));
+      exitTimer = setTimeout(() => {
         setMounted(false);
         setHomeSetFeedback(null);
       }, 300);
-      return () => clearTimeout(t);
     }
-  }, [open, mounted]);
+    return () => {
+      if (mountFrame !== undefined) cancelAnimationFrame(mountFrame);
+      if (visibleFrame !== undefined) cancelAnimationFrame(visibleFrame);
+      if (exitTimer !== undefined) clearTimeout(exitTimer);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

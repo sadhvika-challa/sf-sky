@@ -70,7 +70,16 @@ const ACTIVE_CITY_KEY = 'sky:activeCity';
 function readStoredWeatherOverlay(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    return window.localStorage.getItem(WEATHER_OVERLAY_KEY) === 'true';
+    const stored = window.localStorage.getItem(WEATHER_OVERLAY_KEY);
+    const oldMode = window.localStorage.getItem('sf-sky:appMode');
+    if (oldMode !== null) {
+      window.localStorage.removeItem('sf-sky:appMode');
+    }
+    if (oldMode === 'weather') {
+      window.localStorage.setItem(WEATHER_OVERLAY_KEY, 'true');
+      return true;
+    }
+    return stored === 'true';
   } catch {
     return false;
   }
@@ -165,19 +174,34 @@ function isCardType(value: string | null): value is CardType {
   return value === 'sunrise' || value === 'sunset' || value === 'stargazing';
 }
 
+function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType } {
+  if (typeof window === 'undefined') return { spot: null };
+  const params = new URLSearchParams(window.location.search);
+  const spotParam = params.get('spot');
+  const viewParam = params.get('view');
+  const spot = spotParam ? (allSpots.find((candidate) => candidate.id === spotParam) ?? null) : null;
+  return {
+    spot,
+    cardType: isCardType(viewParam) ? viewParam : undefined,
+  };
+}
+
 // How long the just-dismissed pin keeps its highlight ring + how long the
 // map "remembers" to recenter on it. Long enough for the eye to land on the
 // pulse, short enough that it fades before it starts to feel like noise.
 const DISMISS_HIGHLIGHT_MS = 1600;
 
 function App() {
-  const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
+  const [initialDeepLink] = useState(readInitialDeepLink);
+  const [selectedSpot, setSelectedSpot] = useState<Spot | null>(initialDeepLink.spot);
   // Curated events surface their own editorial sheet, mutually exclusive with
   // the spot ScorePanel (Part 4): opening one closes the other.
   const [selectedEvent, setSelectedEvent] = useState<CuratedEvent | null>(null);
   // Session-only dismissal of the "Happening Tonight" banner — no localStorage.
   const [happeningDismissed, setHappeningDismissed] = useState(false);
-  const [initialCardType, setInitialCardType] = useState<CardType | undefined>(undefined);
+  const [initialCardType, setInitialCardType] = useState<CardType | undefined>(
+    initialDeepLink.cardType,
+  );
   // After the score card is dismissed, briefly remember the spot the user
   // was just looking at so the map can pan to it and pulse the pin. This is
   // separate from `selectedSpot` because the card is already gone — we
@@ -196,7 +220,9 @@ function App() {
   const [weatherOverlay, setWeatherOverlay] = useState(readStoredWeatherOverlay);
   const [cloudPulseKey, setCloudPulseKey] = useState(0);
   const [homeCityId, setHomeCityIdRaw] = useState<City>(readStoredHomeCity);
-  const [activeCityId, setActiveCityIdRaw] = useState<City>(() => readStoredActiveCity(readStoredHomeCity()));
+  const [activeCityId, setActiveCityIdRaw] = useState<City>(() =>
+    initialDeepLink.spot?.city ?? readStoredActiveCity(readStoredHomeCity()),
+  );
   const [citySheetOpen, setCitySheetOpen] = useState(false);
   const activeCityConfig = getCityById(activeCityId) ?? getCityById('sf')!;
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
@@ -321,18 +347,6 @@ function App() {
     };
   }, []);
 
-  // One-time migration from the old appMode key.
-  useEffect(() => {
-    try {
-      const old = localStorage.getItem('sf-sky:appMode');
-      if (old === 'weather') {
-        localStorage.setItem(WEATHER_OVERLAY_KEY, 'true');
-        setWeatherOverlay(true);
-      }
-      localStorage.removeItem('sf-sky:appMode');
-    } catch { /* non-fatal */ }
-  }, []);
-
   // Persist overlay preference.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -421,26 +435,12 @@ function App() {
     });
   }, []);
 
-  // Deep-link: ?spot=<id>&view=<sunrise|sunset|stargazing>
+  // Remove deep-link parameters after their values seed the initial state.
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const spotParam = params.get('spot');
-    const viewParam = params.get('view');
-    if (!spotParam) return;
-
-    const match = allSpots.find((s) => s.id === spotParam);
-    if (!match) return;
-
-    if (match.city !== activeCityId) {
-      setActiveCityIdRaw(match.city);
-    }
-    setSelectedSpot(match);
-    if (isCardType(viewParam)) setInitialCardType(viewParam);
-
+    if (!initialDeepLink.spot) return;
     const cleanUrl = `${window.location.pathname}${window.location.hash}`;
     window.history.replaceState({}, '', cleanUrl);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialDeepLink.spot]);
 
   // Latest-selected spot, mirrored into a ref so `handleSelectSpot` (which
   // intentionally has no deps) can branch on the prior selection without

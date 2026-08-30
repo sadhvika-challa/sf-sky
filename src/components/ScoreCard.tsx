@@ -361,10 +361,7 @@ function AccessAlertBadge({ alert, spotName }: AccessAlertBadgeProps) {
   }, [open]);
 
   useLayoutEffect(() => {
-    if (!open) {
-      setCoords(null);
-      return;
-    }
+    if (!open) return;
     function position() {
       const button = buttonRef.current;
       const pop = popoverRef.current;

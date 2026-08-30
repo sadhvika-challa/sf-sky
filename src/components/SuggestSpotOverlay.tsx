@@ -40,25 +40,36 @@ export default function SuggestSpotOverlay({
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let mountFrame: number | undefined;
+    let visibleFrame: number | undefined;
+    let exitTimer: number | undefined;
     if (open) {
-      setMounted(true);
-      requestAnimationFrame(() => setVisible(true));
-    } else if (mounted) {
-      setVisible(false);
-      const t = window.setTimeout(() => {
+      mountFrame = requestAnimationFrame(() => {
+        setMounted(true);
+        visibleFrame = requestAnimationFrame(() => setVisible(true));
+      });
+    } else {
+      mountFrame = requestAnimationFrame(() => setVisible(false));
+      exitTimer = window.setTimeout(() => {
         setMounted(false);
         setName('');
         setWhy('');
         setSubmitted(false);
       }, 200);
-      return () => window.clearTimeout(t);
     }
-  }, [open, mounted]);
+    return () => {
+      if (mountFrame !== undefined) cancelAnimationFrame(mountFrame);
+      if (visibleFrame !== undefined) cancelAnimationFrame(visibleFrame);
+      if (exitTimer !== undefined) window.clearTimeout(exitTimer);
+    };
+  }, [open]);
 
   // Keep the name field in sync if the parent passes a fresh initial value
   // (e.g. user typed a new search query then opened suggest again).
   useEffect(() => {
-    if (open) setName(initialName);
+    if (!open) return;
+    const frame = requestAnimationFrame(() => setName(initialName));
+    return () => cancelAnimationFrame(frame);
   }, [open, initialName]);
 
   useEffect(() => {
