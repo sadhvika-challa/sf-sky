@@ -33,6 +33,55 @@ interface SavedSpotsHarnessWindow extends Window {
   __soleilSavedSpotsOperationSettled?: boolean;
 }
 
+interface NativeSettingsCall {
+  pluginName: string;
+  methodName: string;
+  options: unknown;
+}
+
+async function installNativeIOSSettingsHarness(
+  page: Page,
+  completed = true,
+): Promise<void> {
+  await page.addInitScript(({ openCompleted }) => {
+    const harnessWindow = window as unknown as {
+      Capacitor: {
+        PluginHeaders: Array<{
+          name: string;
+          methods: Array<{ name: string; rtype: string }>;
+        }>;
+        nativePromise: (
+          pluginName: string,
+          methodName: string,
+          options: unknown,
+        ) => Promise<{ completed: boolean }>;
+      };
+      __soleilNativeSettingsCalls: NativeSettingsCall[];
+    };
+    Object.defineProperty(window, 'webkit', {
+      configurable: true,
+      value: { messageHandlers: { bridge: {} } },
+    });
+    harnessWindow.__soleilNativeSettingsCalls = [];
+    harnessWindow.Capacitor = {
+      PluginHeaders: [{
+        name: 'AppLauncher',
+        methods: [{ name: 'openUrl', rtype: 'promise' }],
+      }],
+      nativePromise: async (pluginName, methodName, options) => {
+        harnessWindow.__soleilNativeSettingsCalls.push({ pluginName, methodName, options });
+        return { completed: openCompleted };
+      },
+    };
+  }, { openCompleted: completed });
+}
+
+async function nativeSettingsCalls(page: Page): Promise<NativeSettingsCall[]> {
+  return page.evaluate(() => (
+    window as unknown as { __soleilNativeSettingsCalls: NativeSettingsCall[] }
+  ).__soleilNativeSettingsCalls);
+}
+
 const SAVED_SPOTS_KEY = 'soleil:saved-spots';
 const SAVED_SPOTS_DATABASE = 'soleil-device-storage';
 const SAVED_SPOTS_OBJECT_STORE = 'key-values';
@@ -181,6 +230,7 @@ for (const failure of ['denied', 'timeout', 'unavailable'] as const) {
     const preferences = await openLocationPreferences(page);
     await preferences.getByRole('button', { name: 'Use my location' }).click();
     await expect(preferences).toContainText(FAILURE_COPY[failure]);
+    await expect(preferences.getByRole('button', { name: 'Open Settings' })).toHaveCount(0);
     await expect.poll(() => locationCalls(page)).toBe(1);
 
     await setLocationMode(page, 'allowed');
@@ -190,6 +240,49 @@ for (const failure of ['denied', 'timeout', 'unavailable'] as const) {
     await expect(page.getByTitle('Your location')).toBeAttached();
   });
 }
+
+test('opens native iOS Settings after denial and recovers only after explicit retry', async ({ page }) => {
+  await installNativeIOSSettingsHarness(page);
+  await installLocationHarness(page, 'denied');
+  await installWeatherHarness(page);
+  await page.goto('/');
+
+  const preferences = await openLocationPreferences(page);
+  await preferences.getByRole('button', { name: 'Use my location' }).click();
+  await expect(preferences).toContainText('Location was denied on the last attempt.');
+  await expect(preferences.getByRole('button', { name: 'Retry location' })).toBeVisible();
+
+  await preferences.getByRole('button', { name: 'Open Settings' }).click();
+  await expect(preferences).toContainText('Soleil opened Settings. Retry to check your current location access');
+  await expect(preferences).toContainText('Retry checks your current location access.');
+  await expect(preferences).not.toContainText('Location was denied on the last attempt.');
+  await expect.poll(() => nativeSettingsCalls(page)).toEqual([{
+    pluginName: 'AppLauncher',
+    methodName: 'openUrl',
+    options: { url: 'app-settings:' },
+  }]);
+  await expect.poll(() => locationCalls(page)).toBe(1);
+
+  await setLocationMode(page, 'allowed');
+  await preferences.getByRole('button', { name: 'Retry location' }).click();
+  await expect(preferences).toContainText('Using your precise location. Nearby distances are ready.');
+  await expect.poll(() => locationCalls(page)).toBe(2);
+  await expect(page.getByTitle('Your location')).toBeAttached();
+});
+
+test('keeps city browsing available when native iOS cannot open Settings', async ({ page }) => {
+  await installNativeIOSSettingsHarness(page, false);
+  await installLocationHarness(page, 'denied');
+  await installWeatherHarness(page);
+  await page.goto('/');
+
+  const preferences = await openLocationPreferences(page);
+  await preferences.getByRole('button', { name: 'Use my location' }).click();
+  await preferences.getByRole('button', { name: 'Open Settings' }).click();
+  await expect(preferences).toContainText('Settings could not be opened.');
+  await expect(preferences.getByRole('button', { name: 'Choose a city' })).toBeVisible();
+  await expect.poll(() => locationCalls(page)).toBe(1);
+});
 
 test('keeps manual city browsing usable after location failure', async ({ page }) => {
   await installLocationHarness(page, 'denied');

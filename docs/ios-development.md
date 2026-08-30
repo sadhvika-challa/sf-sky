@@ -8,6 +8,7 @@ Soleil uses one React application for the website, installable PWA, and Capacito
 - Keeps the website and PWA behavior unchanged in web browsers.
 - Disables the web install prompt and service-worker registration only inside Capacitor.
 - Requests location only after the existing `Use my location` action. The shell declares When In Use access and does not declare background location access.
+- After a denied location request, offers an iOS-only `Open Settings` action. Returning to Soleil never assumes the permission changed. The person explicitly retries so the app can check current access.
 - Keeps saved spots in Capacitor Preferences on iOS. This maps to `UserDefaults`, remains local to this installation, and is cleared if the app is uninstalled. The PWA continues to use transactional IndexedDB.
 - Migrates an existing saved-spots value from WebView storage once when the native Preferences value is missing.
 - Shares spot links using the canonical public website instead of a `capacitor://localhost` URL.
@@ -72,3 +73,28 @@ App Store privacy answers remain a human release gate. They must be reviewed aga
 - Add Universal Links only after the canonical domain and associated-domain deployment are approved.
 
 The shell intentionally contains no Apple team ID, signing certificate, provisioning profile, distribution upload, or App Store submission automation.
+
+## Physical iPhone location acceptance
+
+Record this evidence against the exact candidate commit before approving a TestFlight build. The initial target is Sadhvika's iPhone 17 Pro on iOS 26.6.
+
+- Candidate commit:
+- Xcode version:
+- Device and iOS version:
+- Clean install or upgrade:
+- Tester and date:
+
+Run the following journeys from the Home screen:
+
+1. Before activation, confirm iOS has not prompted for location and city browsing works.
+2. Tap `Use my location`, choose `Don't Allow`, and confirm Soleil offers `Open Settings`, `Retry location`, and `Choose a city` without claiming the map moved.
+3. Tap `Open Settings` and confirm iOS opens the Soleil settings page, not the general Settings landing page.
+4. Set Location to `While Using the App`, return to Soleil, and confirm the app asks for an explicit retry without claiming access is currently denied or allowed.
+5. Tap `Retry location`. Confirm the location marker, distances, active-city choice, and Best Nearby result recover.
+6. Turn Precise Location off in Settings, return, retry, and confirm Soleil labels the location and every derived distance as approximate.
+7. Turn Precise Location on, return, retry, and confirm precise-location messaging recovers.
+8. Deny location again, force-quit Soleil, relaunch it, and confirm city browsing remains usable. Repeat the Settings recovery and retry path.
+9. With VoiceOver enabled, confirm focus and announcements remain understandable when leaving for Settings and returning to Soleil.
+10. At the largest accessibility text size, confirm the Home sheet scrolls, all recovery controls remain reachable, and no copy or control is clipped or overlapped.
+
+Attach screenshots or a short screen recording for the denied state, the Soleil Settings page, approximate recovery, and precise recovery. Browser simulation and `npm run ios:verify` do not satisfy this physical-device gate.

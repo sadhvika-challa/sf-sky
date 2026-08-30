@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import type { LocationState } from '../hooks/useLocation';
+import type { OpenAppSettingsResult } from '../platform/appSettings';
 
 interface LocationControlProps {
   state: LocationState;
   onRequest: () => void | Promise<LocationState>;
   onChooseCity: () => void;
   onUseCityInstead: () => void;
+  canOpenLocationSettings?: boolean;
+  onOpenLocationSettings?: () => Promise<OpenAppSettingsResult>;
 }
 
 interface LocationControlContent {
@@ -66,10 +70,34 @@ export default function LocationControl({
   onRequest,
   onChooseCity,
   onUseCityInstead,
+  canOpenLocationSettings = false,
+  onOpenLocationSettings,
 }: LocationControlProps) {
   const content = getLocationControlContent(state);
   const pending = state.status === 'requesting';
   const showChooseCity = state.status !== 'allowed' && state.status !== 'requesting';
+  const showSettingsRecovery = state.status === 'denied' &&
+    canOpenLocationSettings &&
+    Boolean(onOpenLocationSettings);
+  const [settingsStatus, setSettingsStatus] = useState<'idle' | 'opening' | 'opened' | 'failed'>('idle');
+
+  const openLocationSettings = async () => {
+    if (!onOpenLocationSettings || settingsStatus === 'opening') return;
+    setSettingsStatus('opening');
+    const result = await onOpenLocationSettings();
+    setSettingsStatus(result.status === 'opened' ? 'opened' : 'failed');
+  };
+
+  const requestLocation = () => {
+    setSettingsStatus('idle');
+    void onRequest();
+  };
+
+  const locationMessage = showSettingsRecovery
+    ? settingsStatus === 'opened'
+      ? 'Soleil opened Settings. Retry to check your current location access, or keep browsing by city.'
+      : 'Location was denied on the last attempt. Open Settings to allow it, then return and retry, or keep browsing by city.'
+    : content.message;
 
   return (
     <section
@@ -82,12 +110,21 @@ export default function LocationControl({
           role="status"
           aria-live="polite"
         >
-          {content.message}
+          {locationMessage}
         </p>
-        {content.action && (
+        {showSettingsRecovery ? (
           <button
             type="button"
-            onClick={() => void onRequest()}
+            onClick={() => void openLocationSettings()}
+            disabled={settingsStatus === 'opening'}
+            className="min-h-11 flex-shrink-0 rounded-full bg-gray-800 px-3 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-white transition-colors hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800 disabled:cursor-wait disabled:opacity-60"
+          >
+            {settingsStatus === 'opening' ? 'Opening…' : 'Open Settings'}
+          </button>
+        ) : content.action && (
+          <button
+            type="button"
+            onClick={requestLocation}
             disabled={pending}
             className="min-h-11 flex-shrink-0 rounded-full bg-gray-800 px-3 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-white transition-colors hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800 disabled:cursor-wait disabled:opacity-60"
           >
@@ -95,6 +132,27 @@ export default function LocationControl({
           </button>
         )}
       </div>
+      {showSettingsRecovery && (
+        <div className="flex flex-wrap items-center gap-x-3">
+          <button
+            type="button"
+            onClick={requestLocation}
+            className="min-h-11 rounded-md px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-600 underline decoration-gray-400 underline-offset-4 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-700"
+          >
+            Retry location
+          </button>
+          {settingsStatus === 'opened' && (
+            <p className="text-[11px] leading-snug text-gray-600" role="status" aria-live="polite">
+              Retry checks your current location access.
+            </p>
+          )}
+          {settingsStatus === 'failed' && (
+            <p className="text-[11px] leading-snug text-red-700" role="alert">
+              Settings could not be opened. Open the Settings app, find Soleil, and allow location, or browse by city.
+            </p>
+          )}
+        </div>
+      )}
       {showChooseCity && (
         <button
           type="button"
