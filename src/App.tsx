@@ -8,7 +8,6 @@ import { useTimelineScores } from './hooks/useTimelineScores';
 import { useNeighborhoodForecasts } from './hooks/useNeighborhoodForecasts';
 import MapView, { type MapBounds, type MapPoint } from './components/MapView';
 import { buildSamples } from './utils/weatherSamples';
-import { computeDynamicRange } from './utils/interpolate';
 import ScorePanel from './components/ScorePanel';
 import EventDetailSheet from './components/EventDetailSheet';
 import HappeningBanner from './components/HappeningBanner';
@@ -19,6 +18,7 @@ import SuggestSpotOverlay from './components/SuggestSpotOverlay';
 import BugReportOverlay from './components/BugReportOverlay';
 import WeatherControls from './components/WeatherControls';
 import WeatherMetricToggle from './components/WeatherMetricToggle';
+import WeatherOverlayStatus from './components/WeatherOverlayStatus';
 import WelcomeCard from './components/WelcomeCard';
 import OnboardingHint from './components/OnboardingHint';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
@@ -67,29 +67,9 @@ export type TravelMode = 'walk' | 'car';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
-const WEATHER_OVERLAY_KEY = 'sf-sky:weatherOverlay';
 const FILTERS_KEY = 'sf-sky:filters';
 const HOME_CITY_KEY = 'sky:homeCity';
 const ACTIVE_CITY_KEY = 'sky:activeCity';
-
-function readStoredWeatherOverlay(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    const stored = window.localStorage.getItem(WEATHER_OVERLAY_KEY);
-    const oldMode = window.localStorage.getItem('sf-sky:appMode');
-    if (oldMode !== null) {
-      window.localStorage.removeItem('sf-sky:appMode');
-    }
-    if (oldMode === 'weather') {
-      window.localStorage.setItem(WEATHER_OVERLAY_KEY, 'true');
-      return true;
-    }
-    return stored === 'true';
-  } catch {
-    return false;
-  }
-}
-
 
 function readStoredHomeCity(): City {
   if (typeof window === 'undefined') return 'sf';
@@ -215,7 +195,9 @@ function App() {
   const [suggestSeed, setSuggestSeed] = useState('');
   const [filters, setFilters] = useState<Filters>(readStoredFilters);
   const [travelMode, setTravelMode] = useState<TravelMode>('walk');
-  const [weatherOverlay, setWeatherOverlay] = useState(readStoredWeatherOverlay);
+  // Weather mode is intentionally session-off on launch. Regional forecast
+  // traffic only starts after the user explicitly opens the overlay.
+  const [weatherOverlay, setWeatherOverlay] = useState(false);
   const [cloudPulseKey, setCloudPulseKey] = useState(0);
   const [homeCityId, setHomeCityIdRaw] = useState<City>(readStoredHomeCity);
   const [activeCityId, setActiveCityIdRaw] = useState<City>(() =>
@@ -267,16 +249,25 @@ function App() {
     [activeCityId],
   );
   const userLocation = useGeolocation();
+  const requestedSpotIds = useMemo(
+    () => selectedSpot ? [selectedSpot.id] : [],
+    [selectedSpot],
+  );
   const timelineScores = useTimelineScores(
     activeSpots,
     timelineHourKey,
     viewMode,
     activeCityConfig.timeZone,
     now,
+    requestedSpotIds,
   );
   const liveScores = timelineScores.scores;
-  const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } =
-    useNeighborhoodForecasts(true, activeCityConfig.timeZone);
+  const neighborhoodForecastState = useNeighborhoodForecasts(
+    weatherOverlay && activeCityConfig.hasWeatherMode,
+    activeCityConfig.timeZone,
+    now,
+  );
+  const { forecasts: weatherForecasts, hourKeys: weatherHourKeys } = neighborhoodForecastState;
 
   // Normalize deep links only after the selected spot's forecast is known.
   // Canonical links must exist in that forecast. Legacy wall times resolve
@@ -315,17 +306,9 @@ function App() {
     return { resolvedNowKey: key, nowIndex: weatherHourKeys.indexOf(key) };
   }, [now, weatherHourKeys]);
 
-  // Stable 24h range for legend labels — computed once from all hours, never
-  // changes as the user scrubs the timeline.
-  const legend24hRange = useMemo(() => {
-    if (!weatherOverlay || weatherForecasts.size === 0 || weatherHourKeys.length === 0) return undefined;
-    const allValues: number[] = [];
-    for (const hk of weatherHourKeys) {
-      const samples = buildSamples(weatherMetric, hk, weatherForecasts);
-      for (const s of samples.values()) allValues.push(s.value);
-    }
-    return computeDynamicRange(weatherMetric, allValues) ?? undefined;
-  }, [weatherOverlay, weatherMetric, weatherForecasts, weatherHourKeys]);
+  // Use each metric's fixed semantic range while anchors progressively load.
+  // This prevents identical weather from changing color as coverage grows.
+  const legend24hRange = undefined;
 
   // Visible-area average for the legend marker position.
   const visibleMetricAvg = useMemo(() => {
@@ -376,14 +359,6 @@ function App() {
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
-
-  // Persist overlay preference.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(WEATHER_OVERLAY_KEY, String(weatherOverlay));
-    } catch { /* non-fatal */ }
-  }, [weatherOverlay]);
 
   // Persist tier filters. Category is stored under its own key below.
   useEffect(() => {
@@ -747,6 +722,10 @@ function App() {
           currentAvg={visibleMetricAvg}
           labelRange={legend24hRange}
         />
+      )}
+
+      {weatherOverlay && weatherOverlayAvailable && (
+        <WeatherOverlayStatus {...neighborhoodForecastState} />
       )}
 
       {!selectedSpot && (

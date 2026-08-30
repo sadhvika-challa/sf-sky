@@ -133,10 +133,55 @@ interface CachedEntry {
   expiresAt: number;
 }
 
-const inflight = new Map<string, Promise<SpotForecast>>();
+const DEFAULT_TIMEOUT_MS = 15_000;
 
-function cacheKey(lat: number, lng: number, timeZone: string): string {
-  return `${CACHE_PREFIX}${lat.toFixed(3)}:${lng.toFixed(3)}:${timeZone}`;
+export type WeatherRequestErrorKind =
+  | 'offline'
+  | 'timeout'
+  | 'rate-limit'
+  | 'http'
+  | 'network'
+  | 'aborted';
+
+export class WeatherRequestError extends Error {
+  readonly kind: WeatherRequestErrorKind;
+  readonly status?: number;
+  readonly savedForecast?: SpotForecast;
+
+  constructor(
+    kind: WeatherRequestErrorKind,
+    message: string,
+    status?: number,
+    options?: ErrorOptions,
+    savedForecast?: SpotForecast,
+  ) {
+    super(message, options);
+    this.name = 'WeatherRequestError';
+    this.kind = kind;
+    this.status = status;
+    this.savedForecast = savedForecast;
+  }
+}
+
+export interface FetchSpotForecastOptions {
+  maxAgeMs?: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  /** Selected spots need AQ evidence. Regional overlay anchors need weather only. */
+  includeAirQuality?: boolean;
+}
+
+interface InflightEntry {
+  promise: Promise<SpotForecast>;
+  controller: AbortController;
+  subscribers: number;
+  settled: boolean;
+}
+
+const inflight = new Map<string, InflightEntry>();
+
+function cacheKey(lat: number, lng: number, timeZone: string, includeAirQuality: boolean): string {
+  return `${CACHE_PREFIX}${lat.toFixed(4)}:${lng.toFixed(4)}:${timeZone}:${includeAirQuality ? 'weather-aq' : 'weather'}`;
 }
 
 function isHourlyForecast(value: unknown): value is HourlyForecast {
@@ -216,10 +261,20 @@ interface OpenMeteoAirQualityResponse {
   };
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+async function fetchJson<T>(url: string, signal: AbortSignal): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, { signal });
+  } catch (reason) {
+    if (signal.aborted) throw reason;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new WeatherRequestError('offline', 'Weather is unavailable while offline', undefined, { cause: reason });
+    }
+    throw new WeatherRequestError('network', 'Could not reach the weather service', undefined, { cause: reason });
+  }
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status} from ${url}`);
+    const kind = res.status === 429 ? 'rate-limit' : 'http';
+    throw new WeatherRequestError(kind, `Weather service returned HTTP ${res.status}`, res.status);
   }
   return (await res.json()) as T;
 }
@@ -356,42 +411,123 @@ export async function fetchSpotForecast(
   lat: number,
   lng: number,
   timeZone: string,
-  maxAgeMs?: number,
+  optionsOrMaxAge?: FetchSpotForecastOptions | number,
 ): Promise<SpotForecast> {
-  const key = cacheKey(lat, lng, timeZone);
+  const options: FetchSpotForecastOptions = typeof optionsOrMaxAge === 'number'
+    ? { maxAgeMs: optionsOrMaxAge }
+    : (optionsOrMaxAge ?? {});
+  if (options.signal?.aborted) {
+    throw new WeatherRequestError('aborted', 'Weather request was cancelled');
+  }
+  const includeAirQuality = options.includeAirQuality !== false;
+  const key = cacheKey(lat, lng, timeZone, includeAirQuality);
 
   const cached = readCache(key, timeZone);
+  let staleCandidate: SpotForecast | null = null;
   if (cached) {
-    if (maxAgeMs !== undefined && cached.fetchedAt + maxAgeMs < Date.now()) {
-      // Cached entry is fresh per storage TTL but stale for this caller's
-      // tighter window (e.g. near-event refresh). Evict and refetch.
-      if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(key);
+    if (options.maxAgeMs !== undefined && cached.fetchedAt + options.maxAgeMs < Date.now()) {
+      // Keep the stored entry as recoverable evidence until revalidation
+      // succeeds. Offline reloads must not destroy the last known forecast.
+      staleCandidate = cached;
     } else {
       return cached;
     }
   }
 
-  const existing = inflight.get(key);
-  if (existing) return existing;
-
-  const promise = (async () => {
-    const [forecast, air] = await Promise.all([
-      fetchJson<OpenMeteoForecastResponse>(buildForecastUrl(lat, lng, timeZone)),
+  let entry = inflight.get(key);
+  // React Strict Mode can unsubscribe a mount generation and immediately
+  // subscribe again before the aborted fetch settles. Never attach the new
+  // consumer to that doomed generation.
+  if (entry?.controller.signal.aborted) {
+    if (inflight.get(key) === entry) inflight.delete(key);
+    entry = undefined;
+  }
+  if (!entry) {
+    const controller = new AbortController();
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const promise = (async () => {
+      try {
+        const [forecast, air] = await Promise.all([
+      fetchJson<OpenMeteoForecastResponse>(buildForecastUrl(lat, lng, timeZone), controller.signal),
       // Air-quality endpoint occasionally fails or rate-limits separately;
       // don't let it block the main forecast.
-      fetchJson<OpenMeteoAirQualityResponse>(buildAirQualityUrl(lat, lng, timeZone)).catch(() => null),
-    ]);
-    const merged = mergeOpenMeteoResponses(forecast, air, timeZone);
-    writeCache(key, merged);
-    return merged;
-  })();
-
-  inflight.set(key, promise);
-  try {
-    return await promise;
-  } finally {
-    inflight.delete(key);
+      (includeAirQuality
+        ? fetchJson<OpenMeteoAirQualityResponse>(buildAirQualityUrl(lat, lng, timeZone), controller.signal)
+        : Promise.resolve(null)).catch((reason) => {
+        if (controller.signal.aborted) throw reason;
+        return null;
+      }),
+        ]);
+        const merged = mergeOpenMeteoResponses(forecast, air, timeZone);
+        writeCache(key, merged);
+        return merged;
+      } catch (reason) {
+        if (controller.signal.aborted) {
+          throw new WeatherRequestError(
+            timedOut ? 'timeout' : 'aborted',
+            timedOut ? 'Weather request timed out' : 'Weather request was cancelled',
+            undefined,
+            { cause: reason },
+            staleCandidate ?? undefined,
+          );
+        }
+        if (reason instanceof WeatherRequestError && staleCandidate) {
+          throw new WeatherRequestError(
+            reason.kind,
+            reason.message,
+            reason.status,
+            { cause: reason },
+            staleCandidate,
+          );
+        }
+        throw reason;
+      } finally {
+        clearTimeout(timeout);
+      }
+    })();
+    entry = { promise, controller, subscribers: 0, settled: false };
+    inflight.set(key, entry);
+    void promise.finally(() => {
+      entry!.settled = true;
+      if (inflight.get(key) === entry) inflight.delete(key);
+    }).catch(() => {});
   }
+
+  return subscribeToInflight(entry, options.signal);
+}
+
+function subscribeToInflight(entry: InflightEntry, signal?: AbortSignal): Promise<SpotForecast> {
+  entry.subscribers += 1;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return false;
+      finished = true;
+      entry.subscribers = Math.max(0, entry.subscribers - 1);
+      signal?.removeEventListener('abort', onAbort);
+      return true;
+    };
+    const onAbort = () => {
+      if (!finish()) return;
+      reject(new WeatherRequestError('aborted', 'Weather request was cancelled'));
+      // Give an immediate Strict Mode remount one microtask to resubscribe to
+      // the same physical job. Truly orphaned work is still aborted before a
+      // queued scheduler job can begin.
+      queueMicrotask(() => {
+        if (!entry.settled && entry.subscribers === 0) entry.controller.abort();
+      });
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    entry.promise.then(
+      (forecast) => { if (finish()) resolve(forecast); },
+      (reason) => { if (finish()) reject(reason); },
+    );
+  });
 }
 
 /**

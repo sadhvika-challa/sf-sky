@@ -5,10 +5,26 @@ import {
   fetchSpotForecast,
   mergeOpenMeteoResponses,
   isStructurallyValidSpotForecast,
+  WeatherRequestError,
   type HourlyForecast,
 } from '../weather';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key) => { values.delete(key); },
+    setItem: (key, value) => { values.set(key, value); },
+  };
+}
 
 function hour(overrides: Partial<HourlyForecast> = {}): HourlyForecast {
   return {
@@ -197,5 +213,124 @@ describe('Unix-time forecast ingestion', () => {
     expect(urls.every((url) => url.searchParams.get('timeformat') === 'unixtime')).toBe(true);
     expect(urls.filter((url) => url.searchParams.get('timezone') === 'America/Chicago')).toHaveLength(2);
     expect(urls.filter((url) => url.searchParams.get('timezone') === 'America/Los_Angeles')).toHaveLength(2);
+  });
+
+  it('uses one weather request and no AQ request for a regional overlay anchor', async () => {
+    const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      hourly: { time: [epoch], cloud_cover: [20] },
+    }), { status: 200 }));
+
+    await fetchSpotForecast(37.7935, -122.4622, 'America/Los_Angeles', {
+      includeAirQuality: false,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('api.open-meteo.com/v1/forecast');
+  });
+
+  it('keeps inflight dedupe alive when only one subscriber cancels', async () => {
+    const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      await gate;
+      const isAir = new URL(String(input)).hostname.startsWith('air-quality');
+      return new Response(JSON.stringify({ hourly: isAir
+        ? { time: [epoch], pm2_5: [4], us_aqi: [18] }
+        : { time: [epoch], cloud_cover: [20] } }), { status: 200 });
+    });
+    const firstController = new AbortController();
+    const first = fetchSpotForecast(37.7001, -122.4001, 'America/Los_Angeles', {
+      signal: firstController.signal,
+    });
+    const second = fetchSpotForecast(37.7001, -122.4001, 'America/Los_Angeles');
+    firstController.abort();
+    release();
+
+    await expect(first).rejects.toMatchObject({ kind: 'aborted' });
+    await expect(second).resolves.toMatchObject({ timeZone: 'America/Los_Angeles' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets an immediate remount reuse the orphaned physical generation', async () => {
+    const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      await Promise.race([
+        gate,
+        new Promise<void>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        }),
+      ]);
+      const isAir = new URL(String(input)).hostname.startsWith('air-quality');
+      return new Response(JSON.stringify({ hourly: isAir
+        ? { time: [epoch], pm2_5: [4], us_aqi: [18] }
+        : { time: [epoch], cloud_cover: [20] } }), { status: 200 });
+    });
+    const controller = new AbortController();
+    const aborted = fetchSpotForecast(37.7011, -122.4011, 'America/Los_Angeles', {
+      signal: controller.signal,
+    });
+    controller.abort();
+    const remounted = fetchSpotForecast(37.7011, -122.4011, 'America/Los_Angeles');
+    release();
+
+    await expect(aborted).rejects.toMatchObject({ kind: 'aborted' });
+    await expect(remounted).resolves.toMatchObject({ timeZone: 'America/Los_Angeles' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('classifies rate limits and isolates request identity at four decimal coordinates', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('{}', { status: 429 }),
+    );
+    const first = fetchSpotForecast(37.12341, -122.4, 'America/Los_Angeles', { includeAirQuality: false });
+    const second = fetchSpotForecast(37.12349, -122.4, 'America/Los_Angeles', { includeAirQuality: false });
+
+    const results = await Promise.allSettled([first, second]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const result of results) {
+      expect(result.status).toBe('rejected');
+      if (result.status === 'rejected') {
+        expect(result.reason).toBeInstanceOf(WeatherRequestError);
+        expect(result.reason).toMatchObject({ kind: 'rate-limit', status: 429 });
+      }
+    }
+  });
+
+  it('classifies a request deadline as a timeout', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    }));
+
+    await expect(fetchSpotForecast(37.6001, -122.3001, 'America/Los_Angeles', {
+      includeAirQuality: false,
+      timeoutMs: 5,
+    })).rejects.toMatchObject({ kind: 'timeout' });
+  });
+
+  it('keeps a stale cached forecast attached when revalidation fails', async () => {
+    vi.stubGlobal('sessionStorage', memoryStorage());
+    const epoch = Date.parse('2026-08-31T01:00:00Z') / 1000;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      hourly: { time: [epoch], cloud_cover: [20] },
+    }), { status: 200 }));
+    const saved = await fetchSpotForecast(37.6101, -122.3101, 'America/Los_Angeles', {
+      includeAirQuality: false,
+    });
+    fetchMock.mockResolvedValue(new Response('{}', { status: 429 }));
+
+    await expect(fetchSpotForecast(37.6101, -122.3101, 'America/Los_Angeles', {
+      includeAirQuality: false,
+      maxAgeMs: -1,
+    })).rejects.toMatchObject({ kind: 'rate-limit', savedForecast: saved });
+
+    // A normal cache consumer can still recover the same evidence because a
+    // failed refresh did not evict it from session storage.
+    await expect(fetchSpotForecast(37.6101, -122.3101, 'America/Los_Angeles', {
+      includeAirQuality: false,
+    })).resolves.toEqual(saved);
   });
 });

@@ -4,6 +4,7 @@ import type { Spot } from '../data/spots';
 import {
   fetchSpotForecast,
   getHourlyForecastCompleteness,
+  WeatherRequestError,
   type HourlyForecast,
   type SpotForecast,
 } from '../utils/weather';
@@ -210,6 +211,7 @@ export function useTimelineScores(
   viewMode: ViewMode,
   timeZone: string,
   now: Date,
+  requestedSpotIds: ReadonlyArray<string> = spots.map((spot) => spot.id),
 ): TimelineScoresResult {
   const [forecasts, setForecasts] = useState<SpotForecastMap>(() => new Map());
   const [forecastErrors, setForecastErrors] = useState<SpotForecastErrorMap>(() => new Map());
@@ -229,11 +231,16 @@ export function useTimelineScores(
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const requested = new Set(requestedSpotIds);
     for (const spot of spots) {
-      fetchSpotForecast(spot.lat, spot.lng, timeZone)
+      if (!requested.has(spot.id)) continue;
+      fetchSpotForecast(spot.lat, spot.lng, timeZone, {
+        maxAgeMs: REFRESH_INTERVAL_MS,
+        signal: controller.signal,
+      })
         .then((forecast) => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
           setForecasts((previous) => {
             if (previous.get(spot.id) === forecast) return previous;
             const next = new Map(previous);
@@ -248,8 +255,15 @@ export function useTimelineScores(
           });
         })
         .catch((reason: unknown) => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
           const error = reason instanceof Error ? reason : new Error(String(reason));
+          if (reason instanceof WeatherRequestError && reason.savedForecast) {
+            setForecasts((previous) => {
+              const next = new Map(previous);
+              next.set(spot.id, reason.savedForecast!);
+              return next;
+            });
+          }
           setForecastErrors((previous) => {
             const next = new Map(previous);
             next.set(spot.id, error);
@@ -257,10 +271,10 @@ export function useTimelineScores(
           });
         });
     }
-    return () => {
-      cancelled = true;
-    };
-  }, [spots, refreshTick, timeZone]);
+    return () => controller.abort();
+  }, [requestedSpotIds, spots, refreshTick, timeZone]);
+
+  const requestedSet = useMemo(() => new Set(requestedSpotIds), [requestedSpotIds]);
 
   const currentHourKey = formatCanonicalHourKey(now);
   const selectedHourKey = hourKey || currentHourKey;
@@ -274,7 +288,7 @@ export function useTimelineScores(
     for (const spot of spots) {
       const forecast = forecasts.get(spot.id) ?? null;
       const error = forecastErrors.get(spot.id) ?? null;
-      const loading = forecast === null && error === null;
+      const loading = requestedSet.has(spot.id) && forecast === null && error === null;
       const canonical = canonicalScoresForSpot(
         spot,
         forecast,
@@ -306,6 +320,7 @@ export function useTimelineScores(
     selectedHourKey,
     selectedInstant,
     spots,
+    requestedSet,
     viewMode,
   ]);
 

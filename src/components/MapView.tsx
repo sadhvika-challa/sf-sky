@@ -20,6 +20,7 @@ import type { SpotForecast } from '../utils/weather';
 import { parseCanonicalHourKey } from '../utils/timeline';
 import type { ScoreEvidence } from '../utils/confidence';
 import { buildSamples, buildWindDirs } from '../utils/weatherSamples';
+import { OVERLAY_USABLE_ANCHORS } from '../hooks/useNeighborhoodForecasts';
 
 const isCoarsePointer =
   typeof window !== 'undefined' &&
@@ -564,13 +565,13 @@ export default function MapView({
   const exploreBounds = useMemo(() => boundsFromSpots(spotList), [spotList]);
 
   const windSamples = useMemo(
-    () => (isWeather && weatherMetric === 'wind' && weatherHourKey)
+    () => (isWeather && weatherMetric === 'wind' && weatherHourKey && weatherForecasts.size >= OVERLAY_USABLE_ANCHORS)
       ? buildSamples('wind', weatherHourKey, weatherForecasts)
       : new Map(),
     [isWeather, weatherMetric, weatherHourKey, weatherForecasts],
   );
   const windDirMap = useMemo(
-    () => (isWeather && weatherMetric === 'wind' && weatherHourKey)
+    () => (isWeather && weatherMetric === 'wind' && weatherHourKey && weatherForecasts.size >= OVERLAY_USABLE_ANCHORS)
       ? buildWindDirs(weatherHourKey, weatherForecasts)
       : new Map(),
     [isWeather, weatherMetric, weatherHourKey, weatherForecasts],

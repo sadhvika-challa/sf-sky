@@ -1,98 +1,162 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { neighborhoods, type Neighborhood } from '../data/neighborhoods';
-import { fetchSpotForecast, type SpotForecast } from '../utils/weather';
+import {
+  fetchSpotForecast,
+  WeatherRequestError,
+  type SpotForecast,
+  type WeatherRequestErrorKind,
+} from '../utils/weather';
 import { formatCanonicalHourKey } from '../utils/timeline';
 
 export type NeighborhoodForecasts = Map<number, SpotForecast>;
+export type NeighborhoodForecastPhase =
+  | 'off' | 'loading' | 'partial' | 'ready' | 'refreshing' | 'saved' | 'unavailable';
 
 export interface NeighborhoodForecastState {
-  /** id -> forecast. Empty until at least one fetch resolves. */
   forecasts: NeighborhoodForecasts;
-  /** Sorted canonical UTC hour keys usable by the time scrubber. */
   hourKeys: string[];
+  phase: NeighborhoodForecastPhase;
+  loaded: number;
+  total: number;
+  errorKind: WeatherRequestErrorKind | null;
+  retry: () => void;
 }
 
-const EMPTY_STATE: NeighborhoodForecastState = {
-  forecasts: new Map(),
-  hourKeys: [],
-};
+const TOTAL = neighborhoods.length;
+// One of the four coordinate lanes is always reserved for a selected spot.
+// Overlay work therefore uses at most three lanes and can never starve the
+// immediate selected-spot weather plus AQ job.
+export const SELECTED_SPOT_CONCURRENCY = 1;
+export const OVERLAY_CONCURRENCY = 3;
+export const OVERLAY_USABLE_ANCHORS = 9;
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+const FIRST_WAVE_IDS = [1, 3, 4, 6, 9, 16, 20, 22, 25];
+const orderedNeighborhoods = [
+  ...FIRST_WAVE_IDS.map((id) => neighborhoods.find((n) => n.id === id)!),
+  ...neighborhoods.filter((n) => !FIRST_WAVE_IDS.includes(n.id)),
+];
 
-/**
- * Fetch Open-Meteo forecasts for every neighborhood centroid in parallel.
- *
- * Reuses the per-coordinate caching + inflight de-dup in `fetchSpotForecast`,
- * so visiting Weather mode after Explore mode doesn't refetch what we
- * already have.
- *
- * Gated on `enabled` so we don't pay the cost when the user never opens
- * Weather mode.
- */
-export function useNeighborhoodForecasts(enabled: boolean, timeZone: string): NeighborhoodForecastState {
-  const [forecasts, setForecasts] = useState<NeighborhoodForecasts>(() => new Map());
+interface InternalState {
+  forecasts: NeighborhoodForecasts;
+  phase: NeighborhoodForecastPhase;
+  errorKind: WeatherRequestErrorKind | null;
+}
+
+/** Current canonical hour plus the next 24 hours, without requiring a fetch. */
+export function deriveLocalHourKeys(now = new Date()): string[] {
+  const start = new Date(now);
+  start.setUTCMinutes(0, 0, 0);
+  return Array.from({ length: 25 }, (_, index) =>
+    formatCanonicalHourKey(new Date(start.getTime() + index * 3_600_000)),
+  );
+}
+
+function classifyError(reason: unknown): WeatherRequestErrorKind {
+  return reason instanceof WeatherRequestError ? reason.kind : 'network';
+}
+
+export function useNeighborhoodForecasts(
+  enabled: boolean,
+  timeZone: string,
+  now = new Date(),
+): NeighborhoodForecastState {
+  const [state, setState] = useState<InternalState>({
+    forecasts: new Map(), phase: 'off', errorKind: null,
+  });
+  const [generation, setGeneration] = useState(0);
+  const retry = useCallback(() => setGeneration((value) => value + 1), []);
 
   useEffect(() => {
     if (!enabled) return;
-    let cancelled = false;
 
-    for (const n of neighborhoods) {
-      fetchSpotForecast(n.lat, n.lng, timeZone)
-        .then((forecast) => {
-          if (cancelled) return;
-          setForecasts((prev) => {
-            // Skip the state update if this neighborhood was already
-            // populated from cache by a prior pass — keeps React from
-            // running 21 sequential renders on a warm cache.
-            if (prev.get(n.id) === forecast) return prev;
-            const next = new Map(prev);
-            next.set(n.id, forecast);
-            return next;
+    const controller = new AbortController();
+    let nextIndex = 0;
+    let failures = 0;
+    let lastError: WeatherRequestErrorKind | null = null;
+    const hadSavedForecasts = state.forecasts.size >= OVERLAY_USABLE_ANCHORS;
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      setState((previous) => ({
+        ...previous,
+        phase: hadSavedForecasts ? 'refreshing' : 'loading',
+        errorKind: null,
+      }));
+    });
+
+    const loadNext = async () => {
+      while (!controller.signal.aborted) {
+        const index = nextIndex++;
+        if (index >= orderedNeighborhoods.length) return;
+        const neighborhood = orderedNeighborhoods[index];
+        try {
+          const forecast = await fetchSpotForecast(neighborhood.lat, neighborhood.lng, timeZone, {
+            includeAirQuality: false,
+            maxAgeMs: REFRESH_INTERVAL_MS,
+            signal: controller.signal,
           });
-        })
-        .catch(() => {
-          // Per-spot failure: leave it absent. The interpolation falls
-          // back to the remaining neighborhoods.
-        });
-    }
-
-    return () => {
-      cancelled = true;
+          if (controller.signal.aborted) return;
+          setState((previous) => {
+            const forecasts = new Map(previous.forecasts);
+            forecasts.set(neighborhood.id, forecast);
+            return {
+              forecasts,
+              phase: forecasts.size >= TOTAL
+                ? 'ready'
+                : forecasts.size >= OVERLAY_USABLE_ANCHORS ? 'partial' : previous.phase,
+              errorKind: previous.errorKind,
+            };
+          });
+        } catch (reason) {
+          if (controller.signal.aborted) return;
+          if (reason instanceof WeatherRequestError && reason.savedForecast) {
+            setState((previous) => {
+              const forecasts = new Map(previous.forecasts);
+              forecasts.set(neighborhood.id, reason.savedForecast!);
+              return { ...previous, forecasts };
+            });
+          }
+          failures += 1;
+          lastError = classifyError(reason);
+        }
+      }
     };
-  }, [enabled, timeZone]);
 
-  const hourKeys = useMemo(() => deriveHourKeys(forecasts), [forecasts]);
+    void Promise.all(Array.from({ length: OVERLAY_CONCURRENCY }, loadNext)).then(() => {
+      if (controller.signal.aborted) return;
+      setState((previous) => {
+        if (failures === 0 && previous.forecasts.size === TOTAL) {
+          return { ...previous, phase: 'ready', errorKind: null };
+        }
+        if (hadSavedForecasts) return { ...previous, phase: 'saved', errorKind: lastError };
+        if (previous.forecasts.size >= OVERLAY_USABLE_ANCHORS) {
+          return { ...previous, phase: 'partial', errorKind: lastError };
+        }
+        return { ...previous, phase: 'unavailable', errorKind: lastError ?? 'network' };
+      });
+    });
 
-  if (!enabled) return EMPTY_STATE;
-  return { forecasts, hourKeys };
-}
+    return () => controller.abort();
+    // Forecast state is sampled once per generation. Including it would
+    // restart the scheduler after every progressively loaded anchor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, generation, timeZone]);
 
-// How many hours before "now" the scrubber is allowed to reach. The app is
-// a forward-looking forecast tool, so the scrubber must never reach into the
-// past — the leftmost rail slot is the current hour ("now").
-const BACKWARD_HOUR_BUFFER = 0;
+  useEffect(() => {
+    if (!enabled) return;
+    const interval = setInterval(retry, REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [enabled, retry]);
 
-/**
- * Pull the union of hour keys across all loaded forecasts and return them
- * sorted. Open-Meteo gives every spot the same 72-hour window in practice,
- * but unioning is cheap and tolerates a partially-loaded state on first
- * paint.
- *
- * Trims the head so the earliest key is at most `BACKWARD_HOUR_BUFFER`
- * hours before the current local hour. This keeps the time scrubber
- * forward-looking — the "Now" indicator lands near the start of the rail
- * instead of drifting into the middle as the day progresses.
- */
-function deriveHourKeys(forecasts: NeighborhoodForecasts): string[] {
-  if (forecasts.size === 0) return [];
-  const set = new Set<string>();
-  for (const f of forecasts.values()) {
-    for (const k of Object.keys(f.hours)) set.add(k);
-  }
-  const sorted = Array.from(set).sort();
-  const nowIdx = sorted.indexOf(formatCanonicalHourKey(new Date()));
-  const startIdx = nowIdx <= BACKWARD_HOUR_BUFFER ? 0 : nowIdx - BACKWARD_HOUR_BUFFER;
-  const FORWARD_HOURS = 24;
-  const endIdx = Math.min(sorted.length, startIdx + BACKWARD_HOUR_BUFFER + FORWARD_HOURS + 1);
-  return sorted.slice(startIdx, endIdx);
+  const hourKeys = useMemo(() => deriveLocalHourKeys(now), [now]);
+  return {
+    forecasts: state.forecasts,
+    hourKeys,
+    phase: enabled ? state.phase : 'off',
+    loaded: state.forecasts.size,
+    total: TOTAL,
+    errorKind: state.errorKind,
+    retry,
+  };
 }
 
 export function getNeighborhoods(): ReadonlyArray<Neighborhood> {
