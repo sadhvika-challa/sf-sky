@@ -98,7 +98,8 @@ describe('SavedSpotsSheet', () => {
     expect(html).toContain('Saves stay on this device. They do not sync to other devices.');
     expect(html).toContain('No saved spots yet');
     expect(html).toContain('Open any spot and use its save button.');
-    expect(html).toContain('catalog remains available offline');
+    expect(html).toContain('spot catalog is built into Soleil');
+    expect(html).toContain('Live weather and map tiles need a connection');
   });
 
   it('renders loading and retriable read failure states honestly', () => {

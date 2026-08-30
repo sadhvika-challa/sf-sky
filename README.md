@@ -25,7 +25,7 @@ Scores are recommendations, not guarantees. Weather and air-quality data come fr
 - A web app manifest and service worker for PWA installation and offline navigation fallback
 - Capacitor 8, with an iOS 15+ shell and native Preferences storage for saved spots
 
-No environment variables are required for local development today. Runtime forecast data and map tiles require network access. Cached application assets provide a limited offline fallback, but live forecasts are not guaranteed offline.
+No environment variables are required for local development today. Runtime forecast data and map tiles require network access. After one successful online production launch, the installed PWA can cold-start its bundled spot catalog without a connection. Cached forecasts can remain visible with their last-updated indicator, but forecast refreshes, map tiles, and directions require a connection.
 
 ## Local setup
 
@@ -52,6 +52,8 @@ npm run lint
 npm exec -- tsc -b
 npm test
 npm run build
+npm run ios:verify
+npm run test:pwa:artifact
 ```
 
 The production output is written to `dist/`. Preview it locally with:
@@ -59,6 +61,8 @@ The production output is written to `dist/`. Preview it locally with:
 ```bash
 npm run preview -- --host 0.0.0.0 --port 5001
 ```
+
+Run `npm run test:pwa` when changing the manifest, service worker, install prompt, entry assets, or build process. It builds the exact production artifact and verifies Chromium installability, declared icons, revisioned precaching, preservation of unrelated caches, and a cold offline launch with the browser HTTP cache cleared. Development mode intentionally does not register a service worker.
 
 ## Architecture
 

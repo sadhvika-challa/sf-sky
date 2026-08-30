@@ -43,3 +43,15 @@ jobs:
 
       - name: Build production application
         run: npm run build
+
+      - name: Verify iOS shell
+        run: npm run ios:verify
+
+      - name: Verify generated native state is committed
+        run: git diff --exit-code
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify production PWA
+        run: npm run test:pwa:artifact
