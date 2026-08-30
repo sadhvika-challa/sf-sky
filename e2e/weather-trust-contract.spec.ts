@@ -97,12 +97,17 @@ test('exposes current forecast evidence in Search, the map marker, and the score
 test('shows retrieval while the selected spot forecast is loading', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'State contract is exercised once in Chromium');
   const harness = await installWeatherHarness(page);
-  harness.forecastDelayMsByCoordinates.set(OCEAN_BEACH_COORDINATES, 1_200);
+  const oceanForecast = harness.deferForecast(OCEAN_BEACH_COORDINATES);
   await page.goto(SPOT_URL);
+  await oceanForecast.requested;
 
   const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Retrieving forecast · curated estimate', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Curated estimate · Retrieval pending', { exact: true })).toBeVisible();
+  try {
+    await expect(nowCard.getByText('Retrieving forecast · curated estimate', { exact: true })).toBeVisible();
+    await expect(nowCard.getByText('Curated estimate · Retrieval pending', { exact: true })).toBeVisible();
+  } finally {
+    oceanForecast.release();
+  }
   await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
   reportRequests(harness, 'loading');
 });

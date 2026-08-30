@@ -130,6 +130,11 @@ export interface WeatherRequestLog {
   unhandledOpenMeteo: string[];
 }
 
+export interface DeferredForecast {
+  requested: Promise<void>;
+  release: () => void;
+}
+
 export interface WeatherHarness {
   requests: WeatherRequestLog;
   failCoordinates: Set<string>;
@@ -137,7 +142,7 @@ export interface WeatherHarness {
   missingHourKeysByCoordinates: Map<string, Set<string>>;
   partialMetricCoordinates: Set<string>;
   emptyForecastCoordinates: Set<string>;
-  forecastDelayMsByCoordinates: Map<string, number>;
+  deferForecast: (coordinateKey: string) => DeferredForecast;
 }
 
 export async function installDeterministicBrowserState(page: Page): Promise<void> {
@@ -156,6 +161,10 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     unhandledOpenMeteo: [],
   };
   const failCoordinates = new Set<string>();
+  const deferredForecasts = new Map<string, {
+    requested: () => void;
+    released: Promise<void>;
+  }>();
   const harness: WeatherHarness = {
     requests,
     failCoordinates,
@@ -163,7 +172,21 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     missingHourKeysByCoordinates: new Map<string, Set<string>>(),
     partialMetricCoordinates: new Set<string>(),
     emptyForecastCoordinates: new Set<string>(),
-    forecastDelayMsByCoordinates: new Map<string, number>(),
+    deferForecast: (coordinateKey) => {
+      if (deferredForecasts.has(coordinateKey)) {
+        throw new Error(`Forecast is already deferred for ${coordinateKey}`);
+      }
+      let markRequested = () => {};
+      let release = () => {};
+      const requested = new Promise<void>((resolve) => {
+        markRequested = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      deferredForecasts.set(coordinateKey, { requested: markRequested, released });
+      return { requested, release };
+    },
   };
 
   await page.route(/^https:\/\/(api|air-quality-api)\.open-meteo\.com\//, async (route: Route) => {
@@ -171,8 +194,12 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     const coordinateKey = coordinates(url);
     if (url.hostname === 'api.open-meteo.com' && url.pathname === '/v1/forecast') {
       requests.forecast.push(coordinateKey);
-      const delayMs = harness.forecastDelayMsByCoordinates.get(coordinateKey) ?? 0;
-      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const deferred = deferredForecasts.get(coordinateKey);
+      if (deferred) {
+        deferred.requested();
+        await deferred.released;
+        deferredForecasts.delete(coordinateKey);
+      }
       if (harness.failCoordinates.has(coordinateKey)) {
         await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
         return;
