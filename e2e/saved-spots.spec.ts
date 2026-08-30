@@ -412,6 +412,7 @@ test('provides keyboard-operable controls and stable accessible names', async ({
   await page.keyboard.press('Enter');
   const sheet = page.getByRole('dialog', { name: `${OCEAN_BEACH.name} sky scores` });
   await expect(sheet).toBeVisible();
+  await expect(sheet).toBeFocused();
   const remove = sheet.getByRole('button', { name: `Remove ${OCEAN_BEACH.name} from saved spots` });
   await remove.focus();
   await expect(remove).toBeFocused();
