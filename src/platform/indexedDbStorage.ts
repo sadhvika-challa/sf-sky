@@ -68,7 +68,19 @@ export function createIndexedDbKeyValueStore({
       }));
       request.onsuccess = () => {
         const database = request.result;
-        database.onversionchange = () => database.close();
+        const invalidateCachedDatabase = () => {
+          // Only clear this connection's promise. A later reopen may already
+          // have replaced it by the time an old close event is delivered.
+          if (databasePromise === opening) databasePromise = null;
+        };
+        database.onversionchange = () => {
+          // A delete or schema upgrade requires this connection to close. Do
+          // not leave the resolved, now-closed database cached for the next
+          // operation, or every later transaction will fail InvalidStateError.
+          invalidateCachedDatabase();
+          database.close();
+        };
+        database.onclose = invalidateCachedDatabase;
         resolve(database);
       };
     }).catch((error: unknown) => {

@@ -408,7 +408,10 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   useEffect(() => {
     let frame2 = 0;
     const frame1 = requestAnimationFrame(() => {
-      frame2 = requestAnimationFrame(() => setEntered(true));
+      frame2 = requestAnimationFrame(() => {
+        setEntered(true);
+        sheetRef.current?.focus({ preventScroll: true });
+      });
     });
     return () => {
       cancelAnimationFrame(frame1);
@@ -587,6 +590,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         role="dialog"
         aria-modal={expanded}
         aria-label={`${spot.name} sky scores`}
+        tabIndex={-1}
         className="absolute left-0 right-0 bottom-0 z-10 pointer-events-auto flex flex-col bg-cream/95 backdrop-blur-md border-t border-cream-dark shadow-2xl rounded-t-2xl overflow-hidden"
         style={{
           maxHeight: 'min(82dvh, 680px)',

@@ -438,7 +438,11 @@ function App() {
   const handleCloseSavedSpots = useCallback(() => {
     setSavedSpotsSheetOpen(false);
     requestAnimationFrame(() => {
-      document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')?.focus();
+      const underlyingSpotSheet = document.querySelector<HTMLElement>(
+        '[role="dialog"][aria-label$=" sky scores"]',
+      );
+      if (underlyingSpotSheet) underlyingSpotSheet.focus({ preventScroll: true });
+      else document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')?.focus();
     });
   }, []);
 

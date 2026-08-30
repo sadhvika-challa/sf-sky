@@ -120,6 +120,7 @@ describe('SavedSpotsSheet', () => {
     expect(html).toContain('The last change was not saved on this device.');
     expect(html).toContain('Your durable saved list is shown below.');
     expect(html).toContain('Ocean Beach');
+    expect(html).not.toContain('>Retry</button>');
   });
 
   it('protects future-version data without offering a destructive retry', () => {

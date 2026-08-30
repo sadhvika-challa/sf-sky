@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Spot } from '../data/spots';
 import type { SavedSpotsError, SavedSpotsState } from '../hooks/useSavedSpots';
 import { groupSavedSpots } from './savedSpotsViewModel';
@@ -26,6 +26,35 @@ function errorMessage(error: SavedSpotsError | null): string | null {
     return 'This saved list was created by a newer version of Soleil. It is protected from changes here.';
   }
   return null;
+}
+
+function isolateModalSiblings(modalRoot: HTMLElement): () => void {
+  const parent = modalRoot.parentElement;
+  if (!parent) return () => undefined;
+  const priorState = new Map<HTMLElement, { inert: boolean; ariaHidden: string | null }>();
+  const isolate = (element: HTMLElement) => {
+    if (element === modalRoot || priorState.has(element)) return;
+    priorState.set(element, {
+      inert: element.inert,
+      ariaHidden: element.getAttribute('aria-hidden'),
+    });
+    element.inert = true;
+    element.setAttribute('aria-hidden', 'true');
+  };
+  for (const child of parent.children) isolate(child as HTMLElement);
+  const observer = new MutationObserver(() => {
+    for (const child of parent.children) isolate(child as HTMLElement);
+  });
+  observer.observe(parent, { childList: true });
+
+  return () => {
+    observer.disconnect();
+    for (const [element, prior] of priorState) {
+      element.inert = prior.inert;
+      if (prior.ariaHidden === null) element.removeAttribute('aria-hidden');
+      else element.setAttribute('aria-hidden', prior.ariaHidden);
+    }
+  };
 }
 
 interface SavedSpotRowProps {
@@ -129,6 +158,7 @@ export default function SavedSpotsSheet({
   onUnsave,
   onRetry,
 }: SavedSpotsSheetProps) {
+  const modalRootRef = useRef<HTMLDivElement | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [pendingRemovalSpots, setPendingRemovalSpots] = useState<ReadonlyMap<string, Spot>>(
     () => new Map(),
@@ -143,16 +173,59 @@ export default function SavedSpotsSheet({
     [spots, visibleSavedSpotIds],
   );
   const message = errorMessage(error);
-  const canRetry = status === 'error';
+  const canRetry = status === 'error' && error === 'read-failed';
 
   useEffect(() => {
     if (!open) return;
+    const focusableSelector = [
+      'a[href]',
+      'button:not([disabled])',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+    const focusableElements = () => Array.from(
+      modalRootRef.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [],
+    ).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        // Capture at the window boundary so an underlying spot sheet cannot
+        // consume the same Escape after the top modal closes.
+        event.stopImmediatePropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = focusableElements();
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        event.preventDefault();
+        modalRootRef.current?.focus();
+        return;
+      }
+      const active = document.activeElement;
+      const activeIndex = focusable.findIndex((element) => element === active);
+      const nextIndex = event.shiftKey
+        ? (activeIndex <= 0 ? focusable.length - 1 : activeIndex - 1)
+        : (activeIndex < 0 || activeIndex === focusable.length - 1 ? 0 : activeIndex + 1);
+      // Advance explicitly on every Tab. Mobile WebKit does not consistently
+      // perform native sequential button focus for a hardware-key event.
+      event.preventDefault();
+      focusable[nextIndex].focus();
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    window.addEventListener('keydown', handleKey, true);
+    return () => window.removeEventListener('keydown', handleKey, true);
   }, [onClose, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const modalRoot = modalRootRef.current;
+    if (!modalRoot) return;
+    return isolateModalSiblings(modalRoot);
+  }, [open]);
 
   const handleUnsave = async (spot: Spot): Promise<boolean> => {
     setPendingRemovalSpots((current) => {
@@ -179,7 +252,7 @@ export default function SavedSpotsSheet({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[910]">
+    <div ref={modalRootRef} className="fixed inset-0 z-[910]" tabIndex={-1}>
       <div onClick={onClose} className="absolute inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
       <div
         role="dialog"
