@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "native:sync": "npm run build && cap sync ios",
+    "ios:open": "cap open ios",
+    "ios:verify": "npm run native:sync && node scripts/verify-ios-shell.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
@@ -13,6 +16,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@capacitor/core": "8.5.0",
+    "@capacitor/ios": "8.5.0",
+    "@capacitor/preferences": "8.0.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/leaflet": "^1.9.21",
     "@types/suncalc": "^1.9.2",
@@ -27,6 +33,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@capacitor/cli": "8.5.0",
     "@eslint/js": "^9.39.4",
     "@playwright/test": "^1.62.1",
     "@types/node": "^24.12.0",

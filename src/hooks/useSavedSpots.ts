@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { KNOWN_SPOT_IDS, RETIRED_SPOT_IDS, SPOT_ID_ALIASES } from '../data/spotIdentity';
-import { savedSpotsKeyValueStore } from '../platform/indexedDbStorage';
+import { savedSpotsKeyValueStore } from '../platform/savedSpotsStorage';
 import type { KeyValueStore } from '../platform/storage';
 import {
   FutureSavedSpotsVersionError,
