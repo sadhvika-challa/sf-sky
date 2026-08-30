@@ -199,6 +199,14 @@ export function formatActiveTimelineLabel(
   return `${VIEW_MODE_NAMES[viewMode]} · ${dateLabel} at ${displayTimeFormatter(timeZone).format(instant)}`;
 }
 
+export function describeActiveForecastTrust(activeStates: readonly boolean[]): string {
+  if (activeStates.length === 0) return 'No visible scores';
+  const forecastCount = activeStates.filter(Boolean).length;
+  if (forecastCount === activeStates.length) return 'Exact forecast-backed scores';
+  if (forecastCount === 0) return 'Estimated scores';
+  return 'Mix of exact forecasts and estimates';
+}
+
 /** Preserve '' as the canonical live state and reject unavailable forecast keys. */
 export function normalizeTimelineHourKey(
   requestedKey: string,

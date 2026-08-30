@@ -294,18 +294,19 @@ const SPARK_CONTAINER_PX = 26;
 const SPARK_BAR_AREA_PX = 20;
 const SPARK_BAR_MIN_PX = 3;
 
-function formatSparkTime(date: Date): string {
+function formatSparkTime(date: Date, timeZone: string): string {
   return date
-    .toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
+    .toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: true })
     .toLowerCase()
     .replace(/\s/g, '');
 }
 
 interface SparkStripProps {
   points: SparkPoint[];
+  timeZone: string;
 }
 
-function SparkStrip({ points }: SparkStripProps) {
+function SparkStrip({ points, timeZone }: SparkStripProps) {
   return (
     <div
       className="mt-3 flex items-end gap-[3px]"
@@ -330,7 +331,7 @@ function SparkStrip({ points }: SparkStripProps) {
             <div
               className="w-full rounded-sm"
               style={{ height: barPx, background: p.color }}
-              title={`${p.score} · ${formatSparkTime(p.date)}`}
+              title={`${p.score} · ${formatSparkTime(p.date, timeZone)}`}
             />
           </div>
         );
@@ -561,7 +562,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   })();
 
   const sparkPoints: SparkPoint[] = forecast && type !== 'now'
-    ? computeSparkPoints(spot, type, forecast, eventInstant, moonIllum.fraction)
+    ? computeSparkPoints(spot, type, forecast, eventInstant, moonIllum.fraction, timeZone)
     : [];
   // Reserve space for the sparkline while the forecast is still resolving so
   // the metrics strip below doesn't jump when data lands. If we already know
@@ -807,7 +808,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                     : (type === 'now' && scrubHourKey ? 'Selected hour unavailable' : 'Static estimate')}
                 </p>
                 {showSparkStrip ? (
-                  <SparkStrip points={sparkPoints} />
+                  <SparkStrip points={sparkPoints} timeZone={timeZone} />
                 ) : showSparkSkeleton ? (
                   <div
                     className="mt-3"

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SCORE_CARD_ORDER,
   deriveSpotTimelineHourKeys,
+  describeActiveForecastTrust,
   formatActiveTimelineLabel,
   formatHourKeyInTimeZone,
   hasExactTimelineHour,
@@ -102,5 +103,11 @@ describe('timeline helpers', () => {
     expect(
       formatActiveTimelineLabel('2026-08-30T20', 'sunset', 'America/Chicago', now),
     ).toBe('Sunset · Today at 8:00 PM');
+  });
+
+  it('describes active Search trust without overstating fallback estimates', () => {
+    expect(describeActiveForecastTrust([true, true])).toBe('Exact forecast-backed scores');
+    expect(describeActiveForecastTrust([true, false])).toBe('Mix of exact forecasts and estimates');
+    expect(describeActiveForecastTrust([false, false])).toBe('Estimated scores');
   });
 });

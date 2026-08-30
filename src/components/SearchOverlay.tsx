@@ -5,7 +5,7 @@ import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
 import { getKarlComment } from '../utils/karl-copy';
 import { getSpectrumColor, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
-import { formatActiveTimelineLabel } from '../utils/timeline';
+import { describeActiveForecastTrust, formatActiveTimelineLabel } from '../utils/timeline';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -158,6 +158,9 @@ export default function SearchOverlay({
     }
     return [...ranked].sort((a, b) => b.score - a.score);
   }, [ranked, trimmed, hasQuery]);
+  const activeForecastTrust = describeActiveForecastTrust(
+    results.map((result) => liveScores.get(result.spot.id)?.activeIsLive ?? false),
+  );
 
   if (!mounted) return null;
 
@@ -214,13 +217,14 @@ export default function SearchOverlay({
 
       {/* Results list */}
       <div className="flex-1 overflow-y-auto overscroll-contain">
-        {!hasQuery && (
-          <div className="px-4 pt-4 pb-2">
-            <p className="font-mono text-[10px] tracking-[2px] uppercase text-gray-500">
-              Scores for {activeTimelineLabel}
-            </p>
-          </div>
-        )}
+        <div className="px-4 pt-4 pb-2">
+          <p className="font-mono text-[10px] tracking-[2px] uppercase text-gray-500">
+            Scores for {activeTimelineLabel}
+          </p>
+          <p className="mt-1 font-mono text-[10px] text-gray-400" role="status">
+            {activeForecastTrust}
+          </p>
+        </div>
 
         {results.length === 0 ? (
           <div className="px-4 py-10 text-center">

@@ -10,27 +10,13 @@ import {
   getTierColor,
   type ScoreType,
 } from './scoring';
+import { formatHourKeyInTimeZone } from './timeline';
 
 /** Card types that get a sparkline (i.e. "now" is intentionally excluded). */
 export type SparkType = ScoreType;
 
 /** How many stargazing hours we sample forward from nauticalDusk. */
 const STARGAZING_POINTS = 7;
-
-/**
- * Build the ISO hour key used to index `SpotForecast.hours`. Mirrors
- * `weather.ts`'s local-time formatting so the direct lookup below only
- * accepts hours that actually landed in the forecast (i.e. no silent
- * fuzzy-fallback to some distant hour when the requested time is past the
- * 3-day horizon).
- */
-function hourKeyForDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const h = String(date.getHours()).padStart(2, '0');
-  return `${y}-${m}-${d}T${h}`;
-}
 
 /**
  * Snap a date down to the top of its containing hour, so each sampled point
@@ -94,6 +80,7 @@ export function computeSparkPoints(
   forecast: SpotForecast,
   eventInstant: Date,
   moonIllum: number,
+  timeZone: string,
 ): SparkPoint[] {
   const hours = deriveSparkHours(type, eventInstant);
   if (hours.length === 0) return [];
@@ -111,7 +98,8 @@ export function computeSparkPoints(
 
   const points: SparkPoint[] = [];
   for (let i = 0; i < hours.length; i++) {
-    const hourly: HourlyForecast | undefined = forecast.hours[hourKeyForDate(hours[i])];
+    const hourKey = formatHourKeyInTimeZone(hours[i], timeZone);
+    const hourly: HourlyForecast | undefined = forecast.hours[hourKey];
     if (!hourly) continue;
     const score = computeLiveScore(spot, type, hourly, moonIllum);
     points.push({
