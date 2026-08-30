@@ -3,7 +3,7 @@ import { type Spot, type SpotCategory, type City } from './data/spots';
 import { type CuratedEvent } from './data/events';
 import { allSpots } from './data/all-spots';
 import { getCityById, getValidCityId } from './data/cities';
-import { useGeolocation } from './hooks/useGeolocation';
+import { useLocation } from './hooks/useLocation';
 import { useTimelineScores } from './hooks/useTimelineScores';
 import { useNeighborhoodForecasts } from './hooks/useNeighborhoodForecasts';
 import MapView, { type MapBounds, type MapPoint } from './components/MapView';
@@ -248,7 +248,10 @@ function App() {
     () => allSpots.filter((s) => s.city === activeCityId),
     [activeCityId],
   );
-  const userLocation = useGeolocation();
+  const location = useLocation();
+  const userLocation = location.state.status === 'allowed'
+    ? location.state.location
+    : null;
   const requestedSpotIds = useMemo(
     () => selectedSpot ? [selectedSpot.id] : [],
     [selectedSpot],
