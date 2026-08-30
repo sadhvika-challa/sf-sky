@@ -592,11 +592,17 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     const eventLabel = type === 'now' && scrubHourKey
       ? 'selected hour'
       : typeTitle[type].toLowerCase();
-    const url = `${window.location.origin}/?spot=${spot.id}&view=${type}`;
+    const hourParam = type === 'now' && scrubHourKey
+      ? `&hour=${encodeURIComponent(scrubHourKey)}`
+      : '';
+    const url = `${window.location.origin}/?spot=${spot.id}&view=${type}${hourParam}`;
     const title = `Soleil \u00b7 ${spot.name}`;
+    const timeContext = type === 'now' && scrubHourKey
+      ? ` at ${eventTimeData.time} ${eventTimeData.period}`
+      : '';
     const text = score >= 60
-      ? `Clear skies at ${spot.name}. ${eventLabel} score: ${score}/100.`
-      : `Clouded out at ${spot.name}. ${eventLabel} score: ${score}/100.`;
+      ? `Clear skies at ${spot.name}. ${eventLabel} score${timeContext}: ${score}/100.`
+      : `Clouded out at ${spot.name}. ${eventLabel} score${timeContext}: ${score}/100.`;
 
     const node = cardRef.current;
     let file: File | null = null;
@@ -721,7 +727,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   type="button"
                   onClick={handleShare}
                   className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
-                  aria-label={`Share ${typeTitle[type].toLowerCase()} card for ${spot.name}`}
+                  aria-label={`Share ${type === 'now' && scrubHourKey ? 'selected hour' : typeTitle[type].toLowerCase()} card for ${spot.name}`}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 3v12" />

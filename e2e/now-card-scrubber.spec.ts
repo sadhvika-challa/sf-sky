@@ -112,6 +112,51 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   );
 });
 
+test('shares and restores the selected Now-card hour', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Share replay contract is exercised once in Chromium');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async (data: ShareData) => {
+        (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData = data;
+      },
+    });
+    Object.defineProperty(navigator, 'canShare', {
+      configurable: true,
+      value: () => false,
+    });
+  });
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const nowCard = dialog.locator('[data-card-type="now"]');
+  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  await slider.focus();
+  await page.keyboard.press('ArrowRight');
+
+  const shareButton = nowCard.getByRole('button', {
+    name: 'Share selected hour card for Ocean Beach',
+  });
+  await expect(shareButton).toBeVisible();
+  await shareButton.click();
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData?.url ?? null,
+  )).toContain('hour=2026-08-29T19');
+  const shared = await page.evaluate(
+    () => (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData,
+  );
+  expect(shared?.text).toContain('selected hour score at 7:00 pm');
+
+  await page.goto(String(shared?.url));
+  const restored = page
+    .getByRole('dialog', { name: 'Ocean Beach sky scores' })
+    .locator('[data-card-type="now"]');
+  await expect(restored.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '1');
+  await expect(restored.getByRole('heading', { level: 3 })).toHaveText('NOW · SELECTED HOUR');
+  await expect(restored.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+});
+
 test('keeps recovery available when the selected spot forecast fails', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   harness.failCoordinates.add(OCEAN_BEACH_COORDINATES);
