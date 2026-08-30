@@ -1,11 +1,11 @@
 export interface KeyValueStore {
-  readonly updateConsistency: 'cross-context' | 'in-process';
+  readonly updateConsistency: 'cross-context' | 'in-process' | 'unavailable';
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
   update<Result>(
     key: string,
-    updater: (current: string | null) => Promise<KeyValueUpdate<Result>> | KeyValueUpdate<Result>,
+    updater: (current: string | null) => KeyValueUpdate<Result>,
   ): Promise<Result>;
   subscribe?(key: string, listener: () => void): () => void;
 }
@@ -30,7 +30,6 @@ export class StorageAccessError extends Error {
 }
 
 type StorageGetter = () => Storage | undefined;
-type LockManagerGetter = () => LockManager | undefined;
 
 const inProcessTransactions = new Map<string, Promise<void>>();
 
@@ -70,12 +69,10 @@ export function createBrowserKeyValueStore(
   getStorage: StorageGetter = defaultStorageGetter,
   getWindow: () => Window | undefined = () =>
     typeof window === 'undefined' ? undefined : window,
-  getLockManager: LockManagerGetter = () =>
-    typeof navigator === 'undefined' ? undefined : navigator.locks,
 ): KeyValueStore {
   const runUpdate = async <Result>(
     key: string,
-    updater: (current: string | null) => Promise<KeyValueUpdate<Result>> | KeyValueUpdate<Result>,
+    updater: (current: string | null) => KeyValueUpdate<Result>,
   ): Promise<Result> => {
     const operation = async () => {
       let storage: Storage;
@@ -103,22 +100,14 @@ export function createBrowserKeyValueStore(
       return update.result;
     };
 
-    const lockName = `soleil:key-value:${key}`;
-    const lockManager = getLockManager();
-    if (lockManager) {
-      return lockManager.request(lockName, { mode: 'exclusive' }, operation);
-    }
-
-    // This keeps React roots and adapters in one JS realm safe. It cannot
-    // provide cross-tab atomicity in browsers without Web Locks, so callers
-    // can inspect updateConsistency and must not claim that stronger contract.
-    return runInProcessExclusive(lockName, operation);
+    // localStorage has no cross-context transaction primitive. This fallback
+    // is useful for simple preferences, but durable shared state must use the
+    // IndexedDB adapter below.
+    return runInProcessExclusive(`soleil:key-value:${key}`, operation);
   };
 
   return {
-    get updateConsistency() {
-      return getLockManager() ? 'cross-context' : 'in-process';
-    },
+    updateConsistency: 'in-process',
     async get(key) {
       try {
         return getStorage()?.getItem(key) ?? null;

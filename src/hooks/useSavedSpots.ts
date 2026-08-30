@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { KNOWN_SPOT_IDS, RETIRED_SPOT_IDS, SPOT_ID_ALIASES } from '../data/spotIdentity';
-import { browserKeyValueStore, type KeyValueStore } from '../platform/storage';
+import { savedSpotsKeyValueStore } from '../platform/indexedDbStorage';
+import type { KeyValueStore } from '../platform/storage';
 import {
   FutureSavedSpotsVersionError,
   SAVED_SPOTS_STORAGE_KEY,
@@ -242,7 +243,7 @@ export interface UseSavedSpotsResult extends SavedSpotsState {
 export function useSavedSpots(
   options: UseSavedSpotsOptions = {},
 ): UseSavedSpotsResult {
-  const store = options.store ?? browserKeyValueStore;
+  const store = options.store ?? savedSpotsKeyValueStore;
   const knownIds = options.knownIds ?? KNOWN_SPOT_IDS;
   const aliases = options.aliases ?? SPOT_ID_ALIASES;
   const retiredIds = options.retiredIds ?? RETIRED_SPOT_IDS;

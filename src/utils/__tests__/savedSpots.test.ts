@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SavedSpotsController } from '../../hooks/useSavedSpots';
+import { createIndexedDbKeyValueStore } from '../../platform/indexedDbStorage';
 import { createBrowserKeyValueStore, StorageAccessError, type KeyValueStore, type KeyValueUpdate } from '../../platform/storage';
 import {
   SAVED_SPOTS_STORAGE_KEY,
@@ -57,7 +58,7 @@ class MemoryStore implements KeyValueStore {
 
   async update<Result>(
     _key: string,
-    updater: (current: string | null) => Promise<KeyValueUpdate<Result>> | KeyValueUpdate<Result>,
+    updater: (current: string | null) => KeyValueUpdate<Result>,
   ): Promise<Result> {
     const operation = this.updateTail.then(async () => {
       if (this.failRead) throw new Error('read failed');
@@ -381,71 +382,25 @@ describe('guarded browser storage', () => {
     expect(listener).toHaveBeenCalledTimes(3);
   });
 
-  it('uses the injected Web Lock for cross-context read-modify-write serialization', async () => {
-    const values = new Map<string, string>();
-    const storage = {
-      getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => { values.set(key, value); },
-      removeItem: (key: string) => { values.delete(key); },
-    } as unknown as Storage;
-    let lockTail: Promise<void> = Promise.resolve();
-    const requestedNames: string[] = [];
-    const locks = {
-      request<Result>(
-        name: string,
-        _options: LockOptions,
-        callback: () => Promise<Result>,
-      ): Promise<Result> {
-        requestedNames.push(name);
-        const operation = lockTail.then(callback);
-        lockTail = operation.then(() => undefined, () => undefined);
-        return operation;
-      },
-    } as unknown as LockManager;
-    const firstStore = createBrowserKeyValueStore(
-      () => storage,
-      () => undefined,
-      () => locks,
-    );
-    const secondStore = createBrowserKeyValueStore(
-      () => storage,
-      () => undefined,
-      () => locks,
-    );
-    let releaseFirst: () => void = () => undefined;
-    let markFirstRead: () => void = () => undefined;
-    const firstRead = new Promise<void>((resolve) => { markFirstRead = resolve; });
-    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
-
-    const first = firstStore.update('shared-key', async (current) => {
-      expect(current).toBeNull();
-      markFirstRead();
-      await firstGate;
-      return { value: 'first', result: 'first committed' };
-    });
-    await firstRead;
-    const second = secondStore.update('shared-key', (current) => {
-      expect(current).toBe('first');
-      return { value: 'second', result: 'second committed' };
-    });
-    releaseFirst();
-
-    await expect(first).resolves.toBe('first committed');
-    await expect(second).resolves.toBe('second committed');
-    expect(values.get('shared-key')).toBe('second');
-    expect(requestedNames).toEqual([
-      'soleil:key-value:shared-key',
-      'soleil:key-value:shared-key',
-    ]);
-    expect(firstStore.updateConsistency).toBe('cross-context');
-  });
-
   it('labels the no-Web-Locks fallback as in-process consistency', () => {
     const store = createBrowserKeyValueStore(
       () => undefined,
       () => undefined,
-      () => undefined,
     );
     expect(store.updateConsistency).toBe('in-process');
+  });
+
+  it('fails the transactional saved-spots adapter closed when IndexedDB is unavailable', async () => {
+    const store = createIndexedDbKeyValueStore({
+      databaseName: 'unavailable-test',
+      objectStoreName: 'values',
+      getIndexedDb: () => undefined,
+      getLegacyStorage: () => undefined,
+      getWindow: () => undefined,
+      createBroadcastChannel: () => undefined,
+    });
+    expect(store.updateConsistency).toBe('unavailable');
+    await expect(store.update('key', () => ({ value: 'unsafe', result: true })))
+      .rejects.toBeInstanceOf(StorageAccessError);
   });
 });
