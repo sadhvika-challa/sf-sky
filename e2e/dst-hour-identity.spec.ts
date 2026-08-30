@@ -74,13 +74,13 @@ test('keeps both fall-back 1 AM hours distinct and restores the shared occurrenc
   const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
   await expect(dialog).toBeVisible();
 
-  await slider.focus();
-  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
   await expect(nowCard.getByText('61°', { exact: true })).toBeVisible();
 
-  await page.keyboard.press('ArrowRight');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '2');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
   await expect(nowCard.getByText('37°', { exact: true })).toBeVisible();
@@ -117,12 +117,15 @@ test('does not synthesize a spring-forward 2 AM hour', async ({ page }) => {
 
   const dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   const slider = dialog.getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  await expect(dialog).toBeFocused();
   await slider.focus();
-  await page.keyboard.press('ArrowRight');
+  await expect(slider).toBeFocused();
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM');
 
-  await page.keyboard.press('ArrowRight');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '2');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 3:00 AM');
   await expect(slider).not.toHaveAttribute('aria-valuetext', /2:00 AM/);
@@ -149,8 +152,7 @@ test('keeps the first repeated 1 AM live while identifying the second as CST', a
   await expect(nowCard.getByText('61°', { exact: true })).toBeVisible();
   await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
 
-  await slider.focus();
-  await page.keyboard.press('ArrowRight');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
   await expect(nowCard.getByText('37°', { exact: true })).toBeVisible();
@@ -253,11 +255,10 @@ test('preserves repeated Pacific hours for an SF spot', async ({ page }, testInf
 
   const card = page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).locator('[data-card-type="now"]');
   const slider = card.getByRole('slider', { name: 'Forecast hour' });
-  await slider.focus();
-  await page.keyboard.press('ArrowRight');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PDT');
   await expect(card.getByText('64°', { exact: true })).toBeVisible();
-  await page.keyboard.press('ArrowRight');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PST');
   await expect(card.getByText('39°', { exact: true })).toBeVisible();
 });
@@ -281,11 +282,10 @@ test('preserves repeated Central hours for an Austin spot', async ({ page }, tes
   const slider = card.getByRole('slider', { name: 'Forecast hour' });
   await expect(card.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
-  await slider.focus();
-  await page.keyboard.press('ArrowRight');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
   await expect(card.getByText('72°', { exact: true })).toBeVisible();
-  await page.keyboard.press('ArrowRight');
+  await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
   await expect(card.getByText('45°', { exact: true })).toBeVisible();
 });

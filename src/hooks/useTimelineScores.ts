@@ -49,6 +49,16 @@ export type LiveScoresMap = Map<string, LiveSpotScores>;
 export type SpotForecastMap = Map<string, SpotForecast>;
 export type SpotForecastErrorMap = Map<string, Error>;
 
+/**
+ * A landing recommendation compares at most three coordinates, but only two
+ * coordinate jobs may be active at once. Each job can fan out to weather and
+ * air-quality capabilities, so this keeps the provider-facing ceiling bounded
+ * while preserving an immediate lane for a single selected spot.
+ */
+export const TIMELINE_FORECAST_CONCURRENCY = 2;
+const MULTI_SPOT_START_GRACE_MS = 50;
+const MULTI_SPOT_HANDOFF_GRACE_MS = 150;
+
 export interface TimelineScoresResult {
   scores: LiveScoresMap;
   forecasts: SpotForecastMap;
@@ -227,7 +237,9 @@ export function useTimelineScores(
     generation: number;
     dueAt: number;
   } | null>(null);
-  const requestedScope = `${timeZone}:${requestedSpotIds.join(',')}`;
+  const requestedIdsKey = requestedSpotIds.join(',');
+  const requestedSpotCount = requestedIdsKey === '' ? 0 : requestedIdsKey.split(',').length;
+  const requestedScope = `${timeZone}:${requestedIdsKey}`;
   const requestHourKey = formatCanonicalHourKey(now);
   const bumpRefresh = useCallback((force: boolean) => {
     setRefreshRequest((previous) => ({ generation: previous.generation + 1, force }));
@@ -252,17 +264,18 @@ export function useTimelineScores(
   }, [bumpRefresh]);
 
   useEffect(() => {
-    if (!activeRefreshSchedule || requestedSpotIds.length === 0) return;
+    if (!activeRefreshSchedule || requestedSpotCount === 0) return;
     const timeout = setTimeout(
       () => bumpRefresh(false),
       Math.max(0, activeRefreshSchedule.dueAt - Date.now()),
     );
     return () => clearTimeout(timeout);
-  }, [activeRefreshSchedule, bumpRefresh, requestedSpotIds.length]);
+  }, [activeRefreshSchedule, bumpRefresh, requestedSpotCount]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const requested = new Set(requestedSpotIds);
+    const requested = new Set(requestedIdsKey === '' ? [] : requestedIdsKey.split(','));
+    const pendingSpots = spots.filter((spot) => requested.has(spot.id));
     const requestGeneration = refreshRequest.generation;
     const scheduleNext = (dueAt: number) => {
       setRefreshSchedule((previous) => {
@@ -276,63 +289,99 @@ export function useTimelineScores(
         return { scope: requestedScope, generation: requestGeneration, dueAt };
       });
     };
-    for (const spot of spots) {
-      if (!requested.has(spot.id)) continue;
-      fetchSpotForecast(spot.lat, spot.lng, timeZone, {
-        maxAgeMs: refreshRequest.force ? 0 : WEATHER_REFRESH_INTERVAL_MS,
-        requiredHourKey: requestHourKey,
-        signal: controller.signal,
-      })
-        .then((forecast) => {
-          if (controller.signal.aborted) return;
-          if (refreshRequest.force) {
-            setRetryingScope((scope) => scope === requestedScope ? null : scope);
-          }
-          setForecasts((previous) => {
-            if (previous.get(spot.id) === forecast) return previous;
-            const next = new Map(previous);
-            next.set(spot.id, forecast);
-            return next;
-          });
-          setForecastErrors((previous) => {
-            if (!previous.has(spot.id)) return previous;
-            const next = new Map(previous);
-            next.delete(spot.id);
-            return next;
-          });
-          // fetchedAt is stamped after endpoint completion. A slow first
-          // request therefore still receives a full 15-minute fresh window.
-          scheduleNext(nextWeatherRefreshAt(
-            forecast.requestCompletedAt ?? forecast.fetchedAt,
-          ));
-        })
-        .catch((reason: unknown) => {
-          if (controller.signal.aborted) return;
-          if (refreshRequest.force) {
-            setRetryingScope((scope) => scope === requestedScope ? null : scope);
-          }
-          const error = reason instanceof Error ? reason : new Error(String(reason));
-          if (reason instanceof WeatherRequestError && reason.savedForecast) {
-            setForecasts((previous) => {
-              const next = new Map(previous);
-              next.set(spot.id, reason.savedForecast!);
-              return next;
-            });
-          }
-          setForecastErrors((previous) => {
-            const next = new Map(previous);
-            next.set(spot.id, error);
-            return next;
-          });
-          // Failed revalidation never hot-loops. Retained evidence stays in
-          // place and the next automatic attempt waits a full interval.
-          scheduleNext(nextWeatherRefreshAt(null));
+    let nextSpotIndex = 0;
+    const requestSpot = async (spot: Spot) => {
+      try {
+        const forecast = await fetchSpotForecast(spot.lat, spot.lng, timeZone, {
+          maxAgeMs: refreshRequest.force ? 0 : WEATHER_REFRESH_INTERVAL_MS,
+          requiredHourKey: requestHourKey,
+          signal: controller.signal,
         });
-    }
-    return () => controller.abort();
-  }, [requestHourKey, requestedScope, requestedSpotIds, spots, refreshRequest, timeZone]);
+        if (controller.signal.aborted) return;
+        if (refreshRequest.force) {
+          setRetryingScope((scope) => scope === requestedScope ? null : scope);
+        }
+        setForecasts((previous) => {
+          if (previous.get(spot.id) === forecast) return previous;
+          const next = new Map(previous);
+          next.set(spot.id, forecast);
+          return next;
+        });
+        setForecastErrors((previous) => {
+          if (!previous.has(spot.id)) return previous;
+          const next = new Map(previous);
+          next.delete(spot.id);
+          return next;
+        });
+        // fetchedAt is stamped after endpoint completion. A slow first
+        // request therefore still receives a full 15-minute fresh window.
+        scheduleNext(nextWeatherRefreshAt(
+          forecast.requestCompletedAt ?? forecast.fetchedAt,
+        ));
+      } catch (reason: unknown) {
+        if (controller.signal.aborted) return;
+        if (refreshRequest.force) {
+          setRetryingScope((scope) => scope === requestedScope ? null : scope);
+        }
+        const error = reason instanceof Error ? reason : new Error(String(reason));
+        if (reason instanceof WeatherRequestError && reason.savedForecast) {
+          setForecasts((previous) => {
+            const next = new Map(previous);
+            next.set(spot.id, reason.savedForecast!);
+            return next;
+          });
+        }
+        setForecastErrors((previous) => {
+          const next = new Map(previous);
+          next.set(spot.id, error);
+          return next;
+        });
+        // Failed revalidation never hot-loops. Retained evidence stays in
+        // place and the next automatic attempt waits a full interval.
+        scheduleNext(nextWeatherRefreshAt(null));
+      }
+    };
+    const runWorker = async () => {
+      while (!controller.signal.aborted) {
+        const spot = pendingSpots[nextSpotIndex];
+        nextSpotIndex += 1;
+        if (!spot) return;
+        await requestSpot(spot);
+        // Fast HTTP failures and cached revalidation can settle the JavaScript
+        // promise just before the browser publishes the request's terminal
+        // network event. Keep the queued third coordinate from briefly
+        // overlapping those completed jobs at the provider boundary.
+        if (!controller.signal.aborted && nextSpotIndex < pendingSpots.length) {
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, MULTI_SPOT_HANDOFF_GRACE_MS);
+          });
+        }
+      }
+    };
+    const workerCount = Math.min(TIMELINE_FORECAST_CONCURRENCY, pendingSpots.length);
+    const startWorkers = () => {
+      for (let workerIndex = 0; workerIndex < workerCount; workerIndex += 1) {
+        void runWorker();
+      }
+    };
+    // A city or mode transition can abort a prior regional generation in the
+    // same React commit. Give the browser one short turn to publish those
+    // terminal aborts before starting a new multi-spot comparison. A single
+    // selected spot keeps its immediate request path.
+    const startTimer = pendingSpots.length > 1
+      ? window.setTimeout(startWorkers, MULTI_SPOT_START_GRACE_MS)
+      : null;
+    if (startTimer === null) startWorkers();
+    return () => {
+      if (startTimer !== null) window.clearTimeout(startTimer);
+      controller.abort();
+    };
+  }, [requestHourKey, requestedIdsKey, requestedScope, spots, refreshRequest, timeZone]);
 
-  const requestedSet = useMemo(() => new Set(requestedSpotIds), [requestedSpotIds]);
+  const requestedSet = useMemo(
+    () => new Set(requestedIdsKey === '' ? [] : requestedIdsKey.split(',')),
+    [requestedIdsKey],
+  );
 
   const currentHourKey = formatCanonicalHourKey(now);
   const selectedHourKey = hourKey || currentHourKey;

@@ -15,6 +15,7 @@ import {
   nextWeatherRefreshAt,
   WEATHER_REFRESH_INTERVAL_MS,
 } from '../weatherRefresh';
+import { TIMELINE_FORECAST_CONCURRENCY } from '../../hooks/useTimelineScores';
 
 const HOUR_KEY = '2026-08-31T01:00:00Z';
 
@@ -50,6 +51,10 @@ describe('weather request budget contracts', () => {
     expect(OVERLAY_USABLE_ANCHORS).toBe(9);
     expect(overlayRequestMaxAge(false)).toBe(WEATHER_REFRESH_INTERVAL_MS);
     expect(overlayRequestMaxAge(true)).toBe(0);
+  });
+
+  it('caps a Best Nearby comparison at two concurrent forecast coordinate jobs', () => {
+    expect(TIMELINE_FORECAST_CONCURRENCY).toBe(2);
   });
 
   it('builds the forward 24-hour scrubber locally using canonical UTC identities', () => {

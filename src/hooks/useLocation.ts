@@ -20,6 +20,7 @@ export interface UseLocationResult {
   state: LocationState;
   request: (options?: LocationRequestOptions) => Promise<LocationState>;
   retry: (options?: LocationRequestOptions) => Promise<LocationState>;
+  clear: () => void;
 }
 
 function stateForFailure(error: unknown): LocationState {
@@ -86,6 +87,11 @@ export class LocationController {
   retry(options?: LocationRequestOptions): Promise<LocationState> {
     return this.request(options);
   }
+
+  clear(): void {
+    this.latestRequest += 1;
+    this.publish({ status: 'not-requested' });
+  }
 }
 
 /**
@@ -105,5 +111,6 @@ export function useLocation(
     state,
     request: (options) => controller.request(options),
     retry: (options) => controller.retry(options),
+    clear: () => controller.clear(),
   };
 }

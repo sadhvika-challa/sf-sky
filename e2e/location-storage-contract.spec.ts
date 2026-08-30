@@ -159,7 +159,7 @@ test('requests location only after activation and restores the marker and distan
 
   await expect.poll(() => locationCalls(page)).toBe(0);
   const preferences = await openLocationPreferences(page);
-  await expect(preferences).toContainText('See nearby spots and distances. Your coordinates are never saved.');
+  await expect(preferences).toContainText('See the best sky-viewing spots near you right now. Your coordinates are never saved.');
   await expect.poll(() => locationCalls(page)).toBe(0);
 
   await preferences.getByRole('button', { name: 'Use my location' }).click();
