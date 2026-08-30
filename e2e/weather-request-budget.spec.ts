@@ -379,6 +379,82 @@ for (const scenario of [
   });
 }
 
+test('recovers a cold overlay from malformed HTTP 200 data with one fresh retry generation', async ({ page }) => {
+  const harness = await installWeatherHarness(page);
+  for (const neighborhood of neighborhoods) {
+    harness.emptyForecastCoordinates.add(
+      weatherCoordinateKey(neighborhood.lat, neighborhood.lng),
+    );
+  }
+  await page.goto('/');
+  await openWeatherOverlay(page);
+  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL);
+  await expect.poll(() => harness.requests.active).toBe(0);
+
+  await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'invalid-data');
+  await expect(overlayState(page)).toContainText(/incomplete data/i);
+  await expect.poll(async () => page.locator('.weather-overlay').evaluateAll((elements) =>
+    elements.every((element) => Number(getComputedStyle(element).opacity) === 0),
+  )).toBe(true);
+  const retry = overlayState(page).getByRole('button', { name: /retry/i });
+  await expect(retry).toBeVisible();
+
+  harness.emptyForecastCoordinates.clear();
+  const beforeRetry = harness.requests.forecast.length;
+  await retry.click();
+  await expect.poll(() => harness.requests.forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
+  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
+  const retryGeneration = harness.requests.forecast.slice(beforeRetry);
+  expect(retryGeneration).toHaveLength(OVERLAY_TOTAL);
+  expect(new Set(retryGeneration).size).toBe(OVERLAY_TOTAL);
+  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
+});
+
+test('preserves saved overlay evidence across malformed revalidation and reload', async ({ page }) => {
+  const harness = await installWeatherHarness(page);
+  const cacheOptions = {
+    fetchedAt: FIXED_NOW.getTime() - 16 * 60 * 1_000,
+    expiresAt: FIXED_NOW.getTime() + 60 * 60 * 1_000,
+    includeAirQuality: false,
+    seedOnce: true,
+  };
+  for (const neighborhood of neighborhoods) {
+    const coordinateKey = weatherCoordinateKey(neighborhood.lat, neighborhood.lng);
+    await seedCachedForecast(page, coordinateKey, cacheOptions);
+    harness.emptyForecastCoordinates.add(coordinateKey);
+  }
+
+  await page.goto('/');
+  await openWeatherOverlay(page);
+  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL);
+  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'saved');
+  await expect(overlayState(page)).toContainText(/showing saved forecast for 25 areas/i);
+  await expect(overlayState(page)).toContainText(/incomplete data/i);
+  const savedSummary = await overlayState(page).getByRole('img').getAttribute('aria-label');
+  expect(savedSummary).toMatch(/usable coverage 25 of 25 areas/i);
+  await expect(overlayState(page).getByRole('button', { name: /retry/i })).toBeVisible();
+
+  await page.reload();
+  await openWeatherOverlay(page);
+  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL * 2);
+  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'saved');
+  await expect(overlayState(page)).toContainText(/showing saved forecast for 25 areas/i);
+  await expect(overlayState(page)).toContainText(/incomplete data/i);
+  await expect(overlayState(page).getByRole('img')).toHaveAttribute('aria-label', savedSummary!);
+
+  harness.emptyForecastCoordinates.clear();
+  const beforeRetry = harness.requests.forecast.length;
+  await overlayState(page).getByRole('button', { name: /retry/i }).click();
+  await expect.poll(() => harness.requests.forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
+  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
+  expect(new Set(harness.requests.forecast.slice(beforeRetry)).size).toBe(OVERLAY_TOTAL);
+  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
+});
+
 test('qualifies a completed overlay with missing regional evidence as partial', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   const first = neighborhoods[0];
@@ -412,7 +488,12 @@ test('never presents an authoritative wash from fewer than nine usable active-ho
 
   await page.goto('/');
   await openWeatherOverlay(page);
-  await page.getByRole('tab', { name: 'Temperature' }).click();
+  const temperatureMetric = page.getByRole('tab', { name: 'Temperature' });
+  await expect(temperatureMetric).toBeVisible();
+  if (await temperatureMetric.getAttribute('aria-selected') !== 'true') {
+    await temperatureMetric.click();
+  }
+  await expect(temperatureMetric).toHaveAttribute('aria-selected', 'true');
   await expect.poll(() => harness.requests.completed.length).toBeGreaterThanOrEqual(3);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'loading');
   await expect.poll(async () => page.locator('.weather-overlay').evaluateAll((elements) =>

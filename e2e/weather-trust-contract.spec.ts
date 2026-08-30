@@ -139,7 +139,10 @@ test('uses a curated estimate when the selected future hour is absent', async ({
 });
 
 test('explains a failed forecast fetch and preserves recovery', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-chromium', 'State contract is exercised once in Chromium');
+  test.skip(
+    testInfo.project.name !== 'desktop-chromium' && testInfo.project.name !== 'mobile-webkit',
+    'Selected retry is exercised in desktop Chromium and mobile WebKit',
+  );
   const harness = await installWeatherHarness(page);
   harness.failCoordinates.add(OCEAN_BEACH_COORDINATES);
   await page.goto(SPOT_URL);
@@ -208,6 +211,42 @@ test('identifies partial evidence when air quality is unavailable', async ({ pag
   await expect(nowCard.getByText('Partial forecast · Retrieved just now', { exact: true })).toBeVisible();
   await capture(page, testInfo, 'partial-air-quality');
   reportRequests(harness, 'partial-air-quality');
+});
+
+test('retains one complete selected version when AQ-only revalidation fails and retries both endpoints', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Versioned AQ recovery is exercised once in Chromium');
+  const harness = await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const nowCard = await oceanCard(page);
+  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
+  harness.failAirQualityCoordinates.add(OCEAN_BEACH_COORDINATES);
+  await page.clock.fastForward(FIFTEEN_MINUTES + 1);
+  await expect.poll(
+    () => harness.requests.forecast.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES).length,
+  ).toBe(2);
+  await expect.poll(
+    () => harness.requests.airQuality.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES).length,
+  ).toBe(2);
+
+  await expect(nowCard.getByText('Saved forecast · low confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Forecast-backed · Retrieved 15m ago', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText(/refresh.*incomplete.*air.?quality|air.?quality.*unavailable/i)).toBeVisible();
+  const retry = nowCard.getByRole('button', { name: 'Retry forecast for Ocean Beach' });
+  await expect(retry).toBeVisible();
+
+  harness.failAirQualityCoordinates.clear();
+  await retry.click();
+  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
+  expect(harness.requests.forecast.filter(
+    (coordinate) => coordinate === OCEAN_BEACH_COORDINATES,
+  )).toHaveLength(3);
+  expect(harness.requests.airQuality.filter(
+    (coordinate) => coordinate === OCEAN_BEACH_COORDINATES,
+  )).toHaveLength(3);
+  reportRequests(harness, 'aq-only-refresh-recovery');
 });
 
 test('uses placeholders instead of invented values for absent metrics', async ({ page }, testInfo) => {

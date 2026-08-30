@@ -19,6 +19,8 @@ The browser suite treats these as product contracts:
 | Warm selected spot plus warm overlay | 0 | 0 | Session cache satisfies both scopes |
 | Selected-spot revalidation after 15 minutes | 1 new request | 1 new request | One refresh pair |
 | Overlay retry generation | At most 25 new requests | 0 | Each anchor starts at most once, at most 3 coordinate jobs |
+| Malformed HTTP 200 overlay retry | 25 initial plus 25 retry | 0 | Invalid data is not cached as success |
+| AQ-only selected refresh failure and retry | 1 forecast per generation | 1 AQ per generation | Retry bypasses freshness for both endpoints |
 
 Selected-spot demand has a reserved lane and takes priority over queued overlay
 work. Overlay requests do not start until the user turns the overlay on. The
@@ -42,6 +44,14 @@ application hooks:
   and mobile WebKit. Timeout recovery runs on desktop WebKit. Every recovery
   asserts the 25-request second-generation ceiling and three-job concurrency
   ceiling.
+- A malformed HTTP 200 response reaches `invalid-data`, paints no wash, and
+  Retry starts one fresh 25-anchor generation that can recover to `ready`.
+- A malformed revalidation cannot replace a usable saved overlay in memory or
+  session storage. Reload preserves the same accessible map summary and average,
+  reports `saved`, explains the incomplete refresh, and permits recovery.
+- An AQ-only selected refresh failure retains the prior complete snapshot as
+  one coherent saved version. Its original retrieval time remains visible,
+  incomplete AQ evidence is explained, and Retry refreshes both endpoints.
 
 The deterministic overlay state values exercised by tests are `loading`,
 `progressive`, `partial`, `ready`, `refreshing`, `saved`, `offline`, `timeout`,
@@ -64,6 +74,11 @@ forecasts, and exact active-hour omissions so only eight anchors are usable. It
 asserts zero visible weather raster opacity both before the threshold and after
 the generation reaches its terminal `invalid-data` state.
 
+The overlay's accessible map summary uses the active city's local date and
+time-zone abbreviation. Repeated fall-back hours remain distinguishable,
+including the first `1:00 AM PDT` and second `1:00 AM PST` occurrences in San
+Francisco.
+
 ## Interaction stability and physical-device gate
 
 Pointer tests wait for the spot sheet's animations and geometry to settle
@@ -73,6 +88,8 @@ the scrubber changes hour, the sheet remains open, card order remains stable,
 and the dedicated handle dismisses the sheet.
 
 The mobile project exercises pointer-drag behavior at the narrow viewport. A
-final physical-device gate remains for native finger tracking, momentum,
+selected forecast failure and public Retry recovery also run in mobile WebKit.
+This covers the responsive action path before the native device gate. A final
+physical-device gate remains for native finger tracking, momentum,
 safe-area insets, and pointer capture on the target iPhone and iOS version.
 Those hardware behaviors cannot be proven by browser emulation.

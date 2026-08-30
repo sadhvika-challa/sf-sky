@@ -309,20 +309,29 @@ test('uses the selected repeated instant for the weather overlay sample', async 
   const secondOccurrence = hours.getByRole('button', { name: /^Today · 1:00 AM PST/ });
   const scale = page.locator('[aria-label="Temperature color scale"]');
   const averageMarker = scale.locator('div.absolute');
+  const accessibleMapSummary = page.locator('[data-weather-overlay-state]').getByRole('img');
 
   await firstOccurrence.click();
   await expect(firstOccurrence).toHaveAttribute('aria-pressed', 'true');
   await expect(averageMarker).toHaveAttribute('style', /top: 27\.2727%/);
+  await expect(accessibleMapSummary).toHaveAttribute(
+    'aria-label',
+    /San Francisco weather map.*1:00 AM PDT/i,
+  );
 
   await secondOccurrence.click();
   await expect(secondOccurrence).toHaveAttribute('aria-pressed', 'true');
   await expect(averageMarker).toHaveAttribute('style', /top: 100%/);
+  await expect(accessibleMapSummary).toHaveAttribute(
+    'aria-label',
+    /San Francisco weather map.*1:00 AM PST/i,
+  );
   await expect.poll(() => harness.requests.forecast.length).toBe(25);
   await expect.poll(() => harness.requests.active).toBe(0);
   expectWeatherRequestBudget(harness.requests, {
     forecast: 25,
     airQuality: 0,
-    maxActive: 4,
-    maxCoordinateJobs: 4,
+    maxActive: 3,
+    maxCoordinateJobs: 3,
   });
 });

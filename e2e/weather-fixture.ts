@@ -430,6 +430,8 @@ export async function seedCachedForecast(
     expiresAt: number;
     partialMetrics?: boolean;
     includeAirQuality?: boolean;
+    /** Seed only on the first navigation so reload tests can detect cache corruption or eviction. */
+    seedOnce?: boolean;
   },
 ): Promise<void> {
   const value = {
@@ -440,11 +442,15 @@ export async function seedCachedForecast(
     },
     expiresAt: options.expiresAt,
   };
-  await page.addInitScript(({ key, serialized }) => {
+  await page.addInitScript(({ key, serialized, seedOnce }) => {
+    const marker = `soleil:e2e:seeded:${key}`;
+    if (seedOnce && window.localStorage.getItem(marker) === '1') return;
     window.sessionStorage.setItem(key, serialized);
+    if (seedOnce) window.localStorage.setItem(marker, '1');
   }, {
     key: cacheKey(coordinateKey, 'America/Los_Angeles', options.includeAirQuality !== false),
     serialized: JSON.stringify(value),
+    seedOnce: options.seedOnce === true,
   });
 }
 
