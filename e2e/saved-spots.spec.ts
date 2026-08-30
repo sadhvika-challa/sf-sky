@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import {
   assertNoLiveOpenMeteoTraffic,
@@ -436,6 +437,36 @@ test('provides keyboard-operable controls and stable accessible names', async ({
   await remove.press('Enter');
   await expect(sheet.getByRole('button', { name: `Save ${OCEAN_BEACH.name}` }))
     .toHaveAttribute('aria-pressed', 'false');
+});
+
+test('passes a modal-scoped accessibility audit for a populated saved list', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await resetSavedSpots(page);
+  await seedSavedSpots(page, [OCEAN_BEACH.id]);
+  await page.reload();
+
+  const saved = await openSavedSpots(page);
+  await expect(saved.getByRole('button', { name: `Open ${OCEAN_BEACH.name}` })).toBeVisible();
+  const accessibility = await new AxeBuilder({ page })
+    .include('[role="dialog"][aria-label="Saved spots"], [role="dialog"][aria-labelledby="saved-spots-title"]')
+    .analyze();
+  const seriousOrCritical = accessibility.violations.filter(
+    (violation) => violation.impact === 'serious' || violation.impact === 'critical',
+  );
+  const savedSpotContrast = await new AxeBuilder({ page })
+    .include('[data-contrast-audit]')
+    .withRules(['color-contrast'])
+    .analyze();
+  const unresolvedContrast = savedSpotContrast.incomplete.filter(
+    (result) => result.id === 'color-contrast',
+  );
+  const contrastViolations = savedSpotContrast.violations.filter(
+    (result) => result.id === 'color-contrast',
+  );
+  expect(seriousOrCritical).toEqual([]);
+  expect(contrastViolations).toEqual([]);
+  expect(unresolvedContrast).toEqual([]);
 });
 
 test('Escape closes only saved spots and preserves the collapsed spot sheet state', async ({ page }) => {

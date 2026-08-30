@@ -497,6 +497,20 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const breakdownButtonRef = useRef<HTMLButtonElement | null>(null);
+  const backButtonRef = useRef<HTMLButtonElement | null>(null);
+  const focusAfterFlipRef = useRef<'summary' | 'detail' | null>(null);
+
+  useEffect(() => {
+    const destination = focusAfterFlipRef.current;
+    if (!destination) return;
+    focusAfterFlipRef.current = null;
+    const frame = requestAnimationFrame(() => {
+      if (destination === 'detail') backButtonRef.current?.focus();
+      else breakdownButtonRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showDetail]);
 
   const displayType: CardType = type === 'now' ? (scrubViewMode ?? 'now') : type;
   const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventInstant, timeZone, now);
@@ -685,6 +699,8 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
             showDetail ? 'opacity-0 scale-[0.97] pointer-events-none' : 'opacity-100 scale-100'
           }`}
           style={{ gridArea: '1 / 1' }}
+          aria-hidden={showDetail}
+          inert={showDetail}
         >
           <div className="rounded-xl flex flex-col overflow-hidden h-full">
             {/* Sky gradient header */}
@@ -728,9 +744,9 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                 </div>
               )}
               <div
-                className="absolute bottom-1.5 left-2.5 flex items-center gap-1 text-white/75 text-[8px] font-mono tracking-[1.5px] uppercase"
+                className="absolute bottom-1.5 left-2.5 flex items-center gap-1 rounded-full bg-gray-900 px-2 py-1 text-white text-[9px] font-mono tracking-[1.25px] uppercase shadow-sm"
                 aria-live="polite"
-                style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
+                data-contrast-audit="weather-trust-status"
               >
                 <span
                   className={`inline-block w-1.5 h-1.5 rounded-full ${isForecastBacked ? 'bg-emerald-400' : 'bg-white/40'}`}
@@ -906,8 +922,12 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
             {/* See breakdown tap target */}
             <div className="px-5 pb-4 pt-3 flex-shrink-0">
               <button
+                ref={breakdownButtonRef}
                 type="button"
-                onClick={() => setShowDetail(true)}
+                onClick={() => {
+                  focusAfterFlipRef.current = 'detail';
+                  setShowDetail(true);
+                }}
                 className="flex items-center justify-center gap-1.5 w-full pt-2 pb-1 font-mono text-[9px] tracking-[1.5px] uppercase text-gray-500 hover:text-gray-400 transition-colors"
               >
                 See breakdown
@@ -925,6 +945,8 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
             showDetail ? 'opacity-100 scale-100' : 'opacity-0 scale-[0.97] pointer-events-none'
           }`}
           style={{ gridArea: '1 / 1' }}
+          aria-hidden={!showDetail}
+          inert={!showDetail}
         >
           <div className="rounded-xl flex flex-col overflow-hidden h-full">
             {/* Gradient-backed score context row */}
@@ -1055,8 +1077,12 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
             {/* Back button -- pinned footer, same position as "See Breakdown" */}
             <div className="px-5 pb-4 pt-3 flex-shrink-0">
               <button
+                ref={backButtonRef}
                 type="button"
-                onClick={() => setShowDetail(false)}
+                onClick={() => {
+                  focusAfterFlipRef.current = 'summary';
+                  setShowDetail(false);
+                }}
                 className="flex items-center justify-center gap-1.5 w-full pt-2 pb-1 font-mono text-[9px] tracking-[1.5px] uppercase text-gray-500 hover:text-gray-400 transition-colors"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
