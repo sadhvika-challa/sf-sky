@@ -71,6 +71,7 @@ describe('timeline score contract', () => {
       source,
       TIME_ZONE,
       formatHourKeyInTimeZone(NOW, TIME_ZONE),
+      NOW,
     );
     const events = getUpcomingEventTimes(spot);
     const moon = SunCalc.getMoonIllumination(events.stargazing).fraction;
@@ -97,6 +98,7 @@ describe('timeline score contract', () => {
         source,
         TIME_ZONE,
         formatHourKeyInTimeZone(NOW, TIME_ZONE),
+        NOW,
       );
       const before = {
         sunrise: canonical.sunrise,
@@ -109,6 +111,8 @@ describe('timeline score contract', () => {
         selectedKey,
         selectedInstant,
         viewMode,
+        NOW,
+        false,
       );
       const combined = combineTimelineScores(canonical, active);
       const moon = SunCalc.getMoonIllumination(selectedInstant).fraction;
@@ -134,6 +138,7 @@ describe('timeline score contract', () => {
       source,
       TIME_ZONE,
       formatHourKeyInTimeZone(NOW, TIME_ZONE),
+      NOW,
     );
     const active = activeScoreForSpot(
       spot,
@@ -141,12 +146,41 @@ describe('timeline score contract', () => {
       '2026-09-10T12',
       parseHourKeyInTimeZone('2026-09-10T12', TIME_ZONE),
       'sunset',
+      NOW,
+      false,
     );
     const combined = combineTimelineScores(canonical, active);
 
     expect(combined.active).toBe(spot.sunset);
     expect(combined.activeIsLive).toBe(false);
+    expect(combined.activeEvidence).toMatchObject({
+      provenance: 'curated-estimate',
+      state: 'unavailable',
+    });
     expect(combined.sunset).toBe(canonical.sunset);
     expect(combined.isLive).toBe(true);
+  });
+
+  it('keeps a partial selected-hour forecast distinct from a curated estimate', () => {
+    const source = forecast();
+    const selectedKey = '2026-08-30T05';
+    const selectedInstant = parseHourKeyInTimeZone(selectedKey, TIME_ZONE)!;
+    source.hours[selectedKey] = hour({ windMph: NaN });
+    const active = activeScoreForSpot(
+      spot,
+      source,
+      selectedKey,
+      selectedInstant,
+      'now',
+      NOW,
+      false,
+    );
+
+    expect(active.activeEvidence).toMatchObject({
+      provenance: 'forecast',
+      completeness: 'partial',
+      state: 'partial-forecast',
+    });
+    expect(active.activeIsLive).toBe(false);
   });
 });

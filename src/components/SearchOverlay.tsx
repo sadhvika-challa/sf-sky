@@ -5,7 +5,8 @@ import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
 import { getKarlComment } from '../utils/karl-copy';
 import { getSpectrumColor, computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
-import { describeActiveForecastTrust, formatActiveTimelineLabel } from '../utils/timeline';
+import { formatActiveTimelineLabel } from '../utils/timeline';
+import { describeScoreEvidenceSet, type ScoreEvidence } from '../utils/confidence';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -28,6 +29,7 @@ interface RankedSpot {
   nextTime: Date | null;
   score: number;
   distanceMi: number | null;
+  evidence: ScoreEvidence | null;
 }
 
 const TYPE_LABEL: Record<ViewMode, string> = {
@@ -60,7 +62,14 @@ function buildRanking(
       viewMode === 'now' ? computeNowBaseScore(spot) : spot[viewMode]
     );
     if (viewMode === 'now') {
-      return { spot, nextType: 'now' as ViewMode, nextTime: null, score, distanceMi };
+      return {
+        spot,
+        nextType: 'now' as ViewMode,
+        nextTime: null,
+        score,
+        distanceMi,
+        evidence: live?.activeEvidence ?? null,
+      };
     }
 
     return {
@@ -69,6 +78,7 @@ function buildRanking(
       nextTime: null,
       score,
       distanceMi,
+      evidence: live?.activeEvidence ?? null,
     };
   });
 }
@@ -158,8 +168,8 @@ export default function SearchOverlay({
     }
     return [...ranked].sort((a, b) => b.score - a.score);
   }, [ranked, trimmed, hasQuery]);
-  const activeForecastTrust = describeActiveForecastTrust(
-    results.map((result) => liveScores.get(result.spot.id)?.activeIsLive ?? false),
+  const activeForecastTrust = describeScoreEvidenceSet(
+    results.flatMap((result) => result.evidence ? [result.evidence] : []),
   );
 
   if (!mounted) return null;
@@ -278,6 +288,9 @@ export default function SearchOverlay({
                         {TYPE_LABEL[r.nextType]}
                         {r.nextTime ? ` · ${formatEventTime(r.nextTime)}` : ''}
                         {distance}
+                      </p>
+                      <p className="font-mono text-[10px] text-gray-400 mt-1">
+                        {r.evidence?.statusLabel ?? 'Curated estimate'}
                       </p>
                     </div>
                     <span

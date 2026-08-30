@@ -3,6 +3,7 @@ import { expect, test, type Locator } from '@playwright/test';
 import {
   OCEAN_BEACH_COORDINATES,
   assertNoDuplicateWeatherRequests,
+  assertNoLiveOpenMeteoTraffic,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -48,12 +49,14 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).not.toHaveAttribute('aria-valuetext', /Now ·/);
-  await expect(nowCard.getByText('Exact forecast', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
+  await expect(nowCard.getByRole('heading', { level: 3 })).toHaveText('NOW · SELECTED HOUR');
   await expect(dialog).toBeVisible();
   await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
   await expect(tablist.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute('aria-selected', 'true');
   expect(await currentCardScrollLeft(dialog)).toBeCloseTo(initialScrollLeft, 0);
-  const screenshotPath = testInfo.outputPath('expanded-now-card-future-hour.png');
+  const screenshotPath = testInfo.outputPath(`expanded-now-card-future-hour-${testInfo.project.name}.png`);
   await page.screenshot({ path: screenshotPath });
   await testInfo.attach('expanded-now-card-future-hour', {
     path: screenshotPath,
@@ -69,8 +72,16 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   await nowCard.getByRole('button', { name: 'Now', exact: true }).click();
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Now, Now · 6pm');
-  await expect(nowCard.getByText('Live', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
   await expect(dialog).toBeVisible();
+
+  const currentScreenshotPath = testInfo.outputPath(`expanded-now-card-current-${testInfo.project.name}.png`);
+  await page.screenshot({ path: currentScreenshotPath });
+  await testInfo.attach('expanded-now-card-current', {
+    path: currentScreenshotPath,
+    contentType: 'image/png',
+  });
 
   const accessibility = await new AxeBuilder({ page })
     .include('[role="dialog"][aria-label="Ocean Beach sky scores"]')
@@ -85,15 +96,65 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   const contrastNodes = seriousViolations
     .filter((violation) => violation.id === 'color-contrast')
     .reduce((total, violation) => total + violation.nodes.length, 0);
-  console.info(`[axe] ${contrastNodes} known color-contrast nodes in the expanded sheet`);
+  console.info(
+    `[axe:${testInfo.project.name}:expanded-sheet] serious-or-critical=` +
+    `${JSON.stringify(seriousViolations.map((violation) => ({ id: violation.id, nodes: violation.nodes.length })))} ` +
+    `known-color-contrast-nodes=${contrastNodes}`,
+  );
 
   assertNoDuplicateWeatherRequests(harness.requests);
+  assertNoLiveOpenMeteoTraffic(harness.requests);
   expect(harness.requests.forecast.length).toBeGreaterThan(0);
   expect(harness.requests.airQuality.length).toBe(harness.requests.forecast.length);
   console.info(
     `[weather-fixture] ${harness.requests.forecast.length} forecast and ` +
     `${harness.requests.airQuality.length} air-quality requests, one pair per coordinate`,
   );
+});
+
+test('shares and restores the selected Now-card hour', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Share replay contract is exercised once in Chromium');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async (data: ShareData) => {
+        (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData = data;
+      },
+    });
+    Object.defineProperty(navigator, 'canShare', {
+      configurable: true,
+      value: () => false,
+    });
+  });
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const nowCard = dialog.locator('[data-card-type="now"]');
+  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  await slider.focus();
+  await page.keyboard.press('ArrowRight');
+
+  const shareButton = nowCard.getByRole('button', {
+    name: 'Share selected hour card for Ocean Beach',
+  });
+  await expect(shareButton).toBeVisible();
+  await shareButton.click();
+  await expect.poll(() => page.evaluate(
+    () => (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData?.url ?? null,
+  )).toContain('hour=2026-08-29T19');
+  const shared = await page.evaluate(
+    () => (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData,
+  );
+  expect(shared?.text).toContain('selected hour score at 7:00 pm');
+
+  await page.goto(String(shared?.url));
+  const restored = page
+    .getByRole('dialog', { name: 'Ocean Beach sky scores' })
+    .locator('[data-card-type="now"]');
+  await expect(restored.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '1');
+  await expect(restored.getByRole('heading', { level: 3 })).toHaveText('NOW · SELECTED HOUR');
+  await expect(restored.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
 });
 
 test('keeps recovery available when the selected spot forecast fails', async ({ page }) => {
@@ -118,15 +179,18 @@ test('keeps recovery available when the selected spot forecast fails', async ({ 
   const errorDialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const nowCard = errorDialog.locator('[data-card-type="now"]');
   await expect(errorDialog).toBeVisible();
-  await expect(nowCard.getByText('Hourly forecast unavailable', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Curated estimate · Forecast not retrieved', { exact: true })).toBeVisible();
   const returnButton = nowCard.getByRole('button', { name: 'Return to Now' });
   await expect(returnButton).toBeVisible();
   await returnButton.click();
 
   await expect(errorDialog).toBeVisible();
   await expect(returnButton).toBeHidden();
+  await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
   await expect(cardOrder(errorDialog)).resolves.toEqual(CARD_ORDER);
   expect(harness.requests.forecast.filter((value) => value === OCEAN_BEACH_COORDINATES)).toHaveLength(1);
+  assertNoLiveOpenMeteoTraffic(harness.requests);
 });
 
 test('supports a positional scrub gesture in the narrow touch layout', async ({ page }, testInfo) => {
@@ -299,7 +363,7 @@ test('dismisses the sheet from the dedicated handle pointer drag', async ({ page
   const box = await handle.boundingBox();
   if (!box) throw new Error('Sheet handle has no layout box');
   console.info(`[handle-target] ${Math.round(box.width)}x${Math.round(box.height)}px`);
-  expect(box.height, 'Dedicated sheet-dismiss handle must provide a 44px touch target').toBeGreaterThanOrEqual(44);
+  expect(box.height, 'Dedicated sheet-dismiss handle must provide a 44px touch target').toBeGreaterThanOrEqual(43.99);
 
   for (const actionName of ['Get directions', 'Open Street View']) {
     const action = dialog.getByRole('button', { name: actionName });

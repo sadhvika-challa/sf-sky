@@ -161,15 +161,21 @@ function isCardType(value: string | null): value is CardType {
   return value === 'sunrise' || value === 'sunset' || value === 'stargazing';
 }
 
-function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType } {
+function isHourKey(value: string | null): value is string {
+  return value !== null && /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(value);
+}
+
+function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType; hourKey?: string } {
   if (typeof window === 'undefined') return { spot: null };
   const params = new URLSearchParams(window.location.search);
   const spotParam = params.get('spot');
   const viewParam = params.get('view');
+  const hourParam = params.get('hour');
   const spot = spotParam ? (allSpots.find((candidate) => candidate.id === spotParam) ?? null) : null;
   return {
     spot,
     cardType: isCardType(viewParam) ? viewParam : undefined,
+    hourKey: viewParam === 'now' && isHourKey(hourParam) ? hourParam : undefined,
   };
 }
 
@@ -213,7 +219,7 @@ function App() {
   const [citySheetOpen, setCitySheetOpen] = useState(false);
   const activeCityConfig = getCityById(activeCityId) ?? getCityById('sf')!;
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
-  const [timelineHourKey, setTimelineHourKey] = useState<string>('');
+  const [timelineHourKey, setTimelineHourKey] = useState<string>(initialDeepLink.hourKey ?? '');
 
   // Refreshed every 60s (see effect below) so viewMode stays current as
   // real time advances while the user sits on the live "now" view.
@@ -843,7 +849,7 @@ function App() {
 
       {!weatherOverlay && showWeatherOverlayHint && !selectedSpot && (
         <OnboardingHint
-          message="Tap to see live weather on the map"
+          message="Tap to see forecast-backed scores on the map"
           arrow="to-sun"
           positionClassName="top-[calc(env(safe-area-inset-top)+4.25rem)] left-[3.0625rem]"
           onDismiss={handleDismissWeatherOverlayHint}

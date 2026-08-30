@@ -43,6 +43,79 @@ export interface HourlyForecast {
   windDir: number;
 }
 
+export type ForecastCompleteness = 'complete' | 'partial' | 'missing';
+
+export interface ForecastCompletenessRead {
+  completeness: ForecastCompleteness;
+  availableFields: number;
+  requiredFields: number;
+  percent: number;
+}
+
+type ForecastScoreMode = 'now' | 'sunrise' | 'sunset' | 'stargazing';
+
+const REQUIRED_FIELDS: Record<ForecastScoreMode, ReadonlyArray<keyof HourlyForecast>> = {
+  now: ['cloud', 'cloudLow', 'visibilityKm', 'tempF', 'precipProb', 'pm25', 'windMph'],
+  sunrise: ['cloud', 'cloudLow', 'cloudMid', 'cloudHigh', 'visibilityKm', 'humidity', 'pm25'],
+  sunset: ['cloud', 'cloudLow', 'cloudMid', 'cloudHigh', 'visibilityKm', 'humidity', 'pm25'],
+  stargazing: ['cloud', 'humidity'],
+};
+
+function isValidForecastField(field: keyof HourlyForecast, value: number): boolean {
+  if (!Number.isFinite(value)) return false;
+  switch (field) {
+    case 'cloud':
+    case 'cloudLow':
+    case 'cloudMid':
+    case 'cloudHigh':
+    case 'humidity':
+    case 'precipProb':
+      return value >= 0 && value <= 100;
+    case 'visibilityKm':
+    case 'pm25':
+    case 'windMph':
+    case 'gustMph':
+      return value >= 0;
+    case 'aqi':
+      return value >= 0 && value <= 500;
+    case 'windDir':
+      return value >= 0 && value <= 360;
+    case 'tempF':
+      return value >= -150 && value <= 150;
+    default: {
+      const _exhaustive: never = field;
+      return _exhaustive;
+    }
+  }
+}
+
+export function clampPercentage(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+/** Report only fields the selected scoring mode actually requires. */
+export function getHourlyForecastCompleteness(
+  hourly: HourlyForecast | null,
+  mode: ForecastScoreMode,
+): ForecastCompletenessRead {
+  const fields = REQUIRED_FIELDS[mode];
+  const availableFields = hourly
+    ? fields.filter((field) => isValidForecastField(field, hourly[field])).length
+    : 0;
+  const percent = clampPercentage((availableFields / fields.length) * 100);
+  return {
+    completeness: availableFields === 0
+      ? 'missing'
+      : availableFields === fields.length
+        ? 'complete'
+        : 'partial',
+    availableFields,
+    requiredFields: fields.length,
+    percent,
+  };
+}
+
 export interface SpotForecast {
   /** ISO hour key (YYYY-MM-DDTHH) -> hourly forecast slice. */
   hours: Record<string, HourlyForecast>;
