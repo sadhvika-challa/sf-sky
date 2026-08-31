@@ -57,6 +57,14 @@ npm run ios:release:verify
 npm run test:pwa:artifact
 ```
 
+`npm run build` verifies the committed root-scoped public URL contract before producing the PWA artifacts. After an exact candidate is deployed to a proposed permanent hostname, verify its anonymous, read-only HTTP contract separately:
+
+```bash
+npm run public:release:verify -- --origin https://example.com
+```
+
+This command does not deploy, change DNS, select a hostname, or approve App Store metadata.
+
 The production output is written to `dist/`. Preview it locally with:
 
 ```bash
