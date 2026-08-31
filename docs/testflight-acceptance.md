@@ -11,6 +11,8 @@ Release owner:
 Tester:
 Test date and time zone:
 Candidate commit (full SHA):
+Archive report source commit:
+Archive report package-lock.json SHA-256:
 Branch or release tag:
 Git working tree clean: Yes / No
 CI result and URL:
@@ -21,7 +23,9 @@ App Store Connect build processing state:
 TestFlight build installed:
 Public web origin compiled into build:
 Xcode version:
+Xcode build:
 iOS SDK version:
+iOS SDK build:
 Archive creation date:
 Signing team name (private release log only):
 Device: iPhone 17 Pro
