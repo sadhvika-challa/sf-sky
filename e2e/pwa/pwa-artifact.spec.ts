@@ -10,6 +10,13 @@ const IOS_IN_APP_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 26_6 like Mac OS X) AppleWebKit/605.1.15 ' +
   '(KHTML, like Gecko) Mobile/15E148 Instagram 410.0.0.0.0';
 
+const ALL_CITY_SAVED_SPOTS = [
+  { id: 'sf-ocean-beach', name: 'Ocean Beach', cityId: 'sf', cityName: 'San Francisco' },
+  { id: 'chi-north-ave-beach', name: 'North Avenue Beach', cityId: 'chicago', cityName: 'Chicago' },
+  { id: 'atx-mount-bonnell', name: 'Mount Bonnell (Covert Park)', cityId: 'austin', cityName: 'Austin' },
+  { id: 'sc-west-cliff', name: 'West Cliff Drive (Lighthouse Point)', cityId: 'santa-cruz', cityName: 'Santa Cruz' },
+] as const;
+
 interface AppManifestResult {
   url: string;
   data: string;
@@ -56,6 +63,54 @@ async function selectOceanBeach(page: Page): Promise<void> {
   const search = page.getByRole('dialog', { name: 'Search spots' });
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
   await search.getByRole('button', { name: /Ocean Beach/ }).click();
+}
+
+async function seedAllCitySavedSpots(page: Page): Promise<void> {
+  await page.evaluate(async ({ databaseName, objectStoreName, storageKey, spotIds }) => {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(databaseName, 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains(objectStoreName)) {
+          request.result.createObjectStore(objectStoreName);
+        }
+      };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction(objectStoreName, 'readwrite');
+        transaction.objectStore(objectStoreName).put(
+          JSON.stringify({ version: 1, spotIds }),
+          storageKey,
+        );
+        transaction.onerror = () => reject(transaction.error);
+        transaction.oncomplete = () => {
+          database.close();
+          resolve();
+        };
+      };
+    });
+  }, {
+    databaseName: 'soleil-device-storage',
+    objectStoreName: 'key-values',
+    storageKey: 'soleil:saved-spots',
+    spotIds: ALL_CITY_SAVED_SPOTS.map((spot) => spot.id),
+  });
+}
+
+async function openSavedSpots(page: Page) {
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Saved spots, 4' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Saved spots' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+async function dismissSpotSheet(page: Page, spotName: string): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: `${spotName} sky scores` });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveAttribute('aria-modal', 'false');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
 }
 
 async function openAndroidContext(browser: Browser): Promise<BrowserContext> {
@@ -405,6 +460,56 @@ test('cold-starts a hydrated catalog offline from one complete revisioned shell'
       }
     });
     expect(apiWasInvented).toBe(false);
+  } finally {
+    await context.setOffline(false);
+  }
+});
+
+test('cold-starts every city and saved representative offline with honest live-data limits', async ({ context, page }) => {
+  await page.goto('/');
+  await waitForControlledShell(page);
+  await seedAllCitySavedSpots(page);
+
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Network.enable');
+  await cdp.send('Network.clearBrowserCache');
+  await page.close();
+  await context.setOffline(true);
+
+  const offlinePage = await context.newPage();
+  try {
+    const response = await offlinePage.goto('/offline-all-cities', {
+      waitUntil: 'domcontentloaded',
+    });
+    expect(response?.status()).toBe(200);
+
+    let savedSpots = await openSavedSpots(offlinePage);
+    for (const spot of ALL_CITY_SAVED_SPOTS) {
+      await expect(savedSpots.getByText(spot.name, { exact: true })).toBeVisible();
+      await expect(savedSpots.getByText(spot.cityName, { exact: true })).toBeVisible();
+    }
+
+    for (const [index, spot] of ALL_CITY_SAVED_SPOTS.entries()) {
+      await savedSpots.getByRole('button', { name: `Open ${spot.name}` }).click();
+      const scoreDialog = offlinePage.getByRole('dialog', {
+        name: `${spot.name} sky scores`,
+      });
+      const nowCard = scoreDialog.locator('[data-card-type="now"]');
+      await expect(scoreDialog).toBeVisible();
+      await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true }))
+        .toBeVisible();
+      await expect(nowCard.getByText('Curated estimate · Forecast not retrieved', { exact: true }))
+        .toBeVisible();
+      await expect(nowCard.getByRole('button', { name: `Retry forecast for ${spot.name}` }))
+        .toBeVisible();
+      await expect.poll(() => offlinePage.evaluate(() => localStorage.getItem('sky:activeCity')))
+        .toBe(spot.cityId);
+      await dismissSpotSheet(offlinePage, spot.name);
+
+      if (index < ALL_CITY_SAVED_SPOTS.length - 1) {
+        savedSpots = await openSavedSpots(offlinePage);
+      }
+    }
   } finally {
     await context.setOffline(false);
   }
