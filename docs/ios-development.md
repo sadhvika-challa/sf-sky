@@ -59,6 +59,10 @@ The macOS CI job performs this generic iOS device archive, not a simulator build
 
 This archive deliberately uses `CODE_SIGNING_ALLOWED=NO`. It proves that the Release archive action produces the expected device artifact before Apple Developer Program enrollment, but it cannot be installed, exported for distribution, uploaded to TestFlight, or used as signing validation.
 
+CI also builds the native shell for an available iPhone Simulator running iOS 26 or later. It installs the packaged app, cold-launches `com.sadhvika.soleil`, waits up to 45 seconds for visual readiness, and repeatedly verifies that the launched process remains alive. The smoke fails if the screenshot remains blank or lacks varied dark interface content. It captures the final screenshot, application process log, Xcode result bundle, and a machine-readable success or failure report. This detects native build, packaging, install, immediate-crash, bundle identity, display-name, missing web entry-point, missing privacy-manifest, and blank-render regressions without Apple enrollment.
+
+Simulator smoke evidence does not prove physical-device gestures, performance, safe areas, Dynamic Type, VoiceOver, location Settings recovery, signing, TestFlight processing, or App Store eligibility. Those remain explicit acceptance gates on the exact candidate.
+
 Open the generated project:
 
 ```bash
