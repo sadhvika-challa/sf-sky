@@ -10,6 +10,7 @@
 
 import { useMemo } from 'react';
 import { type SpotForecast } from '../../utils/weather';
+import { formatCanonicalHourKey, parseCanonicalHourKey } from '../../utils/timeline';
 import { InfoPill, KarlQuoteCard, MetricChart, SectionLabel, TrendChip } from './shared';
 import {
   buildCityAvgSeries,
@@ -179,12 +180,6 @@ function windowLabel(startKey: string, endKey: string, startIsNow: boolean): str
 }
 
 function addHour(hourKey: string): string {
-  const parsed = new Date(`${hourKey}:00:00`);
-  if (Number.isNaN(parsed.getTime())) return hourKey;
-  parsed.setHours(parsed.getHours() + 1);
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, '0');
-  const d = String(parsed.getDate()).padStart(2, '0');
-  const h = String(parsed.getHours()).padStart(2, '0');
-  return `${y}-${m}-${d}T${h}`;
+  const parsed = parseCanonicalHourKey(hourKey);
+  return parsed ? formatCanonicalHourKey(new Date(parsed.getTime() + 3_600_000)) : hourKey;
 }

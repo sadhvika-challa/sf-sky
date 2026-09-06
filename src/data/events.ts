@@ -6,6 +6,8 @@
 // the scoring engine — they have no 0–100 score. When an event happens *at* an
 // existing spot, `spotId` links the two (string id, matching `Spot.id`).
 
+import type { City } from './spots';
+
 export type EventCategory =
   | 'light-installation'  // laser beams, projection mapping, neon art
   | 'astronomy'           // telescope nights, star parties, observatory events
@@ -17,6 +19,7 @@ export type EventCategory =
 
 export interface CuratedEvent {
   id: string;                    // e.g. 'evt-sf-7x7-civic-center'
+  city: City;
   name: string;                  // e.g. 'Photon Ocean — Civic Center Lasers'
   tagline: string;               // Karl-voiced one-liner
   category: EventCategory;
@@ -43,6 +46,7 @@ export interface CuratedEvent {
 export const curatedEvents: CuratedEvent[] = [
   {
     id: 'evt-sf-7x7-civic-center',
+    city: 'sf',
     name: '7x7',
     tagline: '49 lasers cutting through Karl. He never stood a chance.',
     category: 'light-installation',
@@ -59,6 +63,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-bay-lights-360',
+    city: 'sf',
     name: 'The Bay Lights 360',
     tagline: 'The bridge is glowing. Karl can not compete with 48,000 LEDs.',
     category: 'light-installation',
@@ -74,6 +79,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-photosynthesis-conservatory',
+    city: 'sf',
     name: 'Photosynthesis',
     tagline: 'The Conservatory is tripping. Free show every night.',
     category: 'light-installation',
@@ -90,6 +96,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-spectra-fulton-plaza',
+    city: 'sf',
     name: 'SPECTRA',
     tagline: 'The library roof is alive. Karl is confused.',
     category: 'light-installation',
@@ -106,6 +113,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-entwined-ggp',
+    city: 'sf',
     name: 'Entwined',
     tagline: 'The trees are showing off again. Karl is not invited.',
     category: 'light-installation',
@@ -126,6 +134,7 @@ export const curatedEvents: CuratedEvent[] = [
   // 21:00-22:30 so pins surface at both the 9pm and 10pm timeline stops.
   {
     id: 'evt-sf-jul4-hawk-hill',
+    city: 'sf',
     name: 'Hawk Hill',
     tagline: 'Karl guards the gate. Climb above him and the bridge is yours.',
     category: 'fireworks',
@@ -139,6 +148,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-jul4-battery-spencer',
+    city: 'sf',
     name: 'Battery Spencer',
     tagline: 'Nose to nose with the north tower. If Karl blinks, this is the shot.',
     category: 'fireworks',
@@ -152,6 +162,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-jul4-coit-tower',
+    city: 'sf',
     name: 'Coit Tower',
     tagline: 'Telegraph Hill sits east of the fog line. Pier 39 lights up right below.',
     category: 'fireworks',
@@ -165,6 +176,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-jul4-fort-mason',
+    city: 'sf',
     name: 'Fort Mason Great Meadow',
     tagline: 'The bluff Marina Green forgets. Higher ground, same show.',
     category: 'fireworks',
@@ -177,6 +189,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-jul4-marina-green',
+    city: 'sf',
     name: 'Marina Green',
     tagline: 'Best angle on the bridge, worst odds against Karl.',
     category: 'fireworks',
@@ -190,6 +203,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-jul4-aquatic-park',
+    city: 'sf',
     name: 'Aquatic Park',
     tagline: 'Front row at the barge. Karl likes the front row too.',
     category: 'fireworks',
@@ -203,6 +217,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-jul4-treasure-island',
+    city: 'sf',
     name: 'Treasure Island Viewpoint',
     tagline: 'Dead center of the bay. Both barges on one horizon.',
     category: 'fireworks',
@@ -216,6 +231,7 @@ export const curatedEvents: CuratedEvent[] = [
   },
   {
     id: 'evt-sf-jul4-grizzly-peak',
+    city: 'sf',
     name: 'Grizzly Peak',
     tagline: 'Too far east for Karl. The whole bay show, fog-free.',
     category: 'fireworks',
@@ -230,8 +246,8 @@ export const curatedEvents: CuratedEvent[] = [
 ];
 
 /** Returns events that are active right now or today. */
-export function getActiveEvents(now: Date = new Date()): CuratedEvent[] {
-  return getEventsAtHour(now);
+export function getActiveEvents(now: Date = new Date(), city?: City): CuratedEvent[] {
+  return getEventsAtHour(now, city);
 }
 
 /**
@@ -239,13 +255,14 @@ export function getActiveEvents(now: Date = new Date()): CuratedEvent[] {
  * scrubber to gate pins to the selected hour — e.g. the July 4 fireworks pins
  * only surface at the 21:00–22:30 window on 2026-07-04. Local date/time.
  */
-export function getEventsAtHour(at: Date = new Date()): CuratedEvent[] {
+export function getEventsAtHour(at: Date = new Date(), city?: City): CuratedEvent[] {
   const y = at.getFullYear();
   const m = String(at.getMonth() + 1).padStart(2, '0');
   const d = String(at.getDate()).padStart(2, '0');
   const today = `${y}-${m}-${d}`;
   const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
   return curatedEvents.filter((evt) => {
+    if (city && evt.city !== city) return false;
     if (today < evt.startDate || today > evt.endDate) return false;
     if (evt.activeHoursStart && evt.activeHoursEnd) {
       // Handle overnight windows (e.g. 21:00-02:00)
@@ -259,10 +276,10 @@ export function getEventsAtHour(at: Date = new Date()): CuratedEvent[] {
 }
 
 /** Returns events happening today (active window or not). */
-export function getTodaysEvents(now: Date = new Date()): CuratedEvent[] {
+export function getTodaysEvents(now: Date = new Date(), city?: City): CuratedEvent[] {
   const today = now.toISOString().slice(0, 10);
   return curatedEvents.filter(
-    (evt) => today >= evt.startDate && today <= evt.endDate,
+    (evt) => (!city || evt.city === city) && today >= evt.startDate && today <= evt.endDate,
   );
 }
 

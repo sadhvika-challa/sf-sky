@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/soleil/privacy", "destination": "/index.html" },
+    { "source": "/soleil/privacy/", "destination": "/index.html" },
+    { "source": "/soleil/support", "destination": "/index.html" },
+    { "source": "/soleil/support/", "destination": "/index.html" }
+  ]
+}

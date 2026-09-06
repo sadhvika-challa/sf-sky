@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import SunCalc from 'suncalc';
+import { type UIEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
@@ -7,67 +6,39 @@ import { getScoreTier, getSpectrumColor, tierColors, type ScoreTier, type ViewMo
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
+import { parseCanonicalHourKey, SCORE_CARD_ORDER } from '../utils/timeline';
+import type { SpotForecast } from '../utils/weather';
+import { scoreEvidenceAccessibilityLabel } from '../utils/confidence';
+import { getUpcomingEventTimes } from '../utils/events';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
 interface CardInfo {
   type: CardType;
-  eventDate: Date;
   eventTime: Date;
 }
 
-const CHRONOLOGICAL_CYCLE: CardType[] = ['sunrise', 'now', 'sunset', 'stargazing'];
-
-function getCardOrder(activeMode: ViewMode): CardType[] {
-  const idx = CHRONOLOGICAL_CYCLE.indexOf(activeMode as CardType);
-  if (idx <= 0) return CHRONOLOGICAL_CYCLE;
-  return [...CHRONOLOGICAL_CYCLE.slice(idx), ...CHRONOLOGICAL_CYCLE.slice(0, idx)];
-}
-
-function getNextEvents(spot: Spot, scrubHourKey?: string, viewMode: ViewMode = 'now'): CardInfo[] {
-  const now = new Date();
-  const baseDate = scrubHourKey ? new Date(`${scrubHourKey}:00:00`) : now;
-  const today = new Date(baseDate);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const todayTimes = SunCalc.getTimes(today, spot.lat, spot.lng);
-  const tomorrowTimes = SunCalc.getTimes(tomorrow, spot.lat, spot.lng);
+function getNextEvents(spot: Spot, scrubHourKey: string, now: Date): CardInfo[] {
+  const selectedInstant = scrubHourKey
+    ? (parseCanonicalHourKey(scrubHourKey) ?? now)
+    : now;
+  const events = getUpcomingEventTimes(spot, now);
 
   const cardsMap = new Map<CardType, CardInfo>();
 
   // Now
-  cardsMap.set('now', { type: 'now', eventDate: today, eventTime: baseDate });
+  cardsMap.set('now', { type: 'now', eventTime: selectedInstant });
 
   // Sunrise
-  if (todayTimes.sunrise > now) {
-    cardsMap.set('sunrise', { type: 'sunrise', eventDate: today, eventTime: todayTimes.sunrise });
-  } else {
-    cardsMap.set('sunrise', { type: 'sunrise', eventDate: tomorrow, eventTime: tomorrowTimes.sunrise });
-  }
+  cardsMap.set('sunrise', { type: 'sunrise', eventTime: events.sunrise });
 
   // Sunset
-  if (todayTimes.sunset > now) {
-    cardsMap.set('sunset', { type: 'sunset', eventDate: today, eventTime: todayTimes.sunset });
-  } else {
-    cardsMap.set('sunset', { type: 'sunset', eventDate: tomorrow, eventTime: tomorrowTimes.sunset });
-  }
+  cardsMap.set('sunset', { type: 'sunset', eventTime: events.sunset });
 
   // Stargazing
-  const todayDusk = todayTimes.nauticalDusk;
-  const todayStarEnd = new Date(todayDusk.getTime() + 3 * 60 * 60 * 1000);
-  if (todayStarEnd > now) {
-    cardsMap.set('stargazing', {
-      type: 'stargazing',
-      eventDate: today,
-      eventTime: todayDusk > now ? todayDusk : now,
-    });
-  } else {
-    const tomorrowDusk = tomorrowTimes.nauticalDusk;
-    cardsMap.set('stargazing', { type: 'stargazing', eventDate: tomorrow, eventTime: tomorrowDusk });
-  }
+  cardsMap.set('stargazing', { type: 'stargazing', eventTime: events.stargazing });
 
-  return getCardOrder(viewMode).map((t) => cardsMap.get(t)!);
+  return SCORE_CARD_ORDER.map((type) => cardsMap.get(type)!);
 }
 
 const typeLabel: Record<CardType, string> = {
@@ -77,10 +48,10 @@ const typeLabel: Record<CardType, string> = {
   stargazing: 'Stargazing',
 };
 
-function formatStripTime(date: Date): string {
+function formatStripTime(date: Date, timeZone: string): string {
   if (Number.isNaN(date.getTime())) return '—';
   return date
-    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hour12: true })
     .toLowerCase()
     .replace(/\s/g, ' ');
 }
@@ -309,6 +280,17 @@ interface ScorePanelProps {
   city: City;
   viewMode?: ViewMode;
   timelineHourKey?: string;
+  onTimelineHourChange: (key: string) => void;
+  timeZone: string;
+  forecast: SpotForecast | null;
+  forecastLoading: boolean;
+  forecastError: Error | null;
+  onRetryForecast: () => void;
+  forecastRetrying: boolean;
+  now: Date;
+  saved: boolean;
+  savedSpotsStatus: 'loading' | 'ready' | 'error' | 'protected';
+  onSetSaved: (saved: boolean) => Promise<boolean>;
 }
 
 // We don't hit a routing API — `travelMinutes` is a calibrated estimate
@@ -337,8 +319,10 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
+  const [savePending, setSavePending] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const distanceMi = userLocation
     ? getDistanceMiles(userLocation.lat, userLocation.lng, spot.lat, spot.lng)
     : null;
@@ -359,25 +343,33 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const cards = getNextEvents(spot, timelineHourKey, viewMode ?? 'now');
-  // The soonest upcoming event is the one we feature in the collapsed strip.
-  // Read the score from the same live map that drives the map pin so the
-  // strip number and the pin number always agree.
+  const handleSavedChange = async () => {
+    const target = !saved;
+    setSavePending(true);
+    setSaveFeedback(target ? `Saving ${spot.name}…` : `Removing ${spot.name}…`);
+    const succeeded = await onSetSaved(target);
+    setSavePending(false);
+    setSaveFeedback(
+      succeeded
+        ? (target ? `${spot.name} saved on this device.` : `${spot.name} removed from saved spots.`)
+        : `${spot.name} was not ${target ? 'saved' : 'removed'}. Try again.`,
+    );
+  };
+
+  const cards = getNextEvents(spot, timelineHourKey, now);
+  // The Now card remains the sheet's primary card. Its score uses the active
+  // mode field from the same live map that drives the selected map pin.
   const primary = cards[0];
   const live = liveScores.get(spot.id);
-  const primaryScore = (() => {
-    if (primary.type === 'now') {
-      return live?.now ?? computeNowBaseScore(spot);
-    }
-    return live ? live[primary.type] : spot[primary.type];
-  })();
+  const activeMode = viewMode ?? 'now';
+  const primaryScore = live?.active ?? (
+    activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]
+  );
   const karlPill = getKarlPill(primaryScore, city);
   const scoreColor = getScoreColor(primaryScore);
 
   const getScoreFor = (type: CardType): number => {
-    if (type === 'now') {
-      return live?.now ?? computeNowBaseScore(spot);
-    }
+    if (type === 'now') return primaryScore;
     return live ? live[type] : spot[type];
   };
 
@@ -386,10 +378,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const [expanded, setExpanded] = useState(true);
   // Which card is currently centered in the swipe scroller — drives the
   // active page-indicator dot at the bottom of the sheet.
-  const viewModeCard: CardType | undefined =
-    viewMode ? viewMode as CardType : undefined;
   const initialActiveCardType: CardType =
-    initialCardType ?? viewModeCard ?? cards[0]?.type ?? 'now';
+    initialCardType ?? 'now';
   const [activeCardType, setActiveCardType] = useState<CardType>(
     initialActiveCardType,
   );
@@ -407,6 +397,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
+  const cardTabRefs = useRef<Partial<Record<CardType, HTMLButtonElement | null>>>({});
 
   // Drive the entrance animation via inline transform (rather than a CSS
   // keyframe with `animation-fill-mode: forwards`), because a forwards-mode
@@ -418,7 +409,13 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   useEffect(() => {
     let frame2 = 0;
     const frame1 = requestAnimationFrame(() => {
-      frame2 = requestAnimationFrame(() => setEntered(true));
+      frame2 = requestAnimationFrame(() => {
+        setEntered(true);
+        const sheet = sheetRef.current;
+        if (sheet && !sheet.contains(document.activeElement)) {
+          sheet.focus({ preventScroll: true });
+        }
+      });
     });
     return () => {
       cancelAnimationFrame(frame1);
@@ -426,22 +423,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     };
   }, []);
 
-  // Swipe-down-to-dismiss. The drag handle commits to a vertical drag
-  // immediately; the broader card area waits to see whether the gesture is
-  // dominantly vertical (dismiss) or horizontal (let the card scroller pan).
+  // Swipe-down dismissal belongs to the dedicated handle. Card content keeps
+  // native horizontal paging and vertical scrolling without gesture capture.
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  // axis: 'y' = vertical drag in progress (we own the gesture); 'x' = user is
-  // panning the card scroller horizontally, so we ignore it; null = still
-  // deciding (only used by the content-area axis-lock entry point).
   const dragStateRef = useRef<{
     pointerId: number;
-    startX: number;
     startY: number;
     startTime: number;
     moved: boolean;
-    axis: 'x' | 'y' | null;
-    captureEl: Element | null;
   } | null>(null);
   // Set when a drag actually moved so the trailing click event doesn't toggle
   // collapse after the user lifts their finger.
@@ -454,16 +444,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     const elapsed = endTime - state.startTime;
     const velocity = delta / Math.max(elapsed, 1); // px/ms, positive = downward
     const moved = state.moved;
-    const axis = state.axis;
     dragStateRef.current = null;
     setIsDragging(false);
-
-    if (axis !== 'y') {
-      // We never took ownership of this gesture (horizontal swipe or tap) —
-      // leave the sheet where it is.
-      setDragY(0);
-      return;
-    }
 
     const sheetHeight = sheetRef.current?.getBoundingClientRect().height ?? 600;
     const distanceThreshold = Math.min(120, sheetHeight * 0.25);
@@ -480,19 +462,15 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     setDragY(0);
   }, [onClose]);
 
-  // Handle (pill) — eager vertical drag. The handle's only job is to dismiss,
-  // so we lock to the y-axis on pointer down and capture immediately.
+  // The handle captures immediately because its only gesture is dismissal.
   const handleHandlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!expanded) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     dragStateRef.current = {
       pointerId: e.pointerId,
-      startX: e.clientX,
       startY: e.clientY,
       startTime: performance.now(),
       moved: false,
-      axis: 'y',
-      captureEl: e.currentTarget,
     };
     setIsDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -501,7 +479,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const handleHandlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     const state = dragStateRef.current;
     if (!state || state.pointerId !== e.pointerId) return;
-    if (state.axis !== 'y') return;
     const delta = e.clientY - state.startY;
     if (Math.abs(delta) > 4) state.moved = true;
     const next = delta >= 0 ? delta : Math.max(delta, -40) * 0.3;
@@ -509,67 +486,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   };
 
   const handleHandlePointerEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
-    finishDrag(e.clientY, performance.now(), e.pointerId);
-  };
-
-  // Card content area — axis-locked vertical drag. We watch the first few
-  // pixels of movement and only take ownership if the gesture is mostly
-  // vertical. Horizontal motion is left to the native card scroller so
-  // swipe-between-cards still works. We skip the gesture entirely when the
-  // pointer starts on something interactive (button, link, etc.) so taps on
-  // share / directions / dots aren't swallowed.
-  const AXIS_LOCK_THRESHOLD = 8;
-
-  const handleContentPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!expanded) return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    const target = e.target as Element | null;
-    if (target?.closest('button, a, [role="button"], input, textarea, select')) {
-      return;
-    }
-    dragStateRef.current = {
-      pointerId: e.pointerId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startTime: performance.now(),
-      moved: false,
-      axis: null,
-      captureEl: e.currentTarget,
-    };
-  };
-
-  const handleContentPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const state = dragStateRef.current;
-    if (!state || state.pointerId !== e.pointerId) return;
-    const dx = e.clientX - state.startX;
-    const dy = e.clientY - state.startY;
-
-    if (state.axis === null) {
-      if (Math.abs(dx) < AXIS_LOCK_THRESHOLD && Math.abs(dy) < AXIS_LOCK_THRESHOLD) {
-        return;
-      }
-      if (Math.abs(dy) > Math.abs(dx)) {
-        state.axis = 'y';
-        state.moved = true;
-        setIsDragging(true);
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        } catch {
-          // setPointerCapture can throw if the pointer is already released;
-          // safe to ignore — we'll just rely on bubble events.
-        }
-      } else {
-        state.axis = 'x';
-      }
-    }
-
-    if (state.axis !== 'y') return;
-    if (Math.abs(dy) > 4) state.moved = true;
-    const next = dy >= 0 ? dy : Math.max(dy, -40) * 0.3;
-    setDragY(next);
-  };
-
-  const handleContentPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     finishDrag(e.clientY, performance.now(), e.pointerId);
   };
 
@@ -581,15 +497,48 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     setExpanded(!expanded);
   };
 
+  const handleCardWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    event.preventDefault();
+    scroller.scrollLeft += event.deltaX;
+  };
+
+  const handleCardScroll = (event: UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    const viewportCenter = scroller.scrollLeft + scroller.clientWidth / 2;
+    const cardEls = Array.from(
+      scroller.querySelectorAll<HTMLElement>('[data-card-type]'),
+    );
+    let closestType: CardType | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    for (const cardEl of cardEls) {
+      const cardCenter = cardEl.offsetLeft + cardEl.offsetWidth / 2;
+      const distance = Math.abs(cardCenter - viewportCenter);
+      const type = cardEl.dataset.cardType;
+      if (
+        distance < closestDistance &&
+        (type === 'now' || type === 'sunrise' || type === 'sunset' || type === 'stargazing')
+      ) {
+        closestDistance = distance;
+        closestType = type;
+      }
+    }
+
+    if (closestType) setActiveCardType(closestType);
+  };
+
   useEffect(() => {
-    const scrollTarget = initialCardType ?? viewModeCard;
+    const scrollTarget = initialCardType ?? 'now';
     if (!scrollTarget || !expanded) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     const target = scroller.querySelector<HTMLElement>(`[data-card-type="${scrollTarget}"]`);
     if (!target) return;
     scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
-  }, [initialCardType, viewModeCard, spot.id, expanded]);
+  }, [initialCardType, spot.id, expanded]);
 
   // Track which card is centered as the user swipes. We watch each card with
   // an IntersectionObserver scoped to the horizontal scroller, picking the
@@ -640,6 +589,21 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     setActiveCardType(type);
   };
 
+  const handleCardTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, type: CardType) => {
+    const currentIndex = SCORE_CARD_ORDER.indexOf(type);
+    let nextIndex = currentIndex;
+    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % SCORE_CARD_ORDER.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + SCORE_CARD_ORDER.length) % SCORE_CARD_ORDER.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = SCORE_CARD_ORDER.length - 1;
+    else return;
+
+    event.preventDefault();
+    const nextType = SCORE_CARD_ORDER[nextIndex];
+    handleDotClick(nextType);
+    cardTabRefs.current[nextType]?.focus({ preventScroll: true });
+  };
+
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
@@ -678,6 +642,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         role="dialog"
         aria-modal={expanded}
         aria-label={`${spot.name} sky scores`}
+        tabIndex={-1}
         className="absolute left-0 right-0 bottom-0 z-10 pointer-events-auto flex flex-col bg-cream/95 backdrop-blur-md border-t border-cream-dark shadow-2xl rounded-t-2xl overflow-hidden"
         style={{
           maxHeight: 'min(82dvh, 680px)',
@@ -705,7 +670,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             onPointerMove={handleHandlePointerMove}
             onPointerUp={handleHandlePointerEnd}
             onPointerCancel={handleHandlePointerEnd}
-            className="w-full flex flex-col items-center justify-center pt-2 pb-1 flex-shrink-0 group touch-none"
+            className="relative z-20 w-24 min-h-11 self-center -mb-7 flex flex-col items-center pt-2 flex-shrink-0 group touch-none"
             aria-label="Swipe down to dismiss, or tap to collapse"
             aria-expanded={expanded}
             style={{ touchAction: 'none' }}
@@ -719,27 +684,56 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         {expanded ? (
           <div
             className="flex flex-col flex-1 min-h-0"
-            onPointerDown={handleContentPointerDown}
-            onPointerMove={handleContentPointerMove}
-            onPointerUp={handleContentPointerEnd}
-            onPointerCancel={handleContentPointerEnd}
-            style={{ touchAction: 'pan-x' }}
+            style={{ touchAction: 'pan-x pan-y' }}
           >
             {/* Header — spot identity + travel context. Pure spot info,
                 so the swipeable weather cards below can stay forecast-only. */}
             <div className="px-4 pt-1 pb-2 flex-shrink-0">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-2">
                 <h2 className="font-serif text-lg font-semibold text-gray-800 truncate min-w-0">
                   {spot.name}
                 </h2>
+                <button
+                  type="button"
+                  onClick={() => void handleSavedChange()}
+                  disabled={savePending || savedSpotsStatus === 'loading' || savedSpotsStatus === 'protected'}
+                  aria-pressed={saved}
+                  aria-label={saved ? `Remove ${spot.name} from saved spots` : `Save ${spot.name}`}
+                  title={saved ? 'Remove from saved spots' : 'Save spot'}
+                  className={`relative z-30 w-11 h-11 -mt-2 flex-shrink-0 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 ${
+                    saved ? 'text-amber-700 bg-amber-50' : 'text-gray-400 active:bg-cream-dark/50'
+                  }`}
+                >
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill={saved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 3h12v18l-6-4-6 4V3z" />
+                  </svg>
+                </button>
                 <span
                   className="font-serif text-3xl font-light leading-none flex-shrink-0 tabular-nums"
                   style={{ color: getScoreColor(getScoreFor(activeCardType)) }}
-                  aria-label={`${typeLabel[activeCardType]} score ${getScoreFor(activeCardType)} out of 100`}
+                  aria-label={`${typeLabel[activeCardType]} score ${scoreEvidenceAccessibilityLabel(
+                    getScoreFor(activeCardType),
+                    activeCardType === 'now'
+                      ? live!.activeEvidence
+                      : live!.evidence[activeCardType],
+                  )}`}
                 >
                   {getScoreFor(activeCardType)}
                 </span>
               </div>
+
+              {saveFeedback && (
+                <p
+                  className={`mt-1 font-mono text-[10px] leading-4 ${
+                    saveFeedback.includes('Try again') ? 'text-red-700' : 'text-gray-500'
+                  }`}
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  {saveFeedback}
+                </p>
+              )}
 
               {/* Travel row: pill toggle + plain ETA text + right-justified
                   icon pair (directions, street-view) that visually echoes
@@ -811,6 +805,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                   </span>
                   <span className="font-mono text-[9px] text-gray-500 uppercase tracking-[1.5px]">
                     {tempUnit === 'C' ? 'km' : 'mi'}
+                    {userLocation?.precision === 'approximate' ? ' approx.' : ''}
                   </span>
                 </div>
 
@@ -869,31 +864,61 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             {/* Cards — swipeable, one card per page, snaps cleanly */}
             <div
               ref={scrollerRef}
+              onScroll={handleCardScroll}
               className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
-              style={{ touchAction: 'pan-x', WebkitOverflowScrolling: 'touch' }}
+              style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
             >
-              {cards.map((card) => (
-                <div
-                  key={card.type}
-                  data-card-type={card.type}
-                  className="w-full flex-shrink-0 snap-center px-3 pb-4 pt-1"
-                >
-                  <ScoreCard
-                    spot={spot}
-                    type={card.type}
-                    eventDate={card.eventDate}
-                    city={city}
-                    scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
-                    scrubViewMode={card.type === 'now' ? viewMode : undefined}
-                  />
-                </div>
-              ))}
+              {cards.map((card) => {
+                const isActive = card.type === activeCardType;
+                return (
+                  <div
+                    key={card.type}
+                    id={`score-card-panel-${card.type}`}
+                    role="tabpanel"
+                    aria-labelledby={`score-card-tab-${card.type}`}
+                    aria-hidden={!isActive}
+                    inert={!isActive}
+                    data-card-type={card.type}
+                    className="w-full min-h-0 flex-shrink-0 snap-center"
+                    style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+                  >
+                    <div
+                      data-card-scroll
+                      onWheel={handleCardWheel}
+                      className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                      style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+                    >
+                      <ScoreCard
+                        spot={spot}
+                        type={card.type}
+                        eventInstant={card.eventTime}
+                        city={city}
+                        scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
+                        scrubViewMode={card.type === 'now' ? viewMode : undefined}
+                        activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
+                        canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
+                        scoreEvidence={card.type === 'now'
+                          ? live!.activeEvidence
+                          : live!.evidence[card.type]}
+                        onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
+                        timeZone={timeZone}
+                        forecast={forecast}
+                        forecastLoading={forecastLoading}
+                        forecastError={forecastError}
+                        onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
+                        forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
+                        now={now}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            {/* Page indicator dots — active dot tracks the currently visible
-                card, and tapping a dot jumps the scroller to that card. */}
+            {/* Page tabs keep a compact visual dot inside a full-size target.
+                The active tab follows swipes, and tab activation pages the cards. */}
             <div
-              className="flex items-center justify-center gap-1.5 pb-2 flex-shrink-0"
+              className="flex items-center justify-center pb-2 flex-shrink-0"
               role="tablist"
               aria-label="Card pages"
             >
@@ -902,17 +927,29 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 return (
                   <button
                     key={card.type}
+                    id={`score-card-tab-${card.type}`}
                     type="button"
                     role="tab"
+                    ref={(element) => {
+                      cardTabRefs.current[card.type] = element;
+                    }}
                     aria-selected={isActive}
+                    aria-controls={`score-card-panel-${card.type}`}
                     aria-label={`Show ${typeLabel[card.type]} card`}
+                    tabIndex={isActive ? 0 : -1}
                     onClick={() => handleDotClick(card.type)}
-                    className={`rounded-full transition-all duration-200 ${
-                      isActive
-                        ? 'w-3 h-1.5 bg-gray-700'
-                        : 'w-1.5 h-1.5 bg-gray-300 hover:bg-gray-400'
-                    }`}
-                  />
+                    onKeyDown={(event) => handleCardTabKeyDown(event, card.type)}
+                    className="group w-11 h-11 flex items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-gray-700"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`block rounded-full transition-all duration-200 ${
+                        isActive
+                          ? 'w-3 h-1.5 bg-gray-700'
+                          : 'w-1.5 h-1.5 bg-gray-300 group-hover:bg-gray-400'
+                      }`}
+                    />
+                  </button>
                 );
               })}
             </div>
@@ -938,8 +975,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 </span>
               </div>
               <p className="font-mono text-[10px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
-                {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime)}
-                {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}`}
+                {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime, timeZone)}
+                {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}${userLocation?.precision === 'approximate' ? ' approx.' : ''}`}
               </p>
             </div>
             <span

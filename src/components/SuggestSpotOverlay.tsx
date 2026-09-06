@@ -5,7 +5,7 @@ interface SuggestSpotOverlayProps {
   onClose: () => void;
   /**
    * Pre-fill the spot name field. Used when the user got here from the
-   * search overlay's empty state — their query becomes the suggested name.
+   * search overlay's empty state, where their query becomes the suggested name.
    */
   initialName?: string;
 }
@@ -13,7 +13,7 @@ interface SuggestSpotOverlayProps {
 const RECIPIENT = 'sadhvikac1@gmail.com';
 
 function buildMailto(name: string, why: string): string {
-  const subject = `Soleil — Spot suggestion: ${name}`;
+  const subject = `Soleil - Spot suggestion: ${name}`;
   const body = [
     `Spot name: ${name}`,
     '',
@@ -91,8 +91,8 @@ export default function SuggestSpotOverlay({
     e.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    // Hand off to the user's mail client. We can't observe whether they
-    // actually send the message, so we optimistically show the success state.
+    // Hand off to the user's mail client. We cannot observe whether they
+    // actually send the message, so the next state only confirms the handoff.
     window.location.href = buildMailto(trimmedName, why.trim());
     setSubmitted(true);
   }
@@ -131,7 +131,7 @@ export default function SuggestSpotOverlay({
         {submitted ? (
           <div className="max-w-md mx-auto text-center pt-10">
             <p className="font-serif text-lg italic text-gray-700 leading-snug">
-              Karl will review it. No promises — he's picky.
+              Draft opened. Send it in your email app to suggest this spot.
             </p>
             <button
               type="button"

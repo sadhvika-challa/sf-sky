@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CuratedEvent } from '../data/events';
 import { getTodaysEvents, getActiveEvents, formatActiveHours } from '../data/events';
+import type { City } from '../data/spots';
 import { eventGlyphSvg } from './eventGlyphs';
 
 const EVENT_COLOR = '#C084FC';
@@ -81,22 +82,23 @@ function EventCard({
 }
 
 interface HappeningBannerProps {
+  city: City;
   onSelectEvent: (event: CuratedEvent) => void;
   onDismiss: () => void;
 }
 
-export default function HappeningBanner({ onSelectEvent, onDismiss }: HappeningBannerProps) {
+export default function HappeningBanner({ city, onSelectEvent, onDismiss }: HappeningBannerProps) {
   // Active (in-window) events sort first so "what's on right now" leads.
   const events = useMemo(() => {
-    const todays = getTodaysEvents();
-    const activeIds = new Set(getActiveEvents().map((e) => e.id));
+    const todays = getTodaysEvents(new Date(), city);
+    const activeIds = new Set(getActiveEvents(new Date(), city).map((e) => e.id));
     return [...todays].sort((a, b) => {
       const aActive = activeIds.has(a.id) ? 0 : 1;
       const bActive = activeIds.has(b.id) ? 0 : 1;
       return aActive - bActive;
     });
-  }, []);
-  const activeIds = useMemo(() => new Set(getActiveEvents().map((e) => e.id)), []);
+  }, [city]);
+  const activeIds = useMemo(() => new Set(getActiveEvents(new Date(), city).map((e) => e.id)), [city]);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [page, setPage] = useState(0);
