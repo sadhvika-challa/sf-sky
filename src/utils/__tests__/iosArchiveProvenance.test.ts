@@ -65,7 +65,7 @@ case "$2" in
   CFBundleIdentifier|ApplicationProperties.CFBundleIdentifier) printf 'com.sadhvika.soleil\\n' ;;
   CFBundleShortVersionString|ApplicationProperties.CFBundleShortVersionString) printf '1.0\\n' ;;
   CFBundleVersion|ApplicationProperties.CFBundleVersion) printf '1\\n' ;;
-  UIDeviceFamily) printf '[1,2]\\n' ;;
+  UIDeviceFamily) printf '[1]\\n' ;;
   *) exit 2 ;;
 esac
 `);
