@@ -8,7 +8,7 @@ const usage = `Usage: npm run ios:archive:verify -- --archive PATH --marketing-v
 
 Options:
   --bundle-id ID           Expected bundle ID. Defaults to com.sadhvika.soleil.
-  --device-families IDS    Expected UIDeviceFamily values. Defaults to 1,2.
+  --device-families IDS    Expected UIDeviceFamily values. Defaults to 1.
   --source-commit SHA      Full source commit. Defaults to the checked-out Git HEAD.
   --lockfile PATH          Dependency lockfile. Defaults to package-lock.json.
   --swift-lockfile PATH    Swift dependency lockfile. Defaults to the Xcode workspace Package.resolved.
@@ -19,7 +19,7 @@ Options:
 const parseArguments = (args) => {
   const options = {
     bundleId: 'com.sadhvika.soleil',
-    deviceFamilies: ['1', '2'],
+    deviceFamilies: ['1'],
     lockfile: resolve('package-lock.json'),
     swiftLockfile: resolve('ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'),
   };

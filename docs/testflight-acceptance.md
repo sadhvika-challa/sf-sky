@@ -34,7 +34,7 @@ Device storage available:
 Network profiles tested:
 Install path: New install / TestFlight update
 Previous installed version and build, if update:
-Device-family decision: iPhone only / iPhone and iPad
+Device-family decision: iPhone only
 Known limitations approved before test:
 ```
 
@@ -184,15 +184,9 @@ Test on normal Wi-Fi, cellular, constrained or high-latency networking, and offl
 - [ ] Review TestFlight crash and feedback data after the planned internal-testing window.
 - [ ] Resolve or explicitly accept every crash, data-loss issue, misleading trust state, and blocker-level accessibility issue.
 
-## Additional iPad gate
+## Deferred iPad support
 
-Complete this section only if `TARGETED_DEVICE_FAMILY` still includes iPad. It cannot be waived while iPad support is advertised by the binary.
-
-- [ ] Run the full core journey on each required iPad form factor.
-- [ ] Test every declared iPad orientation.
-- [ ] Confirm sheets, map, cards, scrubber, typography, safe areas, pointer interaction, and multitasking layouts are intentional.
-- [ ] Capture and approve current iPad screenshots.
-- [ ] Record iPad model, iPadOS version, tester, and evidence links.
+Version 1 does not advertise iPad support. Add iPad only in a later release that includes tablet layout, orientation, accessibility, screenshot, and TestFlight evidence.
 
 ## Acceptance result
 

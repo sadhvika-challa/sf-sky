@@ -138,7 +138,7 @@ jobs:
             --bundle-id com.sadhvika.soleil \
             --marketing-version "$IOS_MARKETING_VERSION" \
             --build-number "$IOS_BUILD_NUMBER" \
-            --device-families 1,2 \
+            --device-families 1 \
             --source-commit "$GITHUB_SHA" \
             --package "$RUNNER_TEMP/Soleil.xcarchive.zip" \
             --report "$RUNNER_TEMP/ios-archive-verification.json"

@@ -11,7 +11,7 @@ This checklist separates repository readiness from actions that require Sadhvika
 | App name | `Soleil` | Confirm availability when creating the App Store Connect record. |
 | Version and build | Xcode currently declares marketing version `1.0` and build `1`. | Confirm the exact values for each candidate. Increase the build number for every upload of the same version. |
 | Minimum iOS | `15.0` | Confirm that supporting iOS 15 remains intentional after a full Xcode build and device matrix review. |
-| Device family | The Xcode target currently declares `1,2`, which means iPhone and iPad. | Choose iPhone-only or fully support iPad before creating screenshots and submitting. |
+| Device family | The Xcode target declares `1`, which means iPhone only. | Validate the exact candidate on the named iPhone 17 Pro before submission. |
 | Target device | Sadhvika's iPhone 17 Pro on iOS 26.6 | Run the physical-device and TestFlight acceptance checklists on this device. This does not replace coverage for every supported device family. |
 | Apple toolchain | The current Codex host has Command Line Tools selected, not a full Xcode installation. | Install and select Xcode 26 or later, then build with the iOS 26 SDK or later. |
 | Apple membership | Sadhvika is not enrolled in the Apple Developer Program. | Enroll before App Store Connect and TestFlight distribution. |
@@ -26,10 +26,9 @@ This checklist separates repository readiness from actions that require Sadhvika
 
 ## Gate 1: Make the product-scope decisions
 
-- [ ] Choose supported device families.
-  - The current target includes iPhone and iPad.
-  - The smallest first-release scope is iPhone-only, which matches the named iPhone 17 Pro test device and avoids implying an untested iPad experience.
-  - Keeping iPad support requires iPad layout, orientation, accessibility, screenshot, and TestFlight evidence.
+- [x] Choose supported device families.
+  - Version 1 is iPhone-only, which matches the named iPhone 17 Pro test device and avoids implying an untested iPad experience.
+  - iPad support is deferred until its layout, orientation, accessibility, screenshot, and TestFlight evidence are complete.
 - [ ] Confirm whether iOS 15 remains the minimum supported version.
 - [ ] Approve the permanent release website origin.
 - [ ] Approve the production map-provider contract. For OpenFreeMap, record written clarification that embedded Soleil users are not made 18+, and explicitly accept the no-SLA risk. Otherwise configure and audit Stadia Maps before public release.
@@ -72,7 +71,6 @@ Do not commit App Store Connect credentials, issuer IDs, private keys, signing i
 - [ ] Capture current screenshots from the exact candidate build.
   - Apple accepts 1 to 10 screenshots per required display size.
   - The iPhone 17 Pro is in Apple's 6.3-inch class. Verify the current required screenshot classes in App Store Connect before capture.
-  - If iPad remains supported, capture and validate the required iPad screenshots too.
 - [ ] Ensure screenshots, description, and review notes show actual current behavior and do not overstate forecast certainty, offline behavior, location precision, or supported cities.
 
 Use Apple's current [screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/) when exporting assets.
