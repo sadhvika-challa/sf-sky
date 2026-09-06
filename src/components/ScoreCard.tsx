@@ -1,55 +1,67 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toBlob } from 'html-to-image';
+import { buildPublicShareUrl } from '../platform/runtime';
+import { PUBLIC_APP_PATH } from '../platform/publicUrlContract';
 import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots';
 import SunCalc from 'suncalc';
-import { useSpotForecast } from '../hooks/useSpotForecast';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
-import { getForecastAt, fogDensity, type HourlyForecast } from '../utils/weather';
+import { clampPercentage, fogDensity, weatherRefreshExplanation, type HourlyForecast, type SpotForecast } from '../utils/weather';
+import type { ScoreEvidence } from '../utils/confidence';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
+import UnifiedTimeline from './UnifiedTimeline';
+import { computeEventTimes } from '../utils/events';
+import {
+  deriveSpotTimelineHourKeys,
+  addCityCalendarDays,
+  formatCanonicalHourKey,
+  formatCityCalendarDate,
+  formatInstantTimeLabel,
+  normalizeTimelineHourKey,
+} from '../utils/timeline';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
 interface ScoreCardProps {
   spot: Spot;
   type: CardType;
-  eventDate: Date;
+  eventInstant: Date;
   city: City;
   scrubHourKey?: string;
   scrubViewMode?: 'now' | 'sunrise' | 'sunset' | 'stargazing';
+  activeScore?: number;
+  canonicalScore?: number;
+  scoreEvidence: ScoreEvidence;
+  onTimelineHourChange?: (key: string) => void;
+  timeZone: string;
+  forecast: SpotForecast | null;
+  forecastLoading: boolean;
+  forecastError: Error | null;
+  onRetryForecast?: () => void;
+  forecastRetrying?: boolean;
+  now: Date;
 }
 
-function formatTime(date: Date): { time: string; period: string } {
-  const str = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-  const parts = str.match(/^([\d:]+)\s*(AM|PM)$/i);
-  if (parts) return { time: parts[1], period: parts[2].toLowerCase() };
+function formatTime(date: Date, timeZone: string): { time: string; period: string } {
+  const str = formatInstantTimeLabel(date, timeZone);
+  const parts = str.match(/^([\d:]+)\s*(AM|PM)(?:\s+(.+))?$/i);
+  if (parts) return { time: parts[1], period: `${parts[2].toLowerCase()}${parts[3] ? ` ${parts[3]}` : ''}` };
   return { time: str, period: '' };
 }
 
-function formatDateShort(date: Date): string {
-  const now = new Date();
-  const isToday = date.getDate() === now.getDate() && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-  if (isToday) return 'Today';
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (date.getDate() === tomorrow.getDate() && date.getMonth() === tomorrow.getMonth()) return 'Tomorrow';
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+function formatDateShort(date: Date, timeZone: string, now: Date): string {
+  const dateKey = formatCityCalendarDate(date, timeZone);
+  const todayKey = formatCityCalendarDate(now, timeZone);
+  if (dateKey === todayKey) return 'Today';
+  const tomorrowKey = addCityCalendarDays(now, timeZone, 1);
+  if (dateKey === tomorrowKey) return 'Tomorrow';
+  return date.toLocaleDateString('en-US', { timeZone, month: 'short', day: 'numeric' });
 }
 
-function formatFullDate(date: Date): string {
-  return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-}
-
-function getEstimatedTemp(): number {
-  const month = new Date().getMonth();
-  const temps = [54, 56, 57, 58, 60, 62, 63, 64, 66, 64, 58, 54];
-  return temps[month];
+function formatFullDate(date: Date, timeZone: string): string {
+  return date.toLocaleDateString('en-US', { timeZone, month: 'numeric', day: 'numeric', year: 'numeric' });
 }
 
 function getSkyGradient(type: CardType, score: number): string {
@@ -163,7 +175,7 @@ interface MetricCellProps {
 function MetricCell({ label, value, barValue, barColor }: MetricCellProps) {
   return (
     <div className="min-w-0">
-      <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase">{label}</p>
+      <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase">{label}</p>
       <p className="font-serif text-[15px] font-normal text-gray-800 leading-tight truncate mt-0.5">
         {value}
       </p>
@@ -175,7 +187,7 @@ function MetricCell({ label, value, barValue, barColor }: MetricCellProps) {
 interface DetailRowProps {
   label: string;
   value: string;
-  barValue: number;
+  barValue?: number;
   barColor: string;
 }
 
@@ -184,10 +196,12 @@ function DetailRow({ label, value, barValue, barColor }: DetailRowProps) {
     <div className="flex items-center gap-4 py-2.5">
       <span className="font-serif text-[14px] text-gray-700 w-[90px] flex-shrink-0">{label}</span>
       <div className="flex-1 h-[3px] bg-gray-100 rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-[width] duration-300"
-          style={{ width: `${Math.max(0, Math.min(100, barValue))}%`, background: barColor }}
-        />
+        {barValue !== undefined && (
+          <div
+            className="h-full rounded-full transition-[width] duration-300"
+            style={{ width: `${clampPercentage(barValue)}%`, background: barColor }}
+          />
+        )}
       </div>
       <span className="font-mono text-[12px] text-gray-600 w-[52px] text-right flex-shrink-0">{value}</span>
     </div>
@@ -274,18 +288,19 @@ const SPARK_CONTAINER_PX = 26;
 const SPARK_BAR_AREA_PX = 20;
 const SPARK_BAR_MIN_PX = 3;
 
-function formatSparkTime(date: Date): string {
+function formatSparkTime(date: Date, timeZone: string): string {
   return date
-    .toLocaleTimeString('en-US', { hour: 'numeric', hour12: true })
+    .toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: true })
     .toLowerCase()
     .replace(/\s/g, '');
 }
 
 interface SparkStripProps {
   points: SparkPoint[];
+  timeZone: string;
 }
 
-function SparkStrip({ points }: SparkStripProps) {
+function SparkStrip({ points, timeZone }: SparkStripProps) {
   return (
     <div
       className="mt-3 flex items-end gap-[3px]"
@@ -310,7 +325,7 @@ function SparkStrip({ points }: SparkStripProps) {
             <div
               className="w-full rounded-sm"
               style={{ height: barPx, background: p.color }}
-              title={`${p.score} · ${formatSparkTime(p.date)}`}
+              title={`${p.score} · ${formatSparkTime(p.date, timeZone)}`}
             />
           </div>
         );
@@ -478,62 +493,53 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, scrubViewMode }: ScoreCardProps) {
+export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error, onRetryForecast, forecastRetrying = false, now }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const breakdownButtonRef = useRef<HTMLButtonElement | null>(null);
+  const backButtonRef = useRef<HTMLButtonElement | null>(null);
+  const focusAfterFlipRef = useRef<'summary' | 'detail' | null>(null);
 
-  const times = SunCalc.getTimes(eventDate, spot.lat, spot.lng);
-  const moonIllum = SunCalc.getMoonIllumination(eventDate);
-  const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventDate);
-  const fullDate = formatFullDate(eventDate);
+  useEffect(() => {
+    const destination = focusAfterFlipRef.current;
+    if (!destination) return;
+    focusAfterFlipRef.current = null;
+    const frame = requestAnimationFrame(() => {
+      if (destination === 'detail') backButtonRef.current?.focus();
+      else breakdownButtonRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showDetail]);
 
-  let eventInstant: Date;
-  let eventTimeData: { time: string; period: string };
-  if (type === 'now') {
-    if (!scrubHourKey) {
-      eventInstant = new Date();
-      eventTimeData = formatTime(new Date());
-    } else if (scrubViewMode === 'now') {
-      const scrubDate = new Date(`${scrubHourKey}:00:00`);
-      eventInstant = scrubDate;
-      eventTimeData = formatTime(scrubDate);
-    } else {
-      const scrubDate = new Date(`${scrubHourKey}:00:00`);
-      const scrubTimes = SunCalc.getTimes(scrubDate, spot.lat, spot.lng);
-      const midpoint = new Date(
-        (scrubTimes.sunrise.getTime() + scrubTimes.sunset.getTime()) / 2
-      );
-      eventInstant = midpoint;
-      eventTimeData = formatTime(midpoint);
-    }
-  } else if (type === 'sunrise') {
-    eventInstant = times.sunrise;
-    eventTimeData = formatTime(times.sunrise);
-  } else if (type === 'sunset') {
-    eventInstant = times.sunset;
-    eventTimeData = formatTime(times.sunset);
-  } else {
-    eventInstant = times.nauticalDusk;
-    eventTimeData = formatTime(times.nauticalDusk);
-  }
+  const displayType: CardType = type === 'now' ? (scrubViewMode ?? 'now') : type;
+  const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventInstant, timeZone, now);
+  const eventTimeData = formatTime(eventInstant, timeZone);
+  const fullDate = formatFullDate(eventInstant, timeZone);
+  const moonIllum = SunCalc.getMoonIllumination(eventInstant);
 
-  const { forecast, loading, error } = useSpotForecast(spot);
-  const hourly: HourlyForecast | null =
-    forecast && !Number.isNaN(eventInstant.getTime())
-      ? getForecastAt(forecast, eventInstant)
-      : null;
+  const exactHourKey = type === 'now'
+    ? (scrubHourKey || formatCanonicalHourKey(eventInstant))
+    : '';
+  const hourly: HourlyForecast | null = forecast && !Number.isNaN(eventInstant.getTime())
+    ? (forecast.hours[type === 'now'
+        ? exactHourKey
+        : formatCanonicalHourKey(eventInstant)] ?? null)
+    : null;
 
-  const breakdown: ScoreBreakdown | null = hourly && type !== 'now'
-    ? computeScoreBreakdown(spot, type, hourly, moonIllum.fraction)
+  const breakdown: ScoreBreakdown | null = hourly && displayType !== 'now'
+    ? computeScoreBreakdown(spot, displayType, hourly, moonIllum.fraction)
     : null;
   const score = (() => {
     if (type === 'now') {
+      if (activeScore !== undefined) return activeScore;
       return hourly ? computeNowScore(spot, hourly) : computeNowBaseScore(spot);
     }
+    if (canonicalScore !== undefined) return canonicalScore;
     return breakdown ? breakdown.total : spot[type];
   })();
-  const isLive = hourly !== null;
+  const isForecastBacked = scoreEvidence.provenance === 'forecast';
+  const refreshExplanation = weatherRefreshExplanation(error);
 
   const spotScore = type === 'now' ? computeNowBaseScore(spot) : spot[type];
   const skyScore = (() => {
@@ -553,31 +559,42 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   const showSparkSkeleton = type !== 'now' && !forecast && !error;
   const showSparkStrip = type !== 'now' && sparkPoints.length > 0;
 
-  const poetic = getPoetic(type, score);
-  const isSunEvent = type === 'sunrise' || type === 'sunset';
+  const poetic = getPoetic(displayType, score);
+  const isSunEvent = displayType === 'sunrise' || displayType === 'sunset';
   const karlLine = breakdown && isSunEvent
     ? getKarlBreakdownLine(breakdown.base, breakdown.weather)
-    : getKarlComment(score, type, spot.id, eventDate, city);
-  const gradient = getSkyGradient(type, score);
+    : getKarlComment(score, displayType, spot.id, eventInstant, city);
+  const gradient = getSkyGradient(displayType, score);
 
-  const tempF = hourly && Number.isFinite(hourly.tempF)
-    ? hourly.tempF
-    : getEstimatedTemp();
+  const timelineHourKeys = forecast
+    ? deriveSpotTimelineHourKeys(Object.keys(forecast.hours), now)
+    : [];
+  const eventTimes = computeEventTimes(now, spot.lat, spot.lng);
+
+  const tempF = hourly && Number.isFinite(hourly.tempF) ? hourly.tempF : null;
   const [tempUnit, setTempUnit] = useTempUnit();
-  const displayTemp = Math.round(convertTempF(tempF, tempUnit));
-  const tempCopy = getTempCopy(tempF);
+  const displayTemp = tempF === null ? '--' : Math.round(convertTempF(tempF, tempUnit));
+  const tempCopy = tempF === null ? 'Unavailable' : getTempCopy(tempF);
   const humidityStr = hourly && Number.isFinite(hourly.humidity)
-    ? `${Math.round(hourly.humidity)}%`
+    ? `${clampPercentage(hourly.humidity)}%`
     : '--';
   const dots = dotColors[type];
 
   const handleShare = async () => {
-    const eventLabel = typeTitle[type].toLowerCase();
-    const url = `${window.location.origin}/?spot=${spot.id}&view=${type}`;
+    const eventLabel = type === 'now' && scrubHourKey
+      ? 'selected hour'
+      : typeTitle[type].toLowerCase();
+    const hourParam = type === 'now' && scrubHourKey
+      ? `&instant=${encodeURIComponent(scrubHourKey)}`
+      : '';
+    const url = buildPublicShareUrl(`${PUBLIC_APP_PATH}?spot=${spot.id}&view=${type}${hourParam}`);
     const title = `Soleil \u00b7 ${spot.name}`;
+    const timeContext = type === 'now'
+      ? ` at ${eventTimeData.time} ${eventTimeData.period}`
+      : '';
     const text = score >= 60
-      ? `Clear skies at ${spot.name}. ${eventLabel} score: ${score}/100.`
-      : `Clouded out at ${spot.name}. ${eventLabel} score: ${score}/100.`;
+      ? `Clear skies at ${spot.name}. ${eventLabel} score${timeContext}: ${score}/100.`
+      : `Clouded out at ${spot.name}. ${eventLabel} score${timeContext}: ${score}/100.`;
 
     const node = cardRef.current;
     let file: File | null = null;
@@ -633,7 +650,13 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   // Derived cloud/visibility/conditions for the summary strip
   const cloudLabel = hourly ? cloudCoverLabel(hourly.cloud) : '--';
   const conditionsLabel = (() => {
-    if (!hourly) return '--';
+    if (!hourly || ![
+      hourly.cloud,
+      hourly.cloudLow,
+      hourly.visibilityKm,
+      hourly.humidity,
+      hourly.windMph,
+    ].every(Number.isFinite)) return '--';
     const fog = fogDensity(hourly);
     if (fog > 0.7) return 'Foggy';
     if (fog > 0.4) return 'Hazy';
@@ -642,7 +665,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
     return 'Strong';
   })();
   const visLabel = hourly && Number.isFinite(hourly.visibilityKm)
-    ? `${Math.round((hourly.visibilityKm / 30) * 100)}%`
+    ? `${clampPercentage((hourly.visibilityKm / 30) * 100)}%`
     : '--';
   const visBarValue = hourly && Number.isFinite(hourly.visibilityKm)
     ? Math.min(100, (hourly.visibilityKm / 30) * 100)
@@ -650,7 +673,11 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
 
   // Fog data for detail face
   const fogLevel = (() => {
-    if (!hourly) return { label: '--', barValue: 0 };
+    if (!hourly || ![
+      hourly.visibilityKm,
+      hourly.cloudLow,
+      hourly.humidity,
+    ].every(Number.isFinite)) return { label: '--', barValue: undefined };
     const fog = fogDensity(hourly);
     if (fog > 0.7) return { label: 'Dense', barValue: 90 };
     if (fog > 0.3) return { label: 'Light', barValue: 50 };
@@ -658,9 +685,9 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
   })();
 
   // Wind data for the "now" card metric grid
-  const windMph = hourly && Number.isFinite(hourly.windMph) ? hourly.windMph : 8;
-  const windLabelText = getWindLabel(windMph);
-  const windBarValue = windBarPercent(windMph);
+  const windMph = hourly && Number.isFinite(hourly.windMph) ? hourly.windMph : null;
+  const windLabelText = windMph === null ? '--' : getWindLabel(windMph);
+  const windBarValue = windMph === null ? undefined : windBarPercent(windMph);
 
   return (
     <div ref={cardRef} className="relative rounded-xl bg-white shadow-md w-full">
@@ -672,6 +699,8 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
             showDetail ? 'opacity-0 scale-[0.97] pointer-events-none' : 'opacity-100 scale-100'
           }`}
           style={{ gridArea: '1 / 1' }}
+          aria-hidden={showDetail}
+          inert={showDetail}
         >
           <div className="rounded-xl flex flex-col overflow-hidden h-full">
             {/* Sky gradient header */}
@@ -692,7 +721,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   type="button"
                   onClick={handleShare}
                   className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
-                  aria-label={`Share ${typeTitle[type].toLowerCase()} card for ${spot.name}`}
+                  aria-label={`Share ${type === 'now' && scrubHourKey ? 'selected hour' : typeTitle[type].toLowerCase()} card for ${spot.name}${type === 'now' ? ` at ${formatInstantTimeLabel(eventInstant, timeZone)}` : ''}`}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 3v12" />
@@ -715,21 +744,16 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                 </div>
               )}
               <div
-                className="absolute bottom-1.5 left-2.5 flex items-center gap-1 text-white/75 text-[8px] font-mono tracking-[1.5px] uppercase"
+                className="absolute bottom-1.5 left-2.5 flex items-center gap-1 rounded-full bg-gray-900 px-2 py-1 text-white text-[9px] font-mono tracking-[1.25px] uppercase shadow-sm"
+                style={{ backgroundColor: '#111827' }}
                 aria-live="polite"
-                style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
+                data-contrast-audit="weather-trust-status"
               >
                 <span
-                  className={`inline-block w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-400' : 'bg-white/40'}`}
-                  style={isLive ? { boxShadow: '0 0 6px rgba(52,211,153,0.85)' } : undefined}
+                  className={`inline-block w-1.5 h-1.5 rounded-full ${isForecastBacked ? 'bg-emerald-400' : 'bg-white/40'}`}
+                  style={isForecastBacked ? { boxShadow: '0 0 6px rgba(52,211,153,0.85)' } : undefined}
                 />
-                {loading && !forecast
-                  ? 'Loading'
-                  : error && !forecast
-                    ? 'Error'
-                    : isLive
-                      ? 'Live'
-                      : 'Static'}
+                {scoreEvidence.statusLabel}
               </div>
               {type === 'stargazing' && (
                 <>
@@ -748,13 +772,17 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h3 className="font-mono text-[13px] tracking-[2.5px] text-gray-700 uppercase font-semibold leading-tight">
-                    {type === 'now' ? typeTitle[type] : <>{dateLabel}&apos;s {typeTitle[type]}</>}
+                    {type === 'now'
+                      ? (scrubHourKey
+                          ? `NOW · ${displayType === 'now' ? 'SELECTED HOUR' : typeTitle[displayType]}`
+                          : typeTitle[type])
+                      : <>{dateLabel}&apos;s {typeTitle[type]}</>}
                   </h3>
-                  <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1 truncate">
+                  <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
                     {poetic}
                   </p>
                 </div>
-                <span className="font-mono text-[9px] text-gray-400 tracking-wide flex-shrink-0 mt-1">
+                <span className="font-mono text-[9px] text-gray-500 tracking-wide flex-shrink-0 mt-1">
                   {fullDate}
                 </span>
               </div>
@@ -764,7 +792,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                 <span className="font-serif text-[36px] leading-none font-light text-gray-800 tracking-tight">
                   {eventTimeData.time}
                 </span>
-                <span className="font-serif text-lg text-gray-400 font-light">
+                <span className="font-serif text-lg text-gray-500 font-light">
                   {eventTimeData.period}
                 </span>
               </div>
@@ -777,11 +805,28 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   </span>
                   <span className="font-serif italic text-[14px] text-gray-500">{poetic}</span>
                 </div>
-                <p className="font-mono text-[8px] tracking-[1.5px] text-gray-400 uppercase mt-1.5">
-                  {isLive ? 'Forecast firming up' : 'Static estimate'}
+                <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase mt-1.5">
+                  {scoreEvidence.provenanceLabel}
+                  <span aria-hidden="true"> · </span>
+                  {scoreEvidence.retrievalLabel}
                 </p>
+                {type === 'now' && refreshExplanation && (
+                  <p className="mt-2 font-mono text-[10px] leading-relaxed text-amber-800">
+                    {refreshExplanation}
+                  </p>
+                )}
+                {type === 'now' && error && onRetryForecast && (
+                  <button
+                    type="button"
+                    onClick={onRetryForecast}
+                    disabled={forecastRetrying}
+                    className="mt-2 font-mono text-[10px] font-semibold text-[#8B5E3C] underline underline-offset-2 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {forecastRetrying ? `Retrying forecast for ${spot.name}` : `Retry forecast for ${spot.name}`}
+                  </button>
+                )}
                 {showSparkStrip ? (
-                  <SparkStrip points={sparkPoints} />
+                  <SparkStrip points={sparkPoints} timeZone={timeZone} />
                 ) : showSparkSkeleton ? (
                   <div
                     className="mt-3"
@@ -790,6 +835,23 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   />
                 ) : null}
               </div>
+
+              {type === 'now' && onTimelineHourChange && (
+                <div className="mt-4 border-t border-gray-100 pt-3">
+                  <UnifiedTimeline
+                    hourKeys={timelineHourKeys}
+                    hourKey={scrubHourKey ?? ''}
+                    onHourChange={(key) =>
+                      onTimelineHourChange(normalizeTimelineHourKey(key, timelineHourKeys))
+                    }
+                    viewMode={displayType}
+                    eventTimes={eventTimes}
+                    timeZone={timeZone}
+                    loading={loading}
+                    now={now}
+                  />
+                </div>
+              )}
 
               {/* Condensed metrics strip */}
               {type === 'now' ? (
@@ -806,7 +868,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <MetricCell
                     label="Clouds"
                     value={cloudLabel}
-                    barValue={hourly ? hourly.cloud : 0}
+                    barValue={hourly && Number.isFinite(hourly.cloud) ? clampPercentage(hourly.cloud) : undefined}
                     barColor={METRIC_COLORS.clouds}
                   />
                   <MetricCell
@@ -838,7 +900,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <MetricCell
                     label="Clouds"
                     value={cloudLabel}
-                    barValue={hourly ? hourly.cloud : 0}
+                    barValue={hourly && Number.isFinite(hourly.cloud) ? clampPercentage(hourly.cloud) : undefined}
                     barColor={METRIC_COLORS.clouds}
                   />
                   {/* Conditions */}
@@ -861,8 +923,12 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
             {/* See breakdown tap target */}
             <div className="px-5 pb-4 pt-3 flex-shrink-0">
               <button
+                ref={breakdownButtonRef}
                 type="button"
-                onClick={() => setShowDetail(true)}
+                onClick={() => {
+                  focusAfterFlipRef.current = 'detail';
+                  setShowDetail(true);
+                }}
                 className="flex items-center justify-center gap-1.5 w-full pt-2 pb-1 font-mono text-[9px] tracking-[1.5px] uppercase text-gray-500 hover:text-gray-400 transition-colors"
               >
                 See breakdown
@@ -880,6 +946,8 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
             showDetail ? 'opacity-100 scale-100' : 'opacity-0 scale-[0.97] pointer-events-none'
           }`}
           style={{ gridArea: '1 / 1' }}
+          aria-hidden={!showDetail}
+          inert={!showDetail}
         >
           <div className="rounded-xl flex flex-col overflow-hidden h-full">
             {/* Gradient-backed score context row */}
@@ -938,7 +1006,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                     <DetailRow
                       label="Cloud"
                       value={cloudLabel}
-                      barValue={hourly ? hourly.cloud : 0}
+                      barValue={hourly && Number.isFinite(hourly.cloud) ? hourly.cloud : undefined}
                       barColor={DETAIL_BAR_COLORS.cloud}
                     />
                     <DetailRow
@@ -950,7 +1018,7 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                     <DetailRow
                       label="Visibility"
                       value={visLabel}
-                      barValue={visBarValue}
+                      barValue={hourly && Number.isFinite(hourly.visibilityKm) ? visBarValue : undefined}
                       barColor={DETAIL_BAR_COLORS.fog}
                     />
                     <DetailRow
@@ -964,14 +1032,14 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <>
                     <DetailRow
                       label="Cloud"
-                      value={hourly ? cloudQualityLabel(cloudQualityScore(hourly, type as 'sunrise' | 'sunset'), type as 'sunrise' | 'sunset') : '--'}
-                      barValue={hourly ? cloudQualityScore(hourly, type as 'sunrise' | 'sunset') : 0}
+                      value={hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityLabel(cloudQualityScore(hourly, type as 'sunrise' | 'sunset'), type as 'sunrise' | 'sunset') : '--'}
+                      barValue={hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityScore(hourly, type as 'sunrise' | 'sunset') : undefined}
                       barColor={DETAIL_BAR_COLORS.cloud}
                     />
                     <DetailRow
                       label="Humidity"
                       value={humidityStr}
-                      barValue={hourly ? hourly.humidity : 0}
+                      barValue={hourly && Number.isFinite(hourly.humidity) ? hourly.humidity : undefined}
                       barColor={DETAIL_BAR_COLORS.humidity}
                     />
                     <DetailRow
@@ -985,14 +1053,14 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
                   <>
                     <DetailRow
                       label="Cloud"
-                      value={hourly ? cloudQualityLabel(cloudQualityScore(hourly, 'stargazing'), 'stargazing') : '--'}
-                      barValue={hourly ? cloudQualityScore(hourly, 'stargazing') : 0}
+                      value={hourly && Number.isFinite(hourly.cloud) ? cloudQualityLabel(cloudQualityScore(hourly, 'stargazing'), 'stargazing') : '--'}
+                      barValue={hourly && Number.isFinite(hourly.cloud) ? cloudQualityScore(hourly, 'stargazing') : undefined}
                       barColor={DETAIL_BAR_COLORS.cloud}
                     />
                     <DetailRow
                       label="Humidity"
                       value={humidityStr}
-                      barValue={hourly ? hourly.humidity : 0}
+                      barValue={hourly && Number.isFinite(hourly.humidity) ? hourly.humidity : undefined}
                       barColor={DETAIL_BAR_COLORS.humidity}
                     />
                     <DetailRow
@@ -1010,8 +1078,12 @@ export default function ScoreCard({ spot, type, eventDate, city, scrubHourKey, s
             {/* Back button -- pinned footer, same position as "See Breakdown" */}
             <div className="px-5 pb-4 pt-3 flex-shrink-0">
               <button
+                ref={backButtonRef}
                 type="button"
-                onClick={() => setShowDetail(false)}
+                onClick={() => {
+                  focusAfterFlipRef.current = 'summary';
+                  setShowDetail(false);
+                }}
                 className="flex items-center justify-center gap-1.5 w-full pt-2 pb-1 font-mono text-[9px] tracking-[1.5px] uppercase text-gray-500 hover:text-gray-400 transition-colors"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

@@ -1,0 +1,39 @@
+{
+  "paths": {
+    "app": "/",
+    "privacy": "/soleil/privacy",
+    "support": "/soleil/support",
+    "shell": "/index.html",
+    "manifest": "/manifest.json",
+    "serviceWorker": "/sw.js",
+    "thirdPartyNotices": "/third-party-notices.txt"
+  },
+  "pwa": {
+    "id": "/",
+    "startUrl": "/",
+    "scope": "/"
+  },
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "contentType": "image/png",
+      "purpose": "any",
+      "width": 192,
+      "height": 192
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "contentType": "image/png",
+      "purpose": "any",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "contentType": "image/png",
+      "purpose": "any",
+      "width": 180,
+      "height": 180
+    }
+  ]
+}

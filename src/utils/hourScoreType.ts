@@ -1,4 +1,5 @@
 import SunCalc from 'suncalc';
+import { parseCanonicalHourKey } from './timeline';
 
 export type TimeOfDayType = 'sunrise' | 'sunset' | 'stargazing' | 'now';
 
@@ -7,7 +8,7 @@ export const SF_LAT = 37.7649;
 export const SF_LNG = -122.4494;
 
 /**
- * Given an ISO hour key like "2025-06-18T20", return which score type
+ * Given a canonical UTC hour key like "2025-06-19T03:00:00Z", return which score type
  * that hour falls into.
  *
  * Windows:
@@ -16,11 +17,11 @@ export const SF_LNG = -122.4494;
  * - stargazing: from nauticalDusk to nauticalDawn
  * - now: everything else (daytime)
  */
-export function getScoreTypeForHour(hourKey: string): TimeOfDayType {
-  const date = new Date(`${hourKey}:00:00`);
-  if (Number.isNaN(date.getTime())) return 'now';
+export function getScoreTypeForHour(hourKey: string, lat = SF_LAT, lng = SF_LNG): TimeOfDayType {
+  const date = parseCanonicalHourKey(hourKey);
+  if (!date) return 'now';
 
-  const times = SunCalc.getTimes(date, SF_LAT, SF_LNG);
+  const times = SunCalc.getTimes(date, lat, lng);
   const hour = date.getTime();
 
   const sunriseMs = times.sunrise.getTime();
@@ -47,10 +48,10 @@ export function getScoreTypeForHour(hourKey: string): TimeOfDayType {
   return 'now';
 }
 
-export function getScoreTypesForHours(hourKeys: string[]): Map<string, TimeOfDayType> {
+export function getScoreTypesForHours(hourKeys: string[], lat = SF_LAT, lng = SF_LNG): Map<string, TimeOfDayType> {
   const map = new Map<string, TimeOfDayType>();
   for (const key of hourKeys) {
-    map.set(key, getScoreTypeForHour(key));
+    map.set(key, getScoreTypeForHour(key, lat, lng));
   }
   return map;
 }

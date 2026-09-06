@@ -1,0 +1,150 @@
+# Soleil iOS development
+
+Soleil uses one React application for the website, installable PWA, and Capacitor iOS shell. The iOS bundle identifier is `com.sadhvika.soleil`, and the native display name is `Soleil`.
+
+## What the shell does
+
+- Packages the production Vite output from `dist/` inside an iOS application.
+- Keeps the website and PWA behavior unchanged in web browsers.
+- Disables the web install prompt and service-worker registration only inside Capacitor.
+- Requests location only after the existing `Use my location` action. The shell declares When In Use access and does not declare background location access.
+- After a denied location request, offers an iOS-only `Open Settings` action. Returning to Soleil never assumes the permission changed. The person explicitly retries so the app can check current access.
+- Keeps saved spots in Capacitor Preferences on iOS. This maps to `UserDefaults`, remains local to this installation, and is cleared if the app is uninstalled. The PWA continues to use transactional IndexedDB.
+- Migrates an existing saved-spots value from WebView storage once when the native Preferences value is missing.
+- Shares spot links using the canonical public website instead of a `capacitor://localhost` URL.
+- Opens top-level external URLs with the iOS system handler through Capacitor's default navigation policy. No external host is permitted to replace the app's main WebView.
+
+Location coordinates are session-only. They are not written to Preferences, IndexedDB, or local storage.
+
+## Local workflow
+
+Requirements:
+
+- Node.js 22 or newer.
+- A recent full Xcode installation that supports the connected iPhone's iOS version.
+- An Apple ID selected by the developer in Xcode for local device signing.
+
+Install dependencies and regenerate the native web bundle:
+
+```bash
+npm ci
+npm run native:sync
+```
+
+Run the repository-level shell checks:
+
+```bash
+npm run ios:verify
+```
+
+With full Xcode selected, you can also create the same enrollment-free archive that CI verifies:
+
+```bash
+xcodebuild \
+  -project ios/App/App.xcodeproj \
+  -scheme App \
+  -configuration Release \
+  -destination 'generic/platform=iOS' \
+  -archivePath /tmp/Soleil.xcarchive \
+  -disableAutomaticPackageResolution \
+  CODE_SIGNING_ALLOWED=NO \
+  archive
+
+ditto -c -k --sequesterRsrc --keepParent \
+  /tmp/Soleil.xcarchive \
+  /tmp/Soleil.xcarchive.zip
+
+npm run ios:archive:verify -- \
+  --archive /tmp/Soleil.xcarchive \
+  --marketing-version 1.0 \
+  --build-number 1 \
+  --source-commit "$(git rev-parse HEAD)" \
+  --package /tmp/Soleil.xcarchive.zip \
+  --report /tmp/soleil-ios-archive-verification.json
+```
+
+The macOS CI job performs this generic iOS device archive, not a simulator build. It verifies the archived app and archive metadata for bundle ID, marketing version, build number, supported iPhone and iPad families, and the packaged privacy manifest. Its machine-readable report also records the full source commit, SHA-256 digests of `package-lock.json` and the Xcode workspace `Package.resolved`, Xcode version and build, and iPhoneOS SDK version and build. It requires the claimed commit to equal the checked-out `HEAD`, requires a clean worktree, binds the archive and app directory trees with deterministic content digests, and binds the exact retained archive zip with SHA-256. CI retains the zip, its Xcode result bundle, both dependency locks, and that report for seven days. The expected version values in CI must be updated in the same change as the Xcode project version.
+
+The source commit and clean-worktree checks identify the reviewed checkout used to produce the archive. The JavaScript and Swift package lockfiles pin both dependency graphs, while the JavaScript lockfile digest and toolchain fields make dependency or build-environment drift visible. Release archives disable automatic Swift package resolution so Xcode must use the committed `Package.resolved`. The archive, app, and package digests prevent a report from being silently paired with different build output. Keep the report and the exact package together. For a later signed archive, confirm these provenance and artifact bindings match the reviewed release checkout and recorded TestFlight candidate before accepting the build.
+
+This archive deliberately uses `CODE_SIGNING_ALLOWED=NO`. It proves that the Release archive action produces the expected device artifact before Apple Developer Program enrollment, but it cannot be installed, exported for distribution, uploaded to TestFlight, or used as signing validation.
+
+CI also builds the native shell for an available iPhone Simulator running iOS 26 or later. It installs the packaged app, cold-launches `com.sadhvika.soleil`, waits up to 45 seconds for visual readiness, and repeatedly verifies that the launched process remains alive. The smoke fails if the screenshot remains blank or lacks varied dark interface content. It captures the final screenshot, application process log, Xcode result bundle, and a machine-readable success or failure report. This detects native build, packaging, install, immediate-crash, bundle identity, display-name, missing web entry-point, missing privacy-manifest, and blank-render regressions without Apple enrollment.
+
+Simulator smoke evidence does not prove physical-device gestures, performance, safe areas, Dynamic Type, VoiceOver, location Settings recovery, signing, TestFlight processing, or App Store eligibility. Those remain explicit acceptance gates on the exact candidate.
+
+Open the generated project:
+
+```bash
+npm run ios:open
+```
+
+In Xcode, select the `App` target, select the developer-owned signing team, choose the connected iPhone, and run. Signing identities, provisioning profiles, team IDs, Apple credentials, and device registrations must never be committed.
+
+After any React or configuration change, run `npm run native:sync` before building again in Xcode.
+
+## Public URL contract
+
+Native share links currently use `https://go-outside-six.vercel.app`. A build can override this with `VITE_PUBLIC_WEB_ORIGIN`, but the value must be an HTTPS origin.
+
+If Soleil moves to a custom domain, update the public origin, website metadata, Universal Links association, and App Store metadata as one coordinated release. Universal Links and warm or cold inbound app-link routing are not enabled in this shell because they require control of the deployed domain and Apple signing capabilities.
+
+The public route and PWA artifact paths are recorded in `config/public-url-contract.json`. Local builds verify that the manifest, service worker, public routes, static icons, Vercel rewrites, and native share paths stay aligned with that contract. This file does not select or approve a hostname.
+
+After an approved candidate is deployed to a proposed origin, run the anonymous, read-only live check:
+
+```bash
+npm run public:release:verify -- --origin https://example.com
+```
+
+The command requires a root HTTPS origin and refuses redirects, authentication gates, path changes, incorrect MIME types, non-root PWA identity or scope, missing public pages, and invalid icon artifacts. Passing it proves only the named HTTP contract. It does not change DNS, approve the hostname, validate legal policy content, or replace PWA and physical-device acceptance.
+
+## Privacy and storage
+
+`Info.plist` contains only `NSLocationWhenInUseUsageDescription` for location. There is no Always or background-location purpose string or capability.
+
+`PrivacyInfo.xcprivacy` declares `NSPrivacyAccessedAPICategoryUserDefaults` with reason `CA92.1`, as required by the Capacitor Preferences plugin. The manifest does not claim other data collection, tracking status, or required-reason API use. Tracking and collected-data declarations must follow the approved production vendor audit.
+
+App Store privacy answers remain a human release gate. They must be reviewed against the actual production build, forecast providers, map providers, diagnostics, and any analytics added later.
+
+## Known gates before TestFlight
+
+- Install and select a full Xcode toolchain, then compile and run on the target iPhone.
+- Replace the provisional generated icon and splash assets with approved Soleil artwork. The committed native icon is technically opaque, but it is placeholder artwork and has not completed App Store visual review. The current PWA artwork includes transparency, so it should not be reused directly as the final 1024 by 1024 App Store icon.
+- Enroll in the Apple Developer Program before TestFlight or App Store distribution.
+- Select the signing team and create the App Store Connect app record as explicit human actions.
+- Verify location allow, deny, approximate, retry, and Settings recovery on a physical iPhone.
+- Verify saved spots across termination and relaunch, plus removal after uninstall.
+- Review the privacy manifest and App Store privacy disclosures.
+- Add Universal Links only after the canonical domain and associated-domain deployment are approved.
+
+The shell intentionally contains no Apple team ID, signing certificate, provisioning profile, distribution upload, or App Store submission automation.
+
+The Xcode target retains automatic signing so a developer can select their own team locally after enrollment. The repository does not pin a signing identity. CI disables signing only for its unsigned archive command.
+
+Before preparing a release candidate, run `npm run ios:release:verify`. Development mode reports unresolved human gates without hiding them. Strict candidate mode requires the intended version and build plus explicit approval inputs for the gates it evaluates. Run `npm run ios:release:verify -- --help` for the exact inputs. It does not replace the [App Store release checklist](./app-store-release-checklist.md) or [TestFlight acceptance checklist](./testflight-acceptance.md), which cover account, policy, archive, and physical-device evidence that repository checks cannot provide.
+
+## Physical iPhone location acceptance
+
+Record this evidence against the exact candidate commit before approving a TestFlight build. The initial target is Sadhvika's iPhone 17 Pro on iOS 26.6.
+
+- Candidate commit:
+- Xcode version:
+- Device and iOS version:
+- Clean install or upgrade:
+- Tester and date:
+
+Run the following journeys from the Home screen:
+
+1. Before activation, confirm iOS has not prompted for location and city browsing works.
+2. Tap `Use my location`, choose `Don't Allow`, and confirm Soleil offers `Open Settings`, `Retry location`, and `Choose a city` without claiming the map moved.
+3. Tap `Open Settings` and confirm iOS opens the Soleil settings page, not the general Settings landing page.
+4. Set Location to `While Using the App`, return to Soleil, and confirm the app asks for an explicit retry without claiming access is currently denied or allowed.
+5. Tap `Retry location`. Confirm the location marker, distances, active-city choice, and Best Nearby result recover.
+6. Turn Precise Location off in Settings, return, retry, and confirm Soleil labels the location and every derived distance as approximate.
+7. Turn Precise Location on, return, retry, and confirm precise-location messaging recovers.
+8. Deny location again, force-quit Soleil, relaunch it, and confirm city browsing remains usable. Repeat the Settings recovery and retry path.
+9. With VoiceOver enabled, confirm focus and announcements remain understandable when leaving for Settings and returning to Soleil.
+10. At the largest accessibility text size, confirm the Home sheet scrolls, all recovery controls remain reachable, and no copy or control is clipped or overlapped.
+
+Attach screenshots or a short screen recording for the denied state, the Soleil Settings page, approximate recovery, and precise recovery. Browser simulation and `npm run ios:verify` do not satisfy this physical-device gate.

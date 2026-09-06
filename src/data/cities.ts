@@ -6,6 +6,7 @@ export interface CityConfig {
   short: string;
   emoji: string;
   tagline: string;
+  timeZone: string;
   hasWeatherMode: boolean;
   center: [number, number];
   defaultZoom: number;
@@ -19,6 +20,7 @@ export const CITIES: CityConfig[] = [
     short: 'SF',
     emoji: '🌁',
     tagline: 'Fog clears, golden light stays',
+    timeZone: 'America/Los_Angeles',
     hasWeatherMode: true,
     center: [37.7649, -122.4494],
     defaultZoom: 12.5,
@@ -30,6 +32,7 @@ export const CITIES: CityConfig[] = [
     short: 'SC',
     emoji: '🏄',
     tagline: 'Coastal fog clearing by dusk',
+    timeZone: 'America/Los_Angeles',
     hasWeatherMode: false,
     center: [36.974, -122.030],
     defaultZoom: 12,
@@ -41,6 +44,7 @@ export const CITIES: CityConfig[] = [
     short: 'ATX',
     emoji: '🤠',
     tagline: 'Wide open Hill Country skies',
+    timeZone: 'America/Chicago',
     hasWeatherMode: false,
     center: [30.30, -97.78],
     defaultZoom: 11,
@@ -52,6 +56,7 @@ export const CITIES: CityConfig[] = [
     short: 'CHI',
     emoji: '🌆',
     tagline: 'Lake-effect skies, big-shoulder sunsets',
+    timeZone: 'America/Chicago',
     hasWeatherMode: false,
     center: [41.90, -87.65],
     defaultZoom: 11,
