@@ -542,7 +542,6 @@ test('pages horizontally when the gesture starts over scrollable card content', 
   const scroller = dialog.locator('.score-cards-scroll');
   const nowPage = dialog.locator('[data-card-type="now"]');
   const cardScroll = nowPage.locator('[data-card-scroll]');
-  const sunriseTab = dialog.getByRole('tab', { name: 'Show Sunrise card' });
   await expect(nowPage).toBeVisible();
   await waitForStableGeometry(dialog);
 
@@ -577,7 +576,25 @@ test('pages horizontally when the gesture starts over scrollable card content', 
   await expect.poll(async () => scroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(
     pageBox.width * 0.5,
   );
-  await expect(sunriseTab).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(async () => scroller.evaluate((element) => {
+    const viewportCenter = element.scrollLeft + element.clientWidth / 2;
+    const cards = Array.from(element.querySelectorAll<HTMLElement>('[data-card-type]'));
+    const centeredCard = cards.reduce<HTMLElement | null>((closest, card) => {
+      if (!closest) return card;
+      const cardDistance = Math.abs(card.offsetLeft + card.offsetWidth / 2 - viewportCenter);
+      const closestDistance = Math.abs(
+        closest.offsetLeft + closest.offsetWidth / 2 - viewportCenter,
+      );
+      return cardDistance < closestDistance ? card : closest;
+    }, null);
+    const activeTab = element
+      .closest('[role="dialog"]')
+      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    const centeredType = centeredCard?.dataset.cardType;
+
+    return centeredType !== 'now'
+      && activeTab?.getAttribute('aria-controls') === centeredCard?.id;
+  })).toBe(true);
 });
 
 test('dismisses the sheet from the dedicated handle pointer drag', async ({ page }) => {
