@@ -110,7 +110,7 @@ for (const representative of REPRESENTATIVE_SPOTS) {
       .toBeVisible();
 
     for (const eventType of CARD_ORDER.slice(1)) {
-      const label = eventType === 'stargazing' ? 'Nighttime' : eventType[0].toUpperCase() + eventType.slice(1);
+      const label = eventType[0].toUpperCase() + eventType.slice(1);
       await pager.press('ArrowRight');
       const card = dialog.locator(`[data-card-type="${eventType}"]`);
       await expect(card).toHaveAttribute('aria-hidden', 'false');

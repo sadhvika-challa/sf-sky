@@ -263,11 +263,11 @@ test('keeps selected-hour score, evidence, time, and weather aligned after scrub
   await expect(nowCard.locator('[data-temperature]')).toHaveText('66°F');
   await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
 
-  const sheetScore = (await dialog.locator('[aria-label^="Now score "]').textContent())?.trim();
+  const sheetScore = (await dialog.locator('[aria-label^="Daytime score "]').textContent())?.trim();
   expect(sheetScore).toMatch(/^\d{1,3}$/);
-  await expect(dialog.locator('[aria-label^="Now score "]')).toHaveAttribute(
+  await expect(dialog.locator('[aria-label^="Daytime score "]')).toHaveAttribute(
     'aria-label',
-    new RegExp(`^Now score ${sheetScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+    new RegExp(`^Daytime score ${sheetScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
   );
   await expect(dialog.locator('[data-primary-score]')).toBeVisible();
 
@@ -282,7 +282,7 @@ test('keeps selected-hour score, evidence, time, and weather aligned after scrub
   await page.getByRole('button', { name: 'Search spots' }).click();
   const search = page.getByRole('dialog', { name: 'Search spots' });
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
-  await expect(search.getByText('Scores for Now · Today at 7:00 PM', { exact: true })).toBeVisible();
+  await expect(search.getByText('Scores for Daytime · Today at 7:00 PM', { exact: true })).toBeVisible();
   const result = search.getByRole('button', { name: /Ocean Beach/ });
   await expect(result.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
   await expect(result.locator('span').last()).toHaveText(sheetScore!);

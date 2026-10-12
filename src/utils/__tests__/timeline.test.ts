@@ -141,6 +141,10 @@ describe('canonical timeline identity', () => {
   it('formats Search labels in the city calendar', () => {
     const now = new Date('2026-08-30T16:00:00Z');
     expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', now)).toBe('Right now');
+    expect(formatActiveTimelineLabel('2026-08-30T19:00:00Z', 'now', 'America/Chicago', now))
+      .toBe('Daytime · Today at 2:00 PM');
+    expect(formatActiveTimelineLabel('2026-08-31T03:00:00Z', 'stargazing', 'America/Chicago', now))
+      .toBe('Nighttime · Today at 10:00 PM');
     expect(formatActiveTimelineLabel('2026-08-31T01:00:00Z', 'sunset', 'America/Chicago', now))
       .toBe('Sunset · Today at 8:00 PM');
   });

@@ -158,7 +158,7 @@ test('keeps the first repeated 1 AM live while identifying the second as CST', a
     .locator('[data-card-type="now"]');
   const slider = await expectForecastSliderReady(nowCard);
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:15 AM CDT');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Now · 1:15 AM CDT');
   await expect(nowCard.locator('[data-temperature]')).toHaveText('61°F');
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
@@ -216,7 +216,7 @@ test('normalizes ambiguous, missing, and unique legacy hour links honestly', asy
   await page.goto(`${CHICAGO_SPOT_URL}&hour=2026-11-01T01`);
   let dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
-  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Today · 12:15 AM/);
+  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Now · 12:15 AM/);
 
   await page.goto(`${CHICAGO_SPOT_URL}&hour=2026-11-01T02`);
   dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
@@ -229,7 +229,7 @@ test('normalizes ambiguous, missing, and unique legacy hour links honestly', asy
   await page.goto(`${CHICAGO_SPOT_URL}&instant=2026-11-05T12%3A00%3A00Z`);
   dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
-  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Today · 12:15 AM/);
+  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Now · 12:15 AM/);
 });
 
 test('keeps a skipped spring legacy hour at Now', async ({ page }, testInfo) => {
@@ -244,7 +244,7 @@ test('keeps a skipped spring legacy hour at Now', async ({ page }, testInfo) => 
 
   const dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
-  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Today · 12:15 AM/);
+  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Now · 12:15 AM/);
 });
 
 test('preserves repeated Pacific hours for an SF spot', async ({ page }, testInfo) => {

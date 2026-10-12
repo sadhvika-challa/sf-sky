@@ -173,7 +173,7 @@ export function nearestForecastAtCityInstant(forecast: SpotForecast, instant: Da
   return nearestKey ? forecast.hours[nearestKey] : null;
 }
 
-const VIEW_MODE_NAMES: Record<ViewMode, string> = { now: 'Now', sunrise: 'Sunrise', sunset: 'Sunset', stargazing: 'Stargazing' };
+const VIEW_MODE_NAMES: Record<ViewMode, string> = { now: 'Daytime', sunrise: 'Sunrise', sunset: 'Sunset', stargazing: 'Nighttime' };
 
 export function formatActiveTimelineLabel(hourKey: string, viewMode: ViewMode, timeZone: string, now: Date): string {
   if (hourKey === '') {
