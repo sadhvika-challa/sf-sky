@@ -8,6 +8,7 @@ import {
   formatForecastRetrieved,
   getForecastConfidence,
   getForecastFreshness,
+  getConfidenceReviewTimes,
   scoreEvidenceAccessibilityLabel,
 } from '../confidence';
 import { WeatherRequestError, type HourlyForecast } from '../weather';
@@ -183,7 +184,7 @@ describe('buildScoreEvidence', () => {
     ['selected-hour', 'now', 'Selected hour unavailable · curated estimate'],
     ['event', 'sunrise', 'Sunrise forecast unavailable · curated estimate'],
     ['event', 'sunset', 'Sunset forecast unavailable · curated estimate'],
-    ['event', 'stargazing', 'Stargazing forecast unavailable · curated estimate'],
+    ['event', 'stargazing', 'Nighttime forecast unavailable · curated estimate'],
   ] as const)('uses %s/%s missing-hour copy', (moment, mode, statusLabel) => {
     expect(evidence({
       hourly: null,
@@ -280,6 +281,14 @@ describe('getForecastConfidence', () => {
 
 
 describe('confidence metric', () => {
+  it('derives actionable review windows from the exact event instant, including across midnight', () => {
+    const sunset = new Date('2026-10-13T01:38:00Z');
+    expect(getConfidenceReviewTimes(sunset)).toEqual({
+      medium: new Date('2026-10-12T19:38:00Z'),
+      high: new Date('2026-10-12T23:38:00Z'),
+    });
+    expect(getConfidenceReviewTimes(new Date('invalid'))).toBeNull();
+  });
   it('exposes forecast confidence as a separate named metric', () => {
     const html = renderToStaticMarkup(createElement(ConfidenceMetric, { evidence: evidence() }));
     expect(html).toContain('Forecast confidence: High');

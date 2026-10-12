@@ -13,7 +13,7 @@ export default function SearchBar({ onOpen }: SearchBarProps) {
     <button
       type="button"
       onClick={onOpen}
-      className="flex-1 flex items-center gap-2 h-9 pl-3 pr-4 rounded-full bg-[rgba(250,250,248,0.95)] border-[0.5px] border-black/[0.08] shadow-sm text-left text-gray-400 hover:bg-[rgba(250,250,248,1)] transition-colors"
+      className="flex-1 flex items-center gap-2 h-9 pl-3 pr-4 rounded-full bg-white border-[0.5px] border-black/[0.08] shadow-sm text-left text-gray-400 hover:bg-gray-50 transition-colors"
       aria-label="Search spots"
     >
       <svg

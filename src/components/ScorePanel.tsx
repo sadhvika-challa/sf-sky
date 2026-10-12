@@ -1,8 +1,9 @@
-import { type UIEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type UIEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
-import { getScoreTier, getSpectrumColor, tierColors, type ScoreTier, type ViewMode, computeNowBaseScore } from '../utils/scoring';
+import { getScoreTier, tierColors, type ScoreTier, type ViewMode, computeNowBaseScore } from '../utils/scoring';
+import { getScoreTextColor } from '../utils/mapPinColor';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
@@ -11,6 +12,8 @@ import { DirectionsIcon, StreetViewIcon } from './icons/SpotActionIcons';
 import { parseCanonicalHourKey, SCORE_CARD_ORDER } from '../utils/timeline';
 import type { SpotForecast } from '../utils/weather';
 import { getUpcomingEventTimes } from '../utils/events';
+import ConfidenceMetric from './ConfidenceMetric';
+import { scoreEvidenceAccessibilityLabel } from '../utils/confidence';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
@@ -43,10 +46,10 @@ function getNextEvents(spot: Spot, scrubHourKey: string, now: Date): CardInfo[] 
 }
 
 const typeLabel: Record<CardType, string> = {
-  now: 'Now',
+  now: 'Daytime',
   sunrise: 'Sunrise',
   sunset: 'Sunset',
-  stargazing: 'Stargazing',
+  stargazing: 'Nighttime',
 };
 
 function formatStripTime(date: Date, timeZone: string): string {
@@ -94,7 +97,7 @@ function getKarlPill(score: number, city: City): { label: string; tier: ScoreTie
 }
 
 function getScoreColor(score: number): string {
-  return getSpectrumColor(score);
+  return getScoreTextColor(score);
 }
 
 function googleMapsTravelMode(mode: TravelMode): 'walking' | 'driving' {
@@ -271,6 +274,7 @@ function TravelTogglePill({ travelMode, onChange, palette }: TravelTogglePillPro
 
 interface ScorePanelProps {
   spot: Spot;
+  closing?: boolean;
   onClose: () => void;
   userLocation: UserLocation | null;
   initialCardType?: CardType;
@@ -321,7 +325,7 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, onActiveCardChange, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', timelineControls, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps) {
+export default function ScorePanel({ spot, closing = false, onClose, userLocation, initialCardType, onActiveCardChange, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', timelineControls, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
   const [savePending, setSavePending] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
@@ -378,9 +382,10 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   // Open fully expanded so a pin tap goes straight to the scorecard rather
   // than parking on a peek strip the user has to tap a second time.
   const [expanded, setExpanded] = useState(true);
-  // The persistent icon row owns selection; swiping a card updates it.
+  // Card paging and the timeline share the same active view.
   const [initialActiveCardType] = useState<CardType>(initialCardType ?? 'now');
   const activeCardType = initialCardType ?? 'now';
+  const activeSkyLabel = typeLabel[activeCardType === 'now' ? (viewMode ?? 'now') : activeCardType];
   // Onboarding hand-off: fire `onCardSwipe` exactly once when the user
   // moves to a card other than the one we mounted on. Tracking via a
   // ref (instead of a derived effect) means we don't re-fire on
@@ -396,12 +401,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
 
-  // Drive the entrance animation via inline transform (rather than a CSS
-  // keyframe with `animation-fill-mode: forwards`), because a forwards-mode
-  // animation on `transform` continues to apply after it ends and overrides
-  // the drag-handle's inline transform — making the swipe gesture do nothing
-  // visible. Two-frame defer ensures the initial `translateY(100%)` is
-  // committed before we transition to rest.
+  // Reveal the content upward from the stationary timeline dock.
   const [entered, setEntered] = useState(false);
   useEffect(() => {
     let frame2 = 0;
@@ -409,7 +409,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
       frame2 = requestAnimationFrame(() => {
         setEntered(true);
         const sheet = sheetRef.current;
-        if (sheet && !sheet.contains(document.activeElement)) {
+        if (sheet && !sheet.inert && !sheet.contains(document.activeElement)) {
           sheet.focus({ preventScroll: true });
         }
       });
@@ -451,8 +451,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     if (delta > distanceThreshold || velocity > velocityThreshold) {
       // Animate the sheet off-screen, then close.
       suppressClickRef.current = true;
-      setDragY(sheetHeight);
-      window.setTimeout(onClose, 200);
+      onClose();
       return;
     }
     if (moved) suppressClickRef.current = true;
@@ -491,7 +490,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
       suppressClickRef.current = false;
       return;
     }
-    setExpanded(!expanded);
+    if (expanded) onClose();
+    else setExpanded(true);
   };
 
   const handleCardWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -527,7 +527,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     if (closestType && closestDistance <= 1 && closestType !== activeCardType) onActiveCardChange(closestType);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scrollTarget = initialCardType ?? 'now';
     if (!scrollTarget || !expanded) return;
     const scroller = scrollerRef.current;
@@ -540,34 +540,14 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
-      if (expanded) {
-        setExpanded(false);
-      } else {
-        onClose();
-      }
+      onClose();
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose, expanded]);
 
-  // Backdrop fade tracks drag progress so the dismissal feels physical: the
-  // farther you pull the sheet down, the more the dim layer recedes.
-  const backdropProgress = expanded ? Math.max(0, 1 - dragY / 320) : 0;
-
   return (
-    <div className="fixed inset-0 z-40 pointer-events-none">
-      {/* Backdrop — fades in only when expanded. While collapsed it's
-          fully invisible AND non-interactive, so the map stays both visible
-          and tappable for panning, zooming, and switching spots. */}
-      <div
-        onClick={onClose}
-        className={`absolute inset-0 bg-black/30 backdrop-blur-sm ${
-          expanded ? 'pointer-events-auto' : 'pointer-events-none'
-        } ${isDragging ? '' : 'transition-opacity duration-300'}`}
-        style={{ opacity: backdropProgress }}
-        aria-hidden="true"
-      />
-
+    <div className="fixed inset-0 z-40 pointer-events-none" aria-hidden={closing} inert={closing}>
       {/* Bottom sheet — sized to its content so it never wastes vertical
           space, with a max cap so it can't ever swallow the whole screen. */}
       <div
@@ -576,19 +556,19 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
         aria-modal={false}
         aria-label={`${spot.name} sky scores`}
         tabIndex={-1}
-        className="absolute left-0 right-0 bottom-0 z-10 pointer-events-auto flex flex-col bg-cream/95 backdrop-blur-md border-t border-cream-dark shadow-2xl rounded-t-2xl overflow-hidden"
+        inert={closing}
+        className="score-panel-sheet absolute left-0 right-0 bottom-0 z-10 pointer-events-auto flex flex-col bg-white border-t border-gray-200/80 shadow-[0_-3px_20px_rgba(23,37,39,0.12)] rounded-t-2xl overflow-hidden"
         style={{
           bottom: 0,
           maxHeight: 'min(calc(100dvh - 5rem), 826px)',
-          transform: !entered
-            ? 'translate3d(0, 100%, 0)'
-            : dragY
-              ? `translate3d(0, ${dragY}px, 0)`
-              : 'translate3d(0, 0, 0)',
-          transition: isDragging
+          clipPath: closing || !entered ? 'inset(calc(100% - var(--map-timeline-height)) 0 0 0)' : 'inset(0 0 0 0)',
+          transform: dragY && !closing ? `translate3d(0, ${dragY}px, 0)` : 'translate3d(0, 0, 0)',
+          transition: isDragging && !closing
             ? 'none'
-            : 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)',
-          willChange: 'transform',
+            : closing
+              ? 'clip-path 260ms cubic-bezier(0.4, 0, 1, 1), transform 260ms ease-out'
+              : 'clip-path 440ms cubic-bezier(0.22, 1, 0.36, 1), transform 380ms cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'clip-path',
         }}
       >
         {/* Drag handle — only rendered when the sheet is expanded, since
@@ -603,8 +583,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             onPointerMove={handleHandlePointerMove}
             onPointerUp={handleHandlePointerEnd}
             onPointerCancel={handleHandlePointerEnd}
-            className="relative z-20 w-24 min-h-11 self-center -mb-7 flex flex-col items-center pt-2 flex-shrink-0 group touch-none"
-            aria-label="Swipe down to dismiss, or tap to collapse"
+            className="relative z-20 w-24 min-h-11 self-center flex flex-col items-center pt-2 flex-shrink-0 group touch-none"
+            aria-label="Swipe down to dismiss, or tap to close"
             aria-expanded={expanded}
             style={{ touchAction: 'none' }}
           >
@@ -621,12 +601,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
           >
             {/* Header — spot identity + travel context. Pure spot info,
                 so the swipeable weather cards below can stay forecast-only. */}
-            <div className="px-4 pt-1 pb-2 flex-shrink-0">
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="font-serif text-lg font-semibold text-gray-800 truncate min-w-0">
-                  {spot.name}
-                  {spot.visibility === 'private' && <span className="ml-2 font-mono text-[10px] font-normal text-gray-500">Private · This device</span>}
-                </h2>
+            <div className="relative z-40 px-4 pt-1 pb-2 flex-shrink-0">
+              <div className="flex items-center justify-between gap-1">
                 <button
                   type="button"
                   onClick={() => void handleSavedChange()}
@@ -634,7 +610,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                   aria-pressed={saved}
                   aria-label={saved ? `Remove ${spot.name} from saved spots` : `Save ${spot.name}`}
                   title={saved ? 'Remove from saved spots' : 'Save spot'}
-                  className={`relative z-30 w-11 h-11 -mt-2 flex-shrink-0 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 ${
+                  className={`relative z-30 w-11 h-11 flex-shrink-0 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 ${
                     saved ? 'text-amber-700 bg-amber-50' : 'text-gray-400 active:bg-cream-dark/50'
                   }`}
                 >
@@ -642,13 +618,27 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     <path d="M6 3h12v18l-6-4-6 4V3z" />
                   </svg>
                 </button>
-
+                <h2 title={spot.name} className="font-sans text-base font-semibold leading-snug text-gray-800 truncate min-w-0 flex-1">
+                  {spot.name}
+                  {spot.visibility === 'private' && <span className="ml-2 font-mono text-[10px] font-normal text-gray-500" title="Private, visible only on this device">Private</span>}
+                </h2>
+                <div className="flex flex-shrink-0 items-center gap-2" data-primary-score>
+                  <ConfidenceMetric key={`${activeCardType}:${timelineHourKey}`} compact evidence={activeCardType === 'now' ? live!.activeEvidence : live!.evidence[activeCardType]}
+                    eventTime={cards.find((card) => card.type === activeCardType)?.eventTime} now={now} timeZone={timeZone} privateSpot={spot.visibility === 'private'} />
+                  <span
+                    className="font-sans text-3xl font-semibold leading-none tabular-nums"
+                    style={{ color: getScoreColor(getScoreFor(activeCardType)) }}
+                    aria-label={`${activeSkyLabel} score ${scoreEvidenceAccessibilityLabel(getScoreFor(activeCardType), activeCardType === 'now' ? live!.activeEvidence : live!.evidence[activeCardType])}`}
+                  >
+                    {getScoreFor(activeCardType)}
+                  </span>
+                </div>
               </div>
 
               {saveFeedback && (
                 <p
                   className={`mt-1 font-mono text-[10px] leading-4 ${
-                    saveFeedback.includes('Try again') ? 'text-red-700' : 'text-gray-500'
+                    saveFeedback.includes('Try again') ? 'text-red-700' : 'sr-only'
                   }`}
                   role="status"
                   aria-live="polite"
@@ -756,10 +746,20 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
               </div>
             </div>
 
-            <div className="mx-3 mb-[calc(env(safe-area-inset-bottom)+0.75rem)] mt-1 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-md">
+            <div className="mx-3 mb-[calc(env(safe-area-inset-bottom)+0.75rem)] mt-1 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white">
               {/* Cards: swipeable pages with one shared timeline inside the card surface. */}
               <div
                 ref={scrollerRef}
+                role="group"
+                aria-label="Sky cards"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                  event.preventDefault();
+                  const index = SCORE_CARD_ORDER.indexOf(activeCardType);
+                  const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + SCORE_CARD_ORDER.length) % SCORE_CARD_ORDER.length;
+                  onActiveCardChange(SCORE_CARD_ORDER[next]);
+                }}
                 onScroll={handleCardScroll}
                 className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
                 style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
@@ -770,8 +770,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     <div
                       key={card.type}
                       id={`score-card-panel-${card.type}`}
-                      role="tabpanel"
-                      aria-labelledby={`score-card-tab-${card.type}`}
+                      role="group"
+                      aria-label={`${card.type === 'now' ? typeLabel[viewMode ?? 'now'] : typeLabel[card.type]} sky forecast`}
                       aria-hidden={!isActive}
                       inert={!isActive}
                       data-card-type={card.type}
@@ -785,6 +785,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                         style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                       >
                         <ScoreCard
+                          active={isActive}
                           embedded
                           spot={spot}
                           type={card.type}
@@ -810,7 +811,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                   );
                 })}
               </div>
-              <section className="spot-timeline flex-shrink-0 border-t border-gray-100 px-5 pb-3 pt-3" aria-label="Spot time controls">
+              <section
+              className="spot-timeline flex-shrink-0 px-5 pb-3 pt-1" aria-label="Spot time controls">
                 {timelineControls(true)}
               </section>
             </div>
@@ -826,7 +828,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="font-serif text-base font-semibold text-gray-800 truncate">
+                  <h2 className="font-sans text-base font-semibold text-gray-800 truncate">
                     {spot.name}
                     {spot.visibility === 'private' && <span className="ml-2 font-mono text-[10px] font-normal text-gray-500">Private · This device</span>}
                   </h2>
@@ -843,7 +845,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                 </p>
               </div>
               <span
-                className="font-serif text-3xl font-light leading-none flex-shrink-0 tabular-nums"
+                className="font-sans text-3xl font-semibold leading-none flex-shrink-0 tabular-nums"
                 style={{ color: scoreColor }}
               >
                 {primaryScore}

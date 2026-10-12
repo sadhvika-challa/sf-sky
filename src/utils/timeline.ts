@@ -156,14 +156,10 @@ export function nearestForecastAtCityInstant(forecast: SpotForecast, instant: Da
   return nearestKey ? forecast.hours[nearestKey] : null;
 }
 
-const VIEW_MODE_NAMES: Record<ViewMode, string> = { now: 'Now', sunrise: 'Sunrise', sunset: 'Sunset', stargazing: 'Stargazing' };
+const VIEW_MODE_NAMES: Record<ViewMode, string> = { now: 'Daytime', sunrise: 'Sunrise', sunset: 'Sunset', stargazing: 'Nighttime' };
 
 export function formatActiveTimelineLabel(hourKey: string, viewMode: ViewMode, timeZone: string, now: Date): string {
-  if (hourKey === '') {
-    return isRepeatedLocalHourInstant(now, timeZone)
-      ? `Right now · ${formatInstantTimeLabel(now, timeZone)}`
-      : 'Right now';
-  }
+  if (hourKey === '') return `${VIEW_MODE_NAMES[viewMode]} · Today at ${formatInstantTimeLabel(now, timeZone, isRepeatedLocalHourInstant(now, timeZone))}`;
   const instant = parseCanonicalHourKey(hourKey);
   if (!instant) return `${VIEW_MODE_NAMES[viewMode]} · selected hour unavailable`;
   const selectedDate = formatCityCalendarDate(instant, timeZone);

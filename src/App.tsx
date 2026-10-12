@@ -226,6 +226,17 @@ const DISMISS_HIGHLIGHT_MS = 1600;
 function App() {
   const [initialDeepLink] = useState(readInitialDeepLink);
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(initialDeepLink.spot);
+  const [closingSpotId, setClosingSpotId] = useState<string | null>(null);
+  const cancelSpotDismissal = useCallback(() => setClosingSpotId(null), []);
+  useEffect(() => {
+    if (!closingSpotId || selectedSpot?.id !== closingSpotId) return;
+    const timer = window.setTimeout(() => {
+      setSelectedSpot((current) => current?.id === closingSpotId ? null : current);
+      setClosingSpotId(null);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('.map-timeline [role="slider"]')?.focus({ preventScroll: true }));
+    }, 260);
+    return () => window.clearTimeout(timer);
+  }, [closingSpotId, selectedSpot?.id]);
   // Curated events surface their own editorial sheet, mutually exclusive with
   // the spot ScorePanel (Part 4): opening one closes the other.
   const [selectedEvent, setSelectedEvent] = useState<CuratedEvent | null>(null);
@@ -592,6 +603,7 @@ function App() {
   }, [activeCityId]);
 
   const applyActiveCity = useCallback((city: City) => {
+    cancelSpotDismissal();
     setActiveCityIdRaw(city);
     setTimelineHourKey('');
     setSelectedSpot(null);
@@ -607,7 +619,7 @@ function App() {
     if (config && !config.hasWeatherMode) {
       setWeatherOverlay(false);
     }
-  }, []);
+  }, [cancelSpotDismissal]);
 
   const setActiveCity = useCallback((city: City) => {
     setManualCityMode(true);
@@ -661,6 +673,7 @@ function App() {
   // city therefore opens with its city already active, without briefly clearing
   // the selection or showing the prior city's map state.
   const handleSelectSavedSpot = useCallback((spot: Spot) => {
+    cancelSpotDismissal();
     setManualCityMode(true);
     setActiveCityIdRaw(spot.city);
     setTimelineHourKey('');
@@ -684,7 +697,7 @@ function App() {
       ).find((dialog) => dialog.getAttribute('aria-label') === expectedLabel);
       scoreSheet?.focus({ preventScroll: true });
     });
-  }, []);
+  }, [cancelSpotDismissal]);
 
   const handleToggleWeatherOverlay = useCallback(() => {
     setCloudPulseKey((k) => k + 1);
@@ -715,6 +728,7 @@ function App() {
   }, [initialDeepLink.spot]);
 
   const handleSelectSpot = useCallback((spot: Spot | null) => {
+    cancelSpotDismissal();
     const prev = selectedSpot;
     // Card is being dismissed (spot is null) and there *was* something
     // selected — remember it so the map can recenter + pulse the pin the
@@ -748,8 +762,11 @@ function App() {
         setShowScrollCardsHint(true);
       }
     }
-    setSelectedSpot(spot);
-  }, [selectedSpot]);
+    if (spot === null && prev && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setClosingSpotId(prev.id);
+
+    } else setSelectedSpot(spot);
+  }, [selectedSpot, cancelSpotDismissal]);
 
   const handleSelectRecommendation = useCallback((spotId: string) => {
     const spot = recommendationTargetSpots.find((candidate) => candidate.id === spotId);
@@ -759,9 +776,10 @@ function App() {
   // Selecting an event opens its editorial sheet and closes any open spot
   // ScorePanel — the two bottom sheets are mutually exclusive (Part 4).
   const handleSelectEvent = useCallback((event: CuratedEvent | null) => {
+    cancelSpotDismissal();
     setSelectedEvent(event);
     if (event) setSelectedSpot(null);
-  }, []);
+  }, [cancelSpotDismissal]);
 
   // Auto-clear the dismiss highlight so the pulse doesn't loop forever and
   // the map stops trying to recenter once the user moves on.
@@ -949,7 +967,7 @@ function App() {
       : { ...baseProps, state: cardState === 'ready' ? 'insufficient-evidence' : cardState };
   }
 
-  const renderTimelineControls = (hasSelectedSpot: boolean) => (
+  const renderTimelineControls = () => (
     <UnifiedTimeline
       hourKeys={mapTimelineHourKeys}
       hourKey={effectiveHourKey}
@@ -957,7 +975,6 @@ function App() {
       selectedView={selectedSkyView}
       selectedEventTime={selectedEventTime}
       onViewChange={handleSkyViewChange}
-      hasSelectedSpot={hasSelectedSpot}
       viewMode={viewMode}
       eventTimes={timelineEvents}
       timeZone={activeCityConfig.timeZone}
@@ -1007,7 +1024,7 @@ function App() {
             className={`w-9 h-9 flex items-center justify-center rounded-full border-[0.5px] shadow-sm transition-all duration-300 flex-shrink-0 ${
               weatherOverlay
                 ? 'border-pink-200/60 text-pink-50'
-                : 'bg-[rgba(250,250,248,0.95)] text-gray-600 border-black/[0.08] hover:bg-[rgba(250,250,248,1)]'
+                : 'bg-white text-gray-600 border-black/[0.08] hover:bg-gray-50'
             }`}
             style={weatherOverlay ? { background: 'linear-gradient(135deg, #D946A8, #CC2936)' } : undefined}
             aria-label="Toggle weather overlay"
@@ -1040,7 +1057,7 @@ function App() {
         <SearchBar onOpen={() => setSearchOpen(true)} />
         <button
           onClick={() => setMenuOpen(!menuOpen)}
-          className="w-9 h-9 flex items-center justify-center rounded-full bg-[rgba(250,250,248,0.95)] border-[0.5px] border-black/[0.08] shadow-sm hover:bg-[rgba(250,250,248,1)] transition-colors flex-shrink-0"
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white border-[0.5px] border-black/[0.08] shadow-sm hover:bg-gray-50 transition-colors flex-shrink-0"
           aria-label="Settings"
           aria-expanded={menuOpen}
         >
@@ -1107,7 +1124,7 @@ function App() {
 
       {!selectedSpot && (
         <aside className="map-timeline" aria-label="Map time controls">
-          {renderTimelineControls(false)}
+          {renderTimelineControls()}
         </aside>
       )}
       {privateSpots.error && <div className="private-spots-error" role="status">{privateSpots.error}</div>}
@@ -1179,6 +1196,7 @@ function App() {
       {selectedSpot && (
         <ScorePanel
           key={selectedSpot.id}
+          closing={closingSpotId === selectedSpot.id}
           spot={selectedSpot}
           onClose={() => handleSelectSpot(null)}
           userLocation={userLocation}

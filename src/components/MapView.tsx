@@ -302,33 +302,35 @@ function MapController({ selectedSpot }: { selectedSpot: Spot | null }) {
 
   useEffect(() => {
     if (!selectedSpot) return;
-    // Soft repositioning: only pan (no zoom change, no flyTo) and only when
-    // the pin is hidden by the score panel or close to the viewport edge.
-    // Keeps the user's mental map intact when they tap a pin that's already
-    // comfortably in view.
-    const pinPx = map.latLngToContainerPoint([selectedSpot.lat, selectedSpot.lng]);
-    const size = map.getSize();
-    const edgePad = 60;
-    // Score panel collapsed strip covers roughly the bottom ~120px. Treat
-    // the lower 40% as "hidden" so a pin tapped low on the map slides up
-    // into the visible band rather than disappearing under the sheet.
-    const panelTop = size.y * 0.6;
-    const inSafeZone =
-      pinPx.x >= edgePad &&
-      pinPx.x <= size.x - edgePad &&
-      pinPx.y >= edgePad &&
-      pinPx.y <= panelTop;
-    if (inSafeZone) return;
+    const sheet = document.querySelector<HTMLElement>('.score-panel-sheet');
+    const keepPinVisible = () => {
+      // Soft repositioning: only pan (no zoom change, no flyTo) and only when
+      // the pin is hidden by the score panel or close to the viewport edge.
+      // Keeps the user's mental map intact when they tap a pin that's already
+      // comfortably in view.
+      const pinPx = map.latLngToContainerPoint([selectedSpot.lat, selectedSpot.lng]);
+      const size = map.getSize();
+      const edgePad = 60;
+      const panelTop = size.y - (sheet?.offsetHeight ?? size.y * 0.4) - 22;
+      const inSafeZone =
+        pinPx.x >= edgePad &&
+        pinPx.x <= size.x - edgePad &&
+        pinPx.y >= edgePad &&
+        pinPx.y <= panelTop;
+      if (inSafeZone) return;
 
-    // Aim for ~30% from the top so the pin sits clearly above the panel.
-    const targetPx = L.point(size.x / 2, size.y * 0.3);
-    const pinLatLng = map.project([selectedSpot.lat, selectedSpot.lng], map.getZoom());
-    const center = map.project(map.getCenter(), map.getZoom());
-    const desiredCenter = L.point(
-      pinLatLng.x + (center.x - targetPx.x),
-      pinLatLng.y + (center.y - targetPx.y),
-    );
-    map.panTo(map.unproject(desiredCenter, map.getZoom()), { animate: true, duration: 0.4 });
+      const targetPx = L.point(size.x / 2, Math.max(edgePad, (edgePad + panelTop) / 2));
+      const pinLatLng = map.project([selectedSpot.lat, selectedSpot.lng], map.getZoom());
+      const desiredCenter = L.point(
+        pinLatLng.x + (size.x / 2 - targetPx.x),
+        pinLatLng.y + (size.y / 2 - targetPx.y),
+      );
+      map.panTo(map.unproject(desiredCenter, map.getZoom()), { animate: true, duration: 0.4 });
+    };
+    keepPinVisible();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(keepPinVisible);
+    if (sheet) observer?.observe(sheet);
+    return () => observer?.disconnect();
   }, [selectedSpot, map]);
 
   return null;
@@ -420,7 +422,7 @@ function SpotClusterLayer({
 
   const points = useMemo(() => {
     return spotList
-      .filter((s) => passesFilter(s, filters, liveScores))
+      .filter((s) => s.id !== selectedSpot?.id && passesFilter(s, filters, liveScores))
       .map((spot) => ({
         id: spot.id,
         lat: spot.lat,
@@ -432,7 +434,7 @@ function SpotClusterLayer({
           quip: getMarkerQuip(spot, liveScores),
         } satisfies ClusterPayload,
       }));
-  }, [spotList, filters, liveScores, viewMode]);
+  }, [spotList, filters, liveScores, viewMode, selectedSpot]);
 
   const { clusters, supercluster } = useSupercluster<ClusterPayload>({
     points,
@@ -444,6 +446,14 @@ function SpotClusterLayer({
 
   return (
     <>
+      {selectedSpot && <SpotMarker
+        spot={selectedSpot}
+        score={getViewModeScore(selectedSpot, liveScores, viewMode)}
+        evidence={liveScores.get(selectedSpot.id)?.activeEvidence ?? null}
+        isActive
+        onClick={onSelectSpot}
+        quip={getMarkerQuip(selectedSpot, liveScores)}
+      />}
       {clusters.map((feature) => {
         const [lng, lat] = feature.geometry.coordinates as [number, number];
 

@@ -108,8 +108,6 @@ async function openSavedSpots(page: Page) {
 async function dismissSpotSheet(page: Page, spotName: string): Promise<void> {
   const dialog = page.getByRole('dialog', { name: `${spotName} sky scores` });
   await page.keyboard.press('Escape');
-  await expect(dialog).toHaveAttribute('aria-modal', 'false');
-  await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 }
 
@@ -509,8 +507,8 @@ test('cold-starts every city and saved representative offline with honest live-d
       await expect(scoreDialog).toBeVisible();
       await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true }))
         .toBeVisible();
-      await expect(nowCard.getByText('Curated estimate · Forecast not retrieved', { exact: true }))
-        .toBeVisible();
+      await expect(nowCard.locator('[data-retrieval-badge]')).toHaveText('Forecast not retrieved');
+      await expect(nowCard.getByLabel('Temperature unavailable')).toBeVisible();
       await expect(nowCard.getByRole('button', { name: `Retry forecast for ${spot.name}` }))
         .toBeVisible();
       await expect.poll(() => offlinePage.evaluate(() => localStorage.getItem('sky:activeCity')))

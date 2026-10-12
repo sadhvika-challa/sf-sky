@@ -104,13 +104,7 @@ async function selectAndExerciseNowSheet(page: Page, spotName: string) {
   const sheet = page.getByRole('dialog', { name: `${spotName} sky scores` });
   await expect(sheet).toBeVisible();
   await expect(sheet.locator('[data-card-type="now"]')).toBeVisible();
-  await expect(page.getByRole('tablist', { name: 'Sky views' }).getByRole('tab', { name: 'Show Now card' })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
-  await page.keyboard.press('Escape');
-  await page.clock.runFor(350);
-  await expect(sheet.getByRole('button', { name: `Expand ${spotName} details` })).toBeVisible();
+  await expect(sheet.locator('[data-card-type="now"]')).toHaveAttribute('aria-hidden', 'false');
   return sheet;
 }
 
@@ -185,7 +179,10 @@ test('keeps Weather controls and recovery above the Now sheet during a style out
   expect(retryBox).not.toBeNull();
   expect(sheetBox).not.toBeNull();
   expect(retryBox!.height).toBeGreaterThanOrEqual(44);
-  expect(noticeBox!.y + noticeBox!.height).toBeLessThanOrEqual(sheetBox!.y);
+  expect(await retry.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button') === element;
+  })).toBe(true);
 
   recoverProvider = true;
   await retry.click();

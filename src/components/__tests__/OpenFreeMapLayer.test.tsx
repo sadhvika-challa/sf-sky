@@ -41,7 +41,10 @@ describe('OpenFreeMapLayer', () => {
   it('removes symbol layers only in weather mode', () => {
     const weatherStyle = prepareOpenFreeMapStyle(STYLE, true);
     expect(weatherStyle.layers.map((layer) => layer.id)).toEqual(['water', 'road']);
-    expect(prepareOpenFreeMapStyle(STYLE, false)).toBe(STYLE);
+    const explore = prepareOpenFreeMapStyle(STYLE, false);
+    expect(explore.layers.map((layer) => layer.id)).toEqual(['water', 'road-label', 'road']);
+    expect(explore.layers[0].paint).toEqual({ 'fill-color': '#A6D8F4' });
+    expect(STYLE.layers[0].paint).toBeUndefined();
     expect(STYLE.layers).toHaveLength(3);
   });
 

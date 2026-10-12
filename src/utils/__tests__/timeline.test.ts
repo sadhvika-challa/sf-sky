@@ -124,14 +124,14 @@ describe('canonical timeline identity', () => {
 
   it('formats Search labels in the city calendar', () => {
     const now = new Date('2026-08-30T16:00:00Z');
-    expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', now)).toBe('Right now');
+    expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', now)).toBe('Daytime · Today at 11:00 AM');
     expect(formatActiveTimelineLabel('2026-08-31T01:00:00Z', 'sunset', 'America/Chicago', now))
       .toBe('Sunset · Today at 8:00 PM');
   });
 
   it('includes the zone in live and selected Search labels during a repeated hour', () => {
     expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', new Date('2026-11-01T06:15:00Z')))
-      .toBe('Right now · 1:15 AM CDT');
+      .toBe('Daytime · Today at 1:15 AM CDT');
     expect(formatActiveTimelineLabel('2026-11-01T07:00:00Z', 'now', 'America/Chicago', new Date('2026-11-01T06:15:00Z')))
       .toContain('1:00 AM CST');
   });

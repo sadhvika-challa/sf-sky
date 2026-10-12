@@ -32,7 +32,7 @@ function ScopeNotice({ notice, onChooseCity }: {
         aria-label="Nearby city choice"
         className="rounded-2xl border border-black/[0.08] bg-[rgba(250,250,248,0.96)] p-3 shadow-sm"
       >
-        <h2 className="font-serif text-[17px] font-semibold text-[#1a1a18]">
+        <h2 className="font-sans text-[17px] font-semibold text-[#1a1a18]">
           Spots nearby are in {notice.suggestedCityName}
         </h2>
         <p className="mt-1 text-[12px] leading-relaxed text-gray-600">
@@ -63,7 +63,7 @@ function ScopeNotice({ notice, onChooseCity }: {
       aria-label="Soleil coverage"
       className="rounded-2xl border border-black/[0.08] bg-[rgba(250,250,248,0.96)] p-3 shadow-sm"
     >
-      <h2 className="font-serif text-[17px] font-semibold text-[#1a1a18]">
+      <h2 className="font-sans text-[17px] font-semibold text-[#1a1a18]">
         Outside Soleil coverage
       </h2>
       <p className="mt-1 text-[12px] leading-relaxed text-gray-600">

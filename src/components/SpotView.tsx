@@ -57,11 +57,16 @@ export default function SpotView({ spot }: { spot: Spot }) {
           aria-label={`View photos for ${spot.name}`}
           onCancel={(event) => { event.preventDefault(); setPhotoIndex(null); }}
           onKeyDown={(event) => event.stopPropagation()}
-          className="spot-view-dialog fixed inset-0 m-0 h-[100dvh] w-screen max-h-none max-w-none border-0 bg-cream p-0 backdrop:bg-black/60"
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setPhotoIndex(null);
+          }}
+          className="spot-view-dialog fixed inset-0 m-auto h-fit w-[calc(100vw-2rem)] max-h-[calc(100dvh-4rem)] max-w-[860px] overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 shadow-2xl backdrop:bg-black/45"
         >
-          <div className="flex h-full min-h-0 flex-col">
-            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-cream-dark px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
-              <h2 className="font-serif text-[22px] leading-7 text-gray-800">{spot.name}</h2>
+          <div className="flex max-h-[calc(100dvh-4rem)] min-h-0 flex-col">
+            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-100 px-4 py-3 sm:px-5">
+              <h2 className="font-sans text-lg font-semibold leading-6 text-gray-800">{spot.name}</h2>
               <button
                 type="button"
                 autoFocus
@@ -72,7 +77,7 @@ export default function SpotView({ spot }: { spot: Spot }) {
                 <CloseIcon />
               </button>
             </header>
-            <div className="flex min-h-0 flex-1 items-center justify-center bg-cream-dark/30 p-3 sm:p-6">
+            <div className="flex aspect-[16/10] max-h-[48dvh] min-h-0 shrink items-center justify-center bg-gray-50 p-3 sm:p-5">
               {failedPhotos.has(activePhoto.id) ? (
                 <div className="text-center">
                   <p role="status" className="font-serif text-xl text-gray-700">Photo unavailable</p>
@@ -86,8 +91,8 @@ export default function SpotView({ spot }: { spot: Spot }) {
                 <img src={activePhoto.src} alt={activePhoto.alt} className="h-full w-full object-contain" onError={() => markFailed(activePhoto.id)} />
               )}
             </div>
-            <footer className="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-cream-dark px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-              <p className="font-serif text-[16px] leading-6 text-gray-800">{activePhoto.view ?? discovery.view}</p>
+            <footer className="max-h-[32dvh] shrink-0 overflow-y-auto border-t border-gray-100 px-4 py-3 sm:px-5">
+              <p className="font-sans text-sm leading-5 text-gray-800">{activePhoto.view ?? discovery.view}</p>
               <p className="mt-2 font-mono text-[11px] text-gray-600 leading-5">{activePhoto.context} · {activePhoto.dateLabel}</p>
               <p className="font-mono text-[11px] text-gray-600 leading-5">Reference view. Not a live image or forecast.</p>
               <PhotoCredit photo={activePhoto} />

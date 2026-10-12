@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import type { StyleSpecification } from 'maplibre-gl';
@@ -36,19 +37,32 @@ interface MapBackgroundStatusProps {
   onRetry?: () => void;
 }
 
-/**
- * Weather uses OpenFreeMap's light Positron cartography without symbol
- * layers. Removing those layers before MapLibre receives the style prevents
- * labels from flashing through the weather colors during initial paint.
- */
+const EXPLORE_PAINT: Record<string, Record<string, string>> = {
+  background: { 'background-color': '#F7F9F8' },
+  water: { 'fill-color': '#A6D8F4' },
+  waterway: { 'line-color': '#A6D8F4' },
+  park: { 'fill-color': '#D2E8CF' },
+  landcover_wood: { 'fill-color': '#C4DEC1' },
+  landuse_residential: { 'fill-color': '#EDF1EE' },
+  building: { 'fill-color': '#E8ECE9', 'fill-outline-color': '#DBE2DD' },
+  highway_minor: { 'line-color': '#FFFFFF' },
+  highway_path: { 'line-color': '#DDE5DC' },
+  'water_name_point_label': { 'text-color': '#4F8CAE' },
+  'water_name_line_label': { 'text-color': '#4F8CAE' },
+};
+
+/** Keep the provider's geography, scale rules, and label placement. */
 export function prepareOpenFreeMapStyle(
   style: StyleSpecification,
   weatherMode: boolean,
 ): StyleSpecification {
-  if (!weatherMode) return style;
   return {
     ...style,
-    layers: style.layers.filter((layer) => layer.type !== 'symbol'),
+    layers: weatherMode
+      ? style.layers.filter((layer) => layer.type !== 'symbol')
+      : style.layers.map((layer) => EXPLORE_PAINT[layer.id]
+        ? { ...layer, paint: { ...layer.paint, ...EXPLORE_PAINT[layer.id] } } as typeof layer
+        : layer),
   };
 }
 
@@ -64,7 +78,7 @@ export function MapBackgroundStatus({ state, onRetry }: MapBackgroundStatusProps
     if (state === 'retrying') actionRef.current?.focus({ preventScroll: true });
   }, [state]);
 
-  return (
+  const notice = (
     <aside
       className="map-background-status"
       data-state={state}
@@ -90,6 +104,7 @@ export function MapBackgroundStatus({ state, onRetry }: MapBackgroundStatusProps
       )}
     </aside>
   );
+  return typeof document === 'undefined' ? notice : createPortal(notice, document.body);
 }
 
 /**
