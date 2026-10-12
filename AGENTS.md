@@ -84,3 +84,9 @@ Low- and medium-risk changes may merge after CI passes and an independent review
 ## Writing and Interface Copy
 
 Use proper capitalization and punctuation in user-facing text. Keep language plain, specific, and honest about forecast uncertainty. Never use an em dash. Do not describe probabilistic forecasts as guarantees.
+
+
+The latest approved sky labels are Daytime, Sunrise, Sunset, and Nighttime. The current instant is a timeline marker, not a sky category. Derive its displayed phase from the selected time and local solar events. Preserve existing internal view keys and shared-link compatibility. Spot cards reveal upward from a stationary timeline dock, with one scrubber during opening and closing. Align the selected pager before paint and do not retain an old sky image while its source changes. Respect reduced motion.
+
+
+On spot selection, center the pin once in the map area above the compact card. Finish that pan before the first card entrance. Opening Details, card resizing, and dismissal must not recenter the map. Switching spots while the sheet is open updates the card without replaying the entrance animation. Preserve the selected timeline state and reset spot-specific details and temporary feedback.

@@ -9,4 +9,3 @@ export function rememberLocationPromptDismissal(): void {
   try { sessionStorage.setItem(LOCATION_PROMPT_SESSION_KEY, '1'); }
   catch { /* Browsing still works when session storage is unavailable. */ }
 }
-

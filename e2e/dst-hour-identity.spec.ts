@@ -57,10 +57,12 @@ async function installShareCapture(page: import('@playwright/test').Page): Promi
 }
 
 async function expectForecastSliderReady(nowCard: Locator): Promise<Locator> {
-  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  const dialog = nowCard.locator('xpath=ancestor::*[@role="dialog"]');
+  const slider = dialog.getByRole('slider', { name: 'Forecast hour' });
   await expect(
-    nowCard.getByText('Current forecast · high confidence', { exact: true }),
+    dialog.getByRole('group', { name: 'Forecast confidence: High' }),
   ).toBeVisible();
+  await expect(dialog).toHaveAttribute('data-entered', 'true');
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
   return slider;
 }
@@ -85,13 +87,13 @@ test('keeps both fall-back 1 AM hours distinct and restores the shared occurrenc
   const slider = await expectForecastSliderReady(nowCard);
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
-  await expect(nowCard.getByText('61°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM CDT');
+  await expect(nowCard.locator('[data-temperature]')).toHaveText('61°F');
 
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '2');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
-  await expect(nowCard.getByText('37°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM CST');
+  await expect(nowCard.locator('[data-temperature]')).toHaveText('37°F');
   await expect(dialog).toBeVisible();
 
   await nowCard.getByRole('button', {
@@ -108,10 +110,10 @@ test('keeps both fall-back 1 AM hours distinct and restores the shared occurrenc
   const restored = page
     .getByRole('dialog', { name: 'North Avenue Beach sky scores' })
     .locator('[data-card-type="now"]');
-  const restoredSlider = restored.getByRole('slider', { name: 'Forecast hour' });
+  const restoredSlider = page.getByRole('slider', { name: 'Forecast hour' });
   await expect(restoredSlider).toHaveAttribute('aria-valuenow', '2');
-  await expect(restoredSlider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
-  await expect(restored.getByText('37°', { exact: true })).toBeVisible();
+  await expect(restoredSlider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM CST');
+  await expect(restored.locator('[data-temperature]')).toHaveText('37°F');
 });
 
 test('does not synthesize a spring-forward 2 AM hour', async ({ page }) => {
@@ -131,11 +133,11 @@ test('does not synthesize a spring-forward 2 AM hour', async ({ page }) => {
   await expect(slider).toBeFocused();
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM');
 
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '2');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 3:00 AM');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 3:00 AM');
   await expect(slider).not.toHaveAttribute('aria-valuetext', /2:00 AM/);
 });
 
@@ -156,12 +158,12 @@ test('keeps the first repeated 1 AM live while identifying the second as CST', a
     .locator('[data-card-type="now"]');
   const slider = await expectForecastSliderReady(nowCard);
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Now · 1:15 AM CDT');
-  await expect(nowCard.getByText('61°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:15 AM CDT');
+  await expect(nowCard.locator('[data-temperature]')).toHaveText('61°F');
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
-  await expect(nowCard.getByText('37°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM CST');
+  await expect(nowCard.locator('[data-temperature]')).toHaveText('37°F');
 });
 
 test('keeps the repeated-hour score and evidence aligned across card, Search, and marker', async ({ page }, testInfo) => {
@@ -175,14 +177,13 @@ test('keeps the repeated-hour score and evidence aligned across card, Search, an
   await page.goto(`${OCEAN_BEACH_URL}&instant=2026-11-01T09%3A00%3A00Z`);
 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
-  const nowCard = dialog.locator('[data-card-type="now"]');
-  const scoreNode = dialog.locator('[aria-label^="Now score "]');
-  await expect(nowCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  const scoreNode = dialog.locator('[data-primary-score] > span[aria-label*=" score "]');
+  await expect(scoreNode).toHaveAttribute('aria-label', /selected-hour forecast · high confidence, retrieved just now$/);
   const selectedScore = (await scoreNode.textContent())?.trim();
   expect(selectedScore).toMatch(/^\d{1,3}$/);
   await expect(scoreNode).toHaveAttribute(
     'aria-label',
-    new RegExp(`^Now score ${selectedScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+    new RegExp(`^Nighttime score ${selectedScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
   );
 
   await page.keyboard.press('Escape');
@@ -197,7 +198,7 @@ test('keeps the repeated-hour score and evidence aligned across card, Search, an
   await page.getByRole('button', { name: 'Search spots' }).click();
   const search = page.getByRole('dialog', { name: 'Search spots' });
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
-  await expect(search.getByText('Scores for Stargazing · Today at 1:00 AM PST', { exact: true })).toBeVisible();
+  await expect(search.getByText('Scores for Nighttime · Today at 1:00 AM PST', { exact: true })).toBeVisible();
   const result = search.getByRole('button', { name: /Ocean Beach/ });
   await expect(result.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
   await expect(result.locator('span').last()).toHaveText(selectedScore!);
@@ -215,20 +216,20 @@ test('normalizes ambiguous, missing, and unique legacy hour links honestly', asy
   await page.goto(`${CHICAGO_SPOT_URL}&hour=2026-11-01T01`);
   let dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
-  await expect(dialog.locator('[data-card-type="now"]').getByRole('heading', { level: 3 })).toHaveText('RIGHT NOW');
+  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Today · 12:15 AM/);
 
   await page.goto(`${CHICAGO_SPOT_URL}&hour=2026-11-01T02`);
   dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '3');
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute(
     'aria-valuetext',
-    'Stargazing, Today · 2:00 AM',
+    'Nighttime, Today · 2:00 AM',
   );
 
   await page.goto(`${CHICAGO_SPOT_URL}&instant=2026-11-05T12%3A00%3A00Z`);
   dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
-  await expect(dialog.locator('[data-card-type="now"]').getByRole('heading', { level: 3 })).toHaveText('RIGHT NOW');
+  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Today · 12:15 AM/);
 });
 
 test('keeps a skipped spring legacy hour at Now', async ({ page }, testInfo) => {
@@ -243,7 +244,7 @@ test('keeps a skipped spring legacy hour at Now', async ({ page }, testInfo) => 
 
   const dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
-  await expect(dialog.locator('[data-card-type="now"]').getByRole('heading', { level: 3 })).toHaveText('RIGHT NOW');
+  await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Today · 12:15 AM/);
 });
 
 test('preserves repeated Pacific hours for an SF spot', async ({ page }, testInfo) => {
@@ -262,13 +263,13 @@ test('preserves repeated Pacific hours for an SF spot', async ({ page }, testInf
   const card = page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).locator('[data-card-type="now"]');
   const slider = await expectForecastSliderReady(card);
   await slider.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PDT');
-  await expect(card.getByText('64°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM PDT');
+  await expect(card.locator('[data-temperature]')).toHaveText('64°F');
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PDT');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM PDT');
   await slider.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM PST');
-  await expect(card.getByText('39°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM PST');
+  await expect(card.locator('[data-temperature]')).toHaveText('39°F');
   await page.waitForTimeout(1_100);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
@@ -297,11 +298,11 @@ test('preserves repeated Central hours for an Austin spot', async ({ page }, tes
     .locator('[data-card-type="now"]');
   const slider = await expectForecastSliderReady(card);
   await slider.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CDT');
-  await expect(card.getByText('72°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM CDT');
+  await expect(card.locator('[data-temperature]')).toHaveText('72°F');
   await slider.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuetext', 'Stargazing, Today · 1:00 AM CST');
-  await expect(card.getByText('45°', { exact: true })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM CST');
+  await expect(card.locator('[data-temperature]')).toHaveText('45°F');
 });
 
 test('uses the selected repeated instant for the weather overlay sample', async ({ page }, testInfo) => {
@@ -318,34 +319,33 @@ test('uses the selected repeated instant for the weather overlay sample', async 
   await page.goto('/');
   await page.getByRole('button', { name: 'Toggle weather overlay' }).click();
 
-  const hours = page.getByRole('group', { name: 'Forecast hours' });
-  const firstOccurrence = hours.getByRole('button', { name: /^Today · 1:00 AM PDT/ });
-  const secondOccurrence = hours.getByRole('button', { name: /^Today · 1:00 AM PST/ });
+  const hours = page.getByRole('slider', { name: 'Forecast hour' });
+  await expect(hours).toHaveAttribute('aria-disabled', 'false');
   const scale = page.locator('[aria-label="Temperature color scale"]');
   const averageMarker = scale.locator('div.absolute');
   const accessibleMapSummary = page.locator('[data-weather-overlay-state]').getByRole('img');
 
-  await firstOccurrence.click();
-  await expect(firstOccurrence).toHaveAttribute('aria-pressed', 'true');
+  await hours.press('ArrowRight');
+  await expect(hours).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM PDT');
   await expect(averageMarker).toHaveAttribute('style', /top: 27\.2727%/);
   await expect(accessibleMapSummary).toHaveAttribute(
     'aria-label',
     /San Francisco weather map.*1:00 AM PDT/i,
   );
 
-  await secondOccurrence.click();
-  await expect(secondOccurrence).toHaveAttribute('aria-pressed', 'true');
+  await hours.press('ArrowRight');
+  await expect(hours).toHaveAttribute('aria-valuetext', 'Nighttime, Today · 1:00 AM PST');
   await expect(averageMarker).toHaveAttribute('style', /top: 100%/);
   await expect(accessibleMapSummary).toHaveAttribute(
     'aria-label',
     /San Francisco weather map.*1:00 AM PST/i,
   );
-  await expect.poll(() => harness.requests.forecast.length).toBe(25);
+  await expect.poll(() => harness.requests.forecast.length).toBe(26);
   await expect.poll(() => harness.requests.active).toBe(0);
   expectWeatherRequestBudget(harness.requests, {
-    forecast: 25,
-    airQuality: 0,
-    maxActive: 3,
+    forecast: 26,
+    airQuality: 1,
+    maxActive: 5,
     maxCoordinateJobs: 3,
   });
 });

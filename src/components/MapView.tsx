@@ -92,6 +92,8 @@ export interface MapBounds {
 interface MapViewProps {
   spots: ReadonlyArray<Spot>;
   selectedSpot: Spot | null;
+  spotClosing: boolean;
+  onSpotCentered: (spotId: string) => void;
   highlightedSpot: Spot | null;
   onSelectSpot: (spot: Spot) => void;
   onSelectEvent: (event: CuratedEvent) => void;
@@ -277,61 +279,43 @@ function MapClickHandler({ onDeselect }: { onDeselect: () => void }) {
   return null;
 }
 
-/**
- * Pans the map to a spot the user just dismissed so they can see where the
- * pin is, now that the score panel isn't covering the lower half. Unlike
- * `MapController`, this aims for the true viewport center (no panel offset)
- * and runs once per highlight — the highlight then auto-clears upstream.
- */
-function HighlightController({ highlightedSpot }: { highlightedSpot: Spot | null }) {
+/** Center once per selection, then let the card open over a stationary map. */
+function MapController({ selectedSpot, closing, onCentered }: {
+  selectedSpot: Spot | null;
+  closing: boolean;
+  onCentered: (spotId: string) => void;
+}) {
   const map = useMap();
 
   useEffect(() => {
-    if (!highlightedSpot) return;
-    map.panTo([highlightedSpot.lat, highlightedSpot.lng], {
-      animate: true,
-      duration: 0.5,
-    });
-  }, [highlightedSpot, map]);
-
-  return null;
-}
-
-function MapController({ selectedSpot }: { selectedSpot: Spot | null }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!selectedSpot) return;
+    if (!selectedSpot || closing) return;
     const sheet = document.querySelector<HTMLElement>('.score-panel-sheet');
-    const keepPinVisible = () => {
-      // Soft repositioning: only pan (no zoom change, no flyTo) and only when
-      // the pin is hidden by the score panel or close to the viewport edge.
-      // Keeps the user's mental map intact when they tap a pin that's already
-      // comfortably in view.
-      const pinPx = map.latLngToContainerPoint([selectedSpot.lat, selectedSpot.lng]);
-      const size = map.getSize();
-      const edgePad = 60;
-      const panelTop = size.y - (sheet?.offsetHeight ?? size.y * 0.4) - 22;
-      const inSafeZone =
-        pinPx.x >= edgePad &&
-        pinPx.x <= size.x - edgePad &&
-        pinPx.y >= edgePad &&
-        pinPx.y <= panelTop;
-      if (inSafeZone) return;
-
-      const targetPx = L.point(size.x / 2, Math.max(edgePad, (edgePad + panelTop) / 2));
-      const pinLatLng = map.project([selectedSpot.lat, selectedSpot.lng], map.getZoom());
-      const desiredCenter = L.point(
-        pinLatLng.x + (size.x / 2 - targetPx.x),
-        pinLatLng.y + (size.y / 2 - targetPx.y),
-      );
-      map.panTo(map.unproject(desiredCenter, map.getZoom()), { animate: true, duration: 0.4 });
+    const size = map.getSize();
+    const edgePad = 60;
+    const panelTop = size.y - (sheet?.offsetHeight ?? size.y * 0.4) - 22;
+    const targetPx = L.point(size.x / 2, Math.max(edgePad, (edgePad + panelTop) / 2));
+    const pinPx = map.latLngToContainerPoint([selectedSpot.lat, selectedSpot.lng]);
+    if (pinPx.distanceTo(targetPx) < 1) {
+      onCentered(selectedSpot.id);
+      return;
+    }
+    const pinLatLng = map.project([selectedSpot.lat, selectedSpot.lng], map.getZoom());
+    const desiredCenter = L.point(
+      pinLatLng.x + (size.x / 2 - targetPx.x),
+      pinLatLng.y + (size.y / 2 - targetPx.y),
+    );
+    map.stop();
+    const finish = () => onCentered(selectedSpot.id);
+    map.once('moveend', finish);
+    map.panTo(map.unproject(desiredCenter, map.getZoom()), {
+      animate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      duration: 0.35,
+    });
+    return () => {
+      map.off('moveend', finish);
+      map.stop();
     };
-    keepPinVisible();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(keepPinVisible);
-    if (sheet) observer?.observe(sheet);
-    return () => observer?.disconnect();
-  }, [selectedSpot, map]);
+  }, [selectedSpot, closing, map, onCentered]);
 
   return null;
 }
@@ -557,6 +541,8 @@ function EventMarkerLayer({
 export default function MapView({
   spots: spotList,
   selectedSpot,
+  spotClosing,
+  onSpotCentered,
   highlightedSpot,
   onSelectSpot,
   onSelectEvent,
@@ -731,8 +717,7 @@ export default function MapView({
             onSelectEvent={onSelectEvent}
           />
         )}
-        <MapController selectedSpot={selectedSpot} />
-        <HighlightController highlightedSpot={highlightedSpot} />
+        <MapController selectedSpot={selectedSpot} closing={spotClosing} onCentered={onSpotCentered} />
         <MapClickHandler onDeselect={onDeselectSpot} />
         <TapSpotAnchorTracker
           active={!!tapSpotHintActive}

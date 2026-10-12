@@ -47,7 +47,7 @@ function getNextEvents(spot: Spot, scrubHourKey: string, now: Date, timeZone: st
 }
 
 const typeLabel: Record<CardType, string> = {
-  now: 'Now',
+  now: 'Daytime',
   sunrise: 'Sunrise',
   sunset: 'Sunset',
   stargazing: 'Stargazing',
@@ -276,6 +276,7 @@ function TravelTogglePill({ travelMode, onChange, palette }: TravelTogglePillPro
 interface ScorePanelProps {
   spot: Spot;
   closing?: boolean;
+  mapReady: boolean;
   onClose: () => void;
   userLocation: UserLocation | null;
   initialCardType?: CardType;
@@ -327,7 +328,17 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, closing = false, onClose, userLocation, initialCardType, onActiveCardChange, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', timelineEventTime, timelineControls, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps) {
+export default function ScorePanel(props: ScorePanelProps) {
+  const [animateEntrance, setAnimateEntrance] = useState(true);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setAnimateEntrance(false));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  // Reset spot-specific state while keeping subsequent selections fully open.
+  return <SpotScorePanel key={props.spot.id} {...props} animateEntrance={animateEntrance} />;
+}
+
+function SpotScorePanel({ spot, mapReady, animateEntrance, closing = false, onClose, userLocation, initialCardType, onActiveCardChange, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', timelineEventTime, timelineControls, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps & { animateEntrance: boolean }) {
   const [tempUnit] = useTempUnit();
   const [savePending, setSavePending] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
@@ -387,6 +398,7 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
   // Card paging and the timeline share the same active view.
   const [initialActiveCardType] = useState<CardType>(initialCardType ?? 'now');
   const activeCardType = initialCardType ?? 'now';
+  const activeSkyLabel = activeCardType === 'now' && viewMode === 'stargazing' ? 'Nighttime' : typeLabel[activeCardType === 'now' ? (viewMode ?? 'now') : activeCardType];
   // Onboarding hand-off: fire `onCardSwipe` exactly once when the user
   // moves to a card other than the one we mounted on. Tracking via a
   // ref (instead of a derived effect) means we don't re-fire on
@@ -403,14 +415,11 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
   const pagingWidthRef = useRef(0);
   const sheetRef = useRef<HTMLDivElement | null>(null);
 
-  // Drive the entrance animation via inline transform (rather than a CSS
-  // keyframe with `animation-fill-mode: forwards`), because a forwards-mode
-  // animation on `transform` continues to apply after it ends and overrides
-  // the drag-handle's inline transform — making the swipe gesture do nothing
-  // visible. Two-frame defer ensures the initial `translateY(100%)` is
-  // committed before we transition to rest.
-  const [entered, setEntered] = useState(false);
+  // Reveal the content upward from the stationary timeline dock.
+  const [shouldAnimate] = useState(animateEntrance);
+  const [entered, setEntered] = useState(!animateEntrance);
   useEffect(() => {
+    if (!shouldAnimate || !mapReady) return;
     let frame2 = 0;
     const frame1 = requestAnimationFrame(() => {
       frame2 = requestAnimationFrame(() => {
@@ -425,7 +434,7 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
       cancelAnimationFrame(frame1);
       cancelAnimationFrame(frame2);
     };
-  }, []);
+  }, [shouldAnimate, mapReady]);
 
   // Swipe-down dismissal belongs to the dedicated handle. Card content keeps
   // native horizontal paging and vertical scrolling without gesture capture.
@@ -573,6 +582,7 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
       <div
         ref={sheetRef}
         role="dialog"
+        data-entered={entered}
         aria-modal={false}
         aria-label={`${spot.name} sky scores`}
         tabIndex={-1}
@@ -581,17 +591,14 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
         style={{
           bottom: 0,
           maxHeight: 'min(calc(100dvh - 5rem), 826px)',
-          transform: closing
-            ? 'translate3d(0, calc(100% + 1rem), 0)'
-            : !entered
-            ? 'translate3d(0, 100%, 0)'
-            : dragY
-              ? `translate3d(0, ${dragY}px, 0)`
-              : 'translate3d(0, 0, 0)',
+          clipPath: closing || !entered ? 'inset(calc(100% - var(--map-timeline-height)) 0 0 0)' : 'inset(0 0 0 0)',
+          transform: dragY && !closing ? `translate3d(0, ${dragY}px, 0)` : 'translate3d(0, 0, 0)',
           transition: isDragging && !closing
             ? 'none'
-            : closing ? 'transform 260ms cubic-bezier(0.4, 0, 1, 1)' : 'transform 380ms cubic-bezier(0.16, 1, 0.3, 1)',
-          willChange: 'transform',
+            : closing
+              ? 'clip-path 260ms cubic-bezier(0.4, 0, 1, 1), transform 260ms ease-out'
+              : 'clip-path 440ms cubic-bezier(0.22, 1, 0.36, 1), transform 380ms cubic-bezier(0.16, 1, 0.3, 1)',
+          willChange: 'clip-path',
         }}
       >
         {/* Drag handle — only rendered when the sheet is expanded, since
@@ -652,7 +659,7 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
                     data-active-score
                     className="font-sans text-3xl font-semibold leading-none tabular-nums"
                     style={{ color: getScoreColor(getScoreFor(activeCardType)) }}
-                    aria-label={`${typeLabel[activeCardType]} score ${scoreEvidenceAccessibilityLabel(getScoreFor(activeCardType), activeCardType === 'now' ? live!.activeEvidence : live!.evidence[activeCardType])}`}
+                    aria-label={`${activeSkyLabel} score ${scoreEvidenceAccessibilityLabel(getScoreFor(activeCardType), activeCardType === 'now' ? live!.activeEvidence : live!.evidence[activeCardType])}`}
                   >
                     {formatScoreValue(getScoreFor(activeCardType))}
                   </span>
@@ -823,7 +830,7 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
                       key={card.type}
                       id={`score-card-panel-${card.type}`}
                       role="group"
-                      aria-label={`${typeLabel[card.type]} sky forecast`}
+                      aria-label={`${card.type === 'now' ? activeSkyLabel : typeLabel[card.type]} sky forecast`}
                       aria-hidden={!isActive}
                       inert={!isActive}
                       data-card-type={card.type}
@@ -864,7 +871,7 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
                   );
                 })}
               </div>
-              <section style={{ visibility: closing ? 'hidden' : undefined }}
+              <section
               className="spot-timeline flex-shrink-0 px-5 pb-3 pt-1" aria-label="Spot time controls">
                 {timelineControls(true)}
               </section>
@@ -904,7 +911,7 @@ export default function ScorePanel({ spot, closing = false, onClose, userLocatio
                 {formatScoreValue(primaryScore)}
               </span>
             </button>
-            <section style={{ visibility: closing ? 'hidden' : undefined }} className="spot-timeline px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]" aria-label="Spot time controls">
+            <section className="spot-timeline px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]" aria-label="Spot time controls">
               {timelineControls(false)}
             </section>
           </>

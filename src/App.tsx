@@ -229,19 +229,22 @@ function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType; hourKe
 }
 
 // How long the just-dismissed pin keeps its highlight ring + how long the
-// map "remembers" to recenter on it. Long enough for the eye to land on the
+// map retains its selection highlight. Long enough for the eye to land on the
 // pulse, short enough that it fades before it starts to feel like noise.
 const DISMISS_HIGHLIGHT_MS = 1600;
 
 function App() {
   const [initialDeepLink] = useState(readInitialDeepLink);
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(initialDeepLink.spot);
+  const [centeredSpotId, setCenteredSpotId] = useState<string | null>(null);
+  const handleSpotCentered = useCallback((spotId: string) => setCenteredSpotId(spotId), []);
   const [closingSpotId, setClosingSpotId] = useState<string | null>(null);
   const cancelSpotDismissal = useCallback(() => setClosingSpotId(null), []);
   useEffect(() => {
     if (!closingSpotId || selectedSpot?.id !== closingSpotId) return;
     const timer = window.setTimeout(() => {
       setSelectedSpot((current) => current?.id === closingSpotId ? null : current);
+      setCenteredSpotId(null);
       setClosingSpotId(null);
       requestAnimationFrame(() => document.querySelector<HTMLElement>('.map-timeline [role="slider"]')?.focus({ preventScroll: true }));
     }, 260);
@@ -718,6 +721,7 @@ function App() {
     setActiveCityIdRaw(spot.city);
     setTimelineHourKey(rangeStartHourKey(now, timelineRange, getCityById(spot.city)!.timeZone));
     setTimelineEventTime(undefined);
+    setCenteredSpotId(null);
     setSelectedSpot(spot);
     setHighlightedSpot(null);
     setSelectedEvent(null);
@@ -771,8 +775,9 @@ function App() {
   const handleSelectSpot = useCallback((spot: Spot | null) => {
     cancelSpotDismissal();
     const prev = selectedSpot;
+    if (spot && (!prev || prev.id !== spot.id)) setCenteredSpotId(null);
     // Card is being dismissed (spot is null) and there *was* something
-    // selected — remember it so the map can recenter + pulse the pin the
+    // selected, remember it so the map can highlight the pin the
     // user was just reading about. Without this hand-off, the pin
     // disappears into the crowd the moment the card slides away.
     if (spot === null && prev !== null) {
@@ -1057,6 +1062,8 @@ function App() {
         <MapView
           spots={activeSpots}
           selectedSpot={selectedSpot}
+          spotClosing={closingSpotId === selectedSpot?.id}
+          onSpotCentered={handleSpotCentered}
           highlightedSpot={highlightedSpot}
           onSelectSpot={handleSelectSpot}
           onSelectEvent={handleSelectEvent}
@@ -1186,7 +1193,7 @@ function App() {
         />
       )}
 
-      {(!selectedSpot || closingSpotId === selectedSpot.id) && (
+      {!selectedSpot && (
         <aside ref={mapTimelineRef} className="map-timeline" aria-label="Map time controls">
           {renderTimelineControls()}
         </aside>
@@ -1255,7 +1262,7 @@ function App() {
 
       {selectedSpot && (
         <ScorePanel
-          key={selectedSpot.id}
+          mapReady={centeredSpotId === selectedSpot.id}
           closing={closingSpotId === selectedSpot.id}
           spot={selectedSpot}
           onClose={() => handleSelectSpot(null)}

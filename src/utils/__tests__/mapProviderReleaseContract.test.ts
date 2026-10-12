@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { inspectMapProviderContract } from '../../../scripts/map-provider-contract.mjs';
 
 const mapLayer = `
-  https://tiles.openfreemap.org/styles/liberty
   https://tiles.openfreemap.org/styles/positron
   https://openfreemap.org/
   https://openmaptiles.org/
@@ -23,6 +22,16 @@ describe('map provider release contract', () => {
       hasKnownAlternateProvider: false,
       hasMapCredential: false,
     });
+  });
+
+  it('requires the approved light map style', () => {
+    const result = inspectMapProviderContract({
+      mapLayer: mapLayer.replace('/styles/positron', '/styles/liberty'),
+      mapView,
+      sourceCorpus: mapView,
+    });
+    expect(result.eligible).toBe(false);
+    expect(result.hasApprovedStyles).toBe(false);
   });
 
   it('fails when the approved layer is disconnected from MapView', () => {

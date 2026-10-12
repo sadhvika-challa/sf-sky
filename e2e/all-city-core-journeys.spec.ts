@@ -91,13 +91,13 @@ for (const representative of REPRESENTATIVE_SPOTS) {
     await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' }))
       .toBeVisible();
 
-    const scoreSurface = dialog.locator('[aria-label^="Now score "]');
+    const scoreSurface = dialog.locator('[data-primary-score] > span[aria-label*=" score "]');
     const selectedScore = (await scoreSurface.textContent())?.trim();
     expect(selectedScore).toMatch(/^\d{1,3}$/);
     await expect(scoreSurface).toHaveAttribute(
       'aria-label',
       new RegExp(
-        `^Now score ${selectedScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`,
+        `^(Daytime|Nighttime|Sunrise|Sunset) score ${selectedScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`,
       ),
     );
     await expect(scoreSurface).toBeVisible();
@@ -110,7 +110,7 @@ for (const representative of REPRESENTATIVE_SPOTS) {
       .toBeVisible();
 
     for (const eventType of CARD_ORDER.slice(1)) {
-      const label = eventType[0].toUpperCase() + eventType.slice(1);
+      const label = eventType === 'stargazing' ? 'Nighttime' : eventType[0].toUpperCase() + eventType.slice(1);
       await pager.press('ArrowRight');
       const card = dialog.locator(`[data-card-type="${eventType}"]`);
       await expect(card).toHaveAttribute('aria-hidden', 'false');

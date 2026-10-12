@@ -141,7 +141,7 @@ async function saveButton(sheet: Locator, name: string): Promise<Locator> {
 
 async function openSavedSpots(page: Page): Promise<Locator> {
   await page.getByRole('button', { name: 'Settings' }).click();
-  const open = page.getByRole('button', { name: /Saved spots/i });
+  const open = page.getByRole('button', { name: /^Saved spots, /i });
   await expect(open).toBeVisible();
   await open.click();
   const dialog = page.getByRole('dialog', { name: 'Saved spots' });
@@ -151,7 +151,6 @@ async function openSavedSpots(page: Page): Promise<Locator> {
 
 async function dismissSpotSheet(page: Page, name: string): Promise<void> {
   const sheet = page.getByRole('dialog', { name: `${name} sky scores` });
-  await page.keyboard.press('Escape');
   await expect(sheet).toHaveAttribute('aria-modal', 'false');
   await page.keyboard.press('Escape');
   await expect(sheet).toBeHidden();
@@ -159,9 +158,9 @@ async function dismissSpotSheet(page: Page, name: string): Promise<void> {
 
 async function countSettingsLabel(page: Page, count: number): Promise<void> {
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.getByRole('button', { name: /Saved spots/i }))
+  await expect(page.getByRole('button', { name: /^Saved spots, /i }))
     .toHaveAccessibleName(`Saved spots, ${count}`);
-  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
 }
 
 async function installIndexedDbUnavailable(page: Page): Promise<void> {
@@ -212,7 +211,7 @@ test('saves from the selected sheet, confirms durability, and persists across re
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('status')).toContainText(/saved.*device/i);
+  await expect(page.getByRole('status').filter({ hasText: /saved.*device/i })).toContainText(/saved.*device/i);
   await expect.poll(() => authoritativePayload(page)).toEqual({
     version: 1,
     spotIds: [OCEAN_BEACH.id],
@@ -226,6 +225,7 @@ test('saves from the selected sheet, confirms durability, and persists across re
   const relaunched = await context.newPage();
   await installWeatherHarness(relaunched);
   await relaunched.goto('/');
+  await relaunched.getByRole('dialog', { name: 'Find nearby spots' }).getByRole('button', { name: 'Not now', exact: true }).click();
   const saved = await openSavedSpots(relaunched);
   await expect(saved.getByText(OCEAN_BEACH.name, { exact: true })).toBeVisible();
   await expect(saved).toContainText(OCEAN_BEACH.city);
@@ -258,10 +258,10 @@ test('shows one all-city collection and opens a cross-city saved spot without du
   await saved.getByRole('button', { name: `Open ${MOUNT_BONNELL.name}` }).click();
   await expect(page.getByRole('dialog', { name: `${MOUNT_BONNELL.name} sky scores` })).toBeVisible();
   await expect.poll(() => page.evaluate(() => localStorage.getItem('sky:activeCity'))).toBe('austin');
-  await expect.poll(() => harness.requests.forecast.length - beforeForecast).toBe(1);
-  await expect.poll(() => harness.requests.airQuality.length - beforeAirQuality).toBe(1);
-  expect(new Set(harness.requests.forecast.slice(beforeForecast)).size).toBe(1);
-  expect(new Set(harness.requests.airQuality.slice(beforeAirQuality)).size).toBe(1);
+  await expect.poll(() => harness.requests.forecast.length - beforeForecast).toBe(2);
+  await expect.poll(() => harness.requests.airQuality.length - beforeAirQuality).toBe(2);
+  expect(new Set(harness.requests.forecast.slice(beforeForecast)).size).toBe(2);
+  expect(new Set(harness.requests.airQuality.slice(beforeAirQuality)).size).toBe(2);
   assertNoLiveOpenMeteoTraffic(harness.requests);
 });
 
@@ -275,7 +275,7 @@ test('unsaves from the sheet and collection, then preserves both removals after 
   const sheet = await selectSpotFromSearch(page, OCEAN_BEACH.name);
   const sheetToggle = await saveButton(sheet, OCEAN_BEACH.name);
   await sheetToggle.click();
-  await expect(page.getByRole('status')).toContainText(/removed|no longer saved/i);
+  await expect(page.getByRole('status').filter({ hasText: /removed|no longer saved/i })).toContainText(/removed|no longer saved/i);
   await dismissSpotSheet(page, OCEAN_BEACH.name);
 
   const saved = await openSavedSpots(page);
@@ -333,7 +333,7 @@ test('recovers from corrupt legacy data through an honest empty state and a new 
 
   const sheet = await selectSpotFromSearch(page, OCEAN_BEACH.name);
   await (await saveButton(sheet, OCEAN_BEACH.name)).click();
-  await expect(page.getByRole('status')).toContainText(/saved.*device/i);
+  await expect(page.getByRole('status').filter({ hasText: /saved.*device/i })).toContainText(/saved.*device/i);
   await expect.poll(() => authoritativePayload(page)).toEqual({
     version: 1,
     spotIds: [OCEAN_BEACH.id],
@@ -369,7 +369,7 @@ test('fails closed when IndexedDB is unavailable and never claims a save', async
   const toggle = await saveButton(sheet, OCEAN_BEACH.name);
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByRole('status')).toContainText(/could not save|couldn't save|not saved/i);
+  await expect(page.getByRole('status').filter({ hasText: /could not save|couldn't save|not saved/i })).toContainText(/could not save|couldn't save|not saved/i);
   expect(await page.evaluate((key) => window.localStorage.getItem(key), STORAGE_KEY)).toBeNull();
 });
 
@@ -387,7 +387,7 @@ test('rolls back an optimistic save after an IndexedDB write failure with honest
   const toggle = await saveButton(sheet, OCEAN_BEACH.name);
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByRole('status')).toContainText(/could not save|couldn't save|not saved/i);
+  await expect(page.getByRole('status').filter({ hasText: /could not save|couldn't save|not saved/i })).toContainText(/could not save|couldn't save|not saved/i);
   expect(await authoritativeRaw(page)).toBe(durableBefore);
 });
 
@@ -417,7 +417,7 @@ test('provides keyboard-operable controls and stable accessible names', async ({
 
   await page.getByRole('button', { name: 'Settings' }).focus();
   await page.keyboard.press('Enter');
-  const opener = page.getByRole('button', { name: /Saved spots/i });
+  const opener = page.getByRole('button', { name: /^Saved spots, /i });
   await opener.focus();
   await expect(opener).toBeFocused();
   await page.keyboard.press('Enter');
@@ -469,7 +469,7 @@ test('passes a modal-scoped accessibility audit for a populated saved list', asy
   expect(unresolvedContrast).toEqual([]);
 });
 
-test('Escape closes only saved spots and preserves the collapsed spot sheet state', async ({ page }) => {
+test('Escape closes only saved spots and preserves the compact spot sheet state', async ({ page }) => {
   await installWeatherHarness(page);
   await page.goto('/');
   await resetSavedSpots(page);
@@ -477,7 +477,6 @@ test('Escape closes only saved spots and preserves the collapsed spot sheet stat
   await page.reload();
 
   const spotSheet = await selectSpotFromSearch(page, OCEAN_BEACH.name);
-  await page.keyboard.press('Escape');
   await expect(spotSheet).toHaveAttribute('aria-modal', 'false');
 
   const saved = await openSavedSpots(page);
@@ -487,7 +486,7 @@ test('Escape closes only saved spots and preserves the collapsed spot sheet stat
   await expect(spotSheet).toHaveAttribute('aria-modal', 'false');
 });
 
-test('Escape closes only saved spots and preserves the expanded spot sheet state', async ({ page }) => {
+test('Escape closes only saved spots and preserves the Details view of the spot sheet', async ({ page }) => {
   await installWeatherHarness(page);
   await page.goto('/');
   await resetSavedSpots(page);
@@ -495,23 +494,20 @@ test('Escape closes only saved spots and preserves the expanded spot sheet state
   await page.reload();
 
   const spotSheet = await selectSpotFromSearch(page, OCEAN_BEACH.name);
-  await expect(spotSheet).toHaveAttribute('aria-modal', 'true');
+  await expect(spotSheet).toHaveAttribute('aria-modal', 'false');
 
-  // The expanded score sheet intentionally owns the pointer backdrop. Invoke
-  // the still-visible public Settings control through its native activation so
-  // this regression can verify modal key routing without inventing app state.
-  await page.getByRole('button', { name: 'Settings' }).evaluate((button: HTMLButtonElement) => {
-    button.click();
-  });
+  await spotSheet.getByRole('button', { name: 'Details', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const savedEntry = page.getByRole('button', { name: 'Saved spots, 1', exact: true });
-  await savedEntry.evaluate((button: HTMLButtonElement) => button.click());
+  await savedEntry.click();
   const saved = page.getByRole('dialog', { name: 'Saved spots' });
   await expect(saved).toBeVisible();
 
   await page.keyboard.press('Escape');
   await expect(saved).toBeHidden();
   await expect(spotSheet).toBeVisible();
-  await expect(spotSheet).toHaveAttribute('aria-modal', 'true');
+  await expect(spotSheet).toHaveAttribute('aria-modal', 'false');
+  await expect(spotSheet.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
 });
 
 test('traps natural forward and reverse tab navigation inside saved spots', async ({ page }) => {
@@ -553,7 +549,7 @@ test('moves focus into the selected saved spot sheet', async ({ page }) => {
   await expect(spotSheet).toBeFocused();
 });
 
-test('restores focus into an existing collapsed sheet when reselecting the same saved spot', async ({ page }) => {
+test('restores focus into an existing compact sheet when reselecting the same saved spot', async ({ page }) => {
   await installWeatherHarness(page);
   await page.goto('/');
   await resetSavedSpots(page);
@@ -561,7 +557,6 @@ test('restores focus into an existing collapsed sheet when reselecting the same 
   await page.reload();
 
   const spotSheet = await selectSpotFromSearch(page, OCEAN_BEACH.name);
-  await page.keyboard.press('Escape');
   await expect(spotSheet).toHaveAttribute('aria-modal', 'false');
 
   const saved = await openSavedSpots(page);
@@ -585,7 +580,7 @@ test('does not offer rehydrate Retry after a failed save write', async ({ page }
 
   const spotSheet = await selectSpotFromSearch(page, OCEAN_BEACH.name);
   await (await saveButton(spotSheet, OCEAN_BEACH.name)).click();
-  await expect(spotSheet.getByRole('status')).toContainText(/was not saved.*try again/i);
+  await expect(spotSheet.getByRole('status').filter({ hasText: /was not saved.*try again/i })).toContainText(/was not saved.*try again/i);
   await dismissSpotSheet(page, OCEAN_BEACH.name);
 
   const saved = await openSavedSpots(page);

@@ -34,10 +34,10 @@ interface RankedSpot {
 }
 
 const TYPE_LABEL: Record<ViewMode, string> = {
-  now: 'Now',
+  now: 'Daytime',
   sunrise: 'Sunrise',
   sunset: 'Sunset',
-  stargazing: 'Stargazing',
+  stargazing: 'Nighttime',
 };
 
 function formatEventTime(date: Date | null): string {

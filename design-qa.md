@@ -270,3 +270,10 @@ Lint, TypeScript, 329 Vitest tests in 31 files, production build, 22 public URL 
 Physical devices, other iOS versions, the opposite landscape direction, a full offline/PWA certification, and keyboard or all-field scrolling through Details were not independently verified. The observed open/Back navigation and timeline visibility passed. No production deployment was performed.
 
 The server is a detached process and belongs to work/sf-sky-weekly. The route returns HTTP 200. The Simulator is left running for review.
+
+
+## Combined Soleil push validation, October 12, 2026
+
+Owner: Sadhvika Challa. The weekly forecast branch incorporates the existing map refresh and release-check fixes from 244d1c1, plus the saved-spot and request-budget selector updates from the original checkout. The approved daily controls, safe-area layout, confidence labels, and numeric score formatting are preserved.
+
+Lint, TypeScript, 330 deterministic tests, the production build, iOS shell structural verification (39 checks), and App Store development preflight (42 static checks) passed. App Store human release gates remain separate from this web preview. The combined code was exercised in the local browser with real forecast data: Ocean Beach, next-seven-day overview, Friday selection, and keyboard navigation to 11 PM. The map pin and selected card stayed synchronized. Earlier actual iPhone Safari screenshots and responsive findings remain recorded above. The combined browser CI result is tracked on PR 54; no unexecuted local browser suite is claimed here.

@@ -189,7 +189,7 @@ function TempUnitToggle({ unit, onChange }: TempUnitToggleProps) {
 }
 
 const typeTitle: Record<CardType, string> = {
-  now: "RIGHT NOW",
+  now: "DAYTIME",
   sunrise: "SUNRISE",
   sunset: "SUNSET",
   stargazing: "STARGAZING",
@@ -375,7 +375,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
   }, [showDetail]);
 
   const displayType: CardType = type === 'now' ? (scrubViewMode ?? 'now') : type;
-  const dateLabel = type === 'now' ? 'Now' : formatDateShort(eventInstant, timeZone, now);
+  const dateLabel = type === 'now' ? formatDateShort(eventInstant, timeZone, now) : formatDateShort(eventInstant, timeZone, now);
   const eventTimeData = formatTime(eventInstant, timeZone);
   const fullDate = formatFullDate(eventInstant, timeZone);
   const moonIllum = SunCalc.getMoonIllumination(eventInstant);
@@ -429,7 +429,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
     if (spot.visibility === 'private') return;
     const eventLabel = type === 'now' && scrubHourKey
       ? 'selected hour'
-      : typeTitle[type].toLowerCase();
+      : (type === 'now' && displayType === 'stargazing' ? 'NIGHTTIME' : typeTitle[displayType]).toLowerCase();
     const hourParam = scrubHourKey || selectedDate
       ? `&instant=${encodeURIComponent(formatCanonicalHourKey(eventInstant))}${type === 'now' ? '' : `&event=${encodeURIComponent(eventInstant.toISOString())}`}`
       : '';
@@ -566,7 +566,8 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
               style={{ minHeight: embedded ? 120 : 140 }}
               data-sky-artwork
             >
-              <img src={artwork.src} alt={artwork.label} decoding="async"
+              <img key={artwork.src} src={artwork.src} alt={artwork.label} decoding="async"
+                fetchPriority={active ? 'high' : 'auto'}
                 className="absolute inset-0 h-full w-full object-cover" data-sky-image />
               <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1.5">
                 {spot.accessAlert && (
@@ -576,7 +577,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
                   type="button"
                   onClick={handleShare}
                   className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
-                  aria-label={`Share ${type === 'now' && scrubHourKey ? 'selected hour' : typeTitle[type].toLowerCase()} card for ${spot.name}${type === 'now' ? ` at ${formatInstantTimeLabel(eventInstant, timeZone)}` : ''}`}
+                  aria-label={`Share ${type === 'now' && scrubHourKey ? 'selected hour' : (type === 'now' && displayType === 'stargazing' ? 'NIGHTTIME' : typeTitle[displayType]).toLowerCase()} card for ${spot.name}${type === 'now' ? ` at ${formatInstantTimeLabel(eventInstant, timeZone)}` : ''}`}
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 3v12" />
@@ -594,11 +595,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
               <div className="flex items-start justify-between gap-2" data-card-event style={{ display: embedded ? 'none' : undefined }}>
                 <div className="min-w-0">
                   <h3 className="font-mono text-[13px] tracking-[1.5px] text-gray-700 uppercase font-semibold leading-tight">
-                    {type === 'now'
-                      ? (scrubHourKey
-                          ? `${displayType === 'now' ? 'CONDITIONS' : typeTitle[displayType]}`
-                          : typeTitle[type])
-                      : <>{dateLabel}&apos;s {typeTitle[type]}</>}
+                    {type === 'now' ? (type === 'now' && displayType === 'stargazing' ? 'NIGHTTIME' : typeTitle[displayType]) : <>{dateLabel}&apos;s {typeTitle[type]}</>}
                   </h3>
                 </div>
                 <span className="font-mono text-[9px] text-gray-500 tracking-wide flex-shrink-0 mt-1">
@@ -677,7 +674,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
               style={{ background: '#F4F7F8' }}
             >
               <p className="font-mono text-[8px] tracking-[1.5px] text-gray-600 uppercase">
-                {type === 'now' ? typeTitle[type] : <>{dateLabel}&apos;s {typeTitle[type]}</>}
+                {type === 'now' ? (type === 'now' && displayType === 'stargazing' ? 'NIGHTTIME' : typeTitle[displayType]) : <>{dateLabel}&apos;s {typeTitle[type]}</>}
               </p>
               <p className="font-mono italic text-[11px] text-gray-600 leading-snug max-w-[60%] text-right">
                 &ldquo;{karlLine}&rdquo;
