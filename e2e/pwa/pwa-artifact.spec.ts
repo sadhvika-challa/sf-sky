@@ -57,8 +57,15 @@ async function waitForControlledShell(page: Page): Promise<void> {
   )).toContain('/sw.js');
 }
 
+async function dismissLocationPrompt(page: Page): Promise<void> {
+  await expect(page.getByRole('button', { name: 'Search spots' })).toBeVisible();
+  const prompt = page.getByRole('dialog', { name: 'Find nearby spots' });
+  if (await prompt.isVisible()) await prompt.getByRole('button', { name: 'Not now', exact: true }).click();
+}
+
 async function selectOceanBeach(page: Page): Promise<void> {
   await expect(page.getByRole('button', { name: 'Search spots' })).toBeVisible();
+  await dismissLocationPrompt(page);
   await page.getByRole('button', { name: 'Search spots' }).click();
   const search = page.getByRole('dialog', { name: 'Search spots' });
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
@@ -98,6 +105,7 @@ async function seedAllCitySavedSpots(page: Page): Promise<void> {
 }
 
 async function openSavedSpots(page: Page) {
+  await dismissLocationPrompt(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Saved spots, 4' }).click();
   const dialog = page.getByRole('dialog', { name: 'Saved spots' });
@@ -107,7 +115,6 @@ async function openSavedSpots(page: Page) {
 
 async function dismissSpotSheet(page: Page, spotName: string): Promise<void> {
   const dialog = page.getByRole('dialog', { name: `${spotName} sky scores` });
-  await page.keyboard.press('Escape');
   await expect(dialog).toHaveAttribute('aria-modal', 'false');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
@@ -338,6 +345,7 @@ test('keeps Saved Spots open when the timed install prompt owns Escape', async (
     });
     await page.clock.runFor(100);
 
+    await dismissLocationPrompt(page);
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.getByRole('button', { name: /Saved spots/i }).click();
     const savedSpots = page.getByRole('dialog', { name: 'Saved spots' });
@@ -440,6 +448,7 @@ test('cold-starts a hydrated catalog offline from one complete revisioned shell'
     await expect(offlinePage.getByRole('region', { name: 'Location preferences' })).toBeVisible();
     await expect(offlinePage.getByRole('button', { name: 'Search spots' })).toBeVisible();
 
+    await dismissLocationPrompt(offlinePage);
     await offlinePage.getByRole('button', { name: 'Search spots' }).click();
     const search = offlinePage.getByRole('dialog', { name: 'Search spots' });
     await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
@@ -498,8 +507,7 @@ test('cold-starts every city and saved representative offline with honest live-d
       await expect(scoreDialog).toBeVisible();
       await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true }))
         .toBeVisible();
-      await expect(nowCard.getByText('Curated estimate · Forecast not retrieved', { exact: true }))
-        .toBeVisible();
+      await expect(nowCard.locator('[data-retrieval-badge]')).toHaveText('Forecast not retrieved');
       await expect(nowCard.getByRole('button', { name: `Retry forecast for ${spot.name}` }))
         .toBeVisible();
       await expect.poll(() => offlinePage.evaluate(() => localStorage.getItem('sky:activeCity')))

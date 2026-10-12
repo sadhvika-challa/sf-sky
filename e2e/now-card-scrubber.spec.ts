@@ -560,7 +560,12 @@ test('dismisses the sheet from the dedicated handle pointer drag', async ({ page
   await expect(
     dialog.getByRole('group', { name: 'Forecast confidence: High' }),
   ).toBeVisible();
+  await expect(dialog).toHaveAttribute('data-entered', 'true');
   const box = await waitForStableGeometry(handle);
+  await expect.poll(() => handle.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)?.closest('button') === element;
+  })).toBe(true);
   console.info(`[handle-target] ${Math.round(box.width)}x${Math.round(box.height)}px`);
   expect(box.height, 'Dedicated sheet-dismiss handle must provide a 44px touch target').toBeGreaterThanOrEqual(43.99);
 
@@ -1039,7 +1044,7 @@ test('weekly scores show an approximate Low-confidence estimate when later air q
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator('[data-active-score]')).toHaveText(/^\d+$/);
   await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).getByText('Weather-only estimate', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Forecast confidence: Low. Show details' })).toContainText('Low');
+  await expect(page.getByRole('button', { name: 'Forecast confidence: Low. Show details' })).toHaveText('');
   await expect(page.getByRole('button', { name: /^Ocean Beach, score/ })).toHaveAttribute('aria-label', /approximately .*weather-only estimate · low confidence/);
   await page.getByRole('button', { name: 'Forecast confidence: Low. Show details' }).click();
   await expect(page.getByRole('region', { name: 'Forecast confidence details' })).toContainText('Air-quality data is unavailable for this time');
