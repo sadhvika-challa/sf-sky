@@ -10,19 +10,24 @@ import MapView, { type MapBounds, type MapPoint } from './components/MapView';
 import { buildSamples } from './utils/weatherSamples';
 import ScorePanel from './components/ScorePanel';
 import EventDetailSheet from './components/EventDetailSheet';
-import HappeningBanner from './components/HappeningBanner';
 import FilterMenu from './components/FilterMenu';
 import SearchBar from './components/SearchBar';
 import SearchOverlay from './components/SearchOverlay';
 import SuggestSpotOverlay from './components/SuggestSpotOverlay';
 import BugReportOverlay from './components/BugReportOverlay';
-import WeatherControls from './components/WeatherControls';
+import UnifiedTimeline from './components/UnifiedTimeline';
+import { getUpcomingEventTimes } from './utils/events';
+import { usePrivateSpots } from './hooks/usePrivateSpots';
+import { KNOWN_SPOT_IDS } from './data/spotIdentity';
 import WeatherMetricToggle from './components/WeatherMetricToggle';
 import WeatherOverlayStatus from './components/WeatherOverlayStatus';
 import OnboardingHint from './components/OnboardingHint';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import CitySheet from './components/CitySheet';
 import MapErrorBoundary from './components/MapErrorBoundary';
+import LocationPrompt from './components/LocationPrompt';
+import { wasLocationPromptDismissed, rememberLocationPromptDismissal } from './utils/locationPromptSession';
+import { isNativeRuntime } from './platform/runtime';
 import HomeSheet, { type HomeSheetScopeNotice } from './components/HomeSheet';
 import BestNearbyCard, {
   type BestNearbyCandidate as BestNearbyCardCandidate,
@@ -35,7 +40,7 @@ import { type ScoreTier, type ViewMode } from './utils/scoring';
 import type { WeatherMetric } from './utils/interpolate';
 import {
   formatCanonicalHourKey,
-  formatCanonicalHourLabel,
+  deriveSpotTimelineHourKeys,
   isCanonicalHourKey,
   resolveLegacyWallClockHour,
   viewModeForHourKey,
@@ -213,18 +218,30 @@ function readInitialDeepLink(): { spot: Spot | null; cardType?: CardType; hourKe
 }
 
 // How long the just-dismissed pin keeps its highlight ring + how long the
-// map "remembers" to recenter on it. Long enough for the eye to land on the
+// map retains its selection highlight. Long enough for the eye to land on the
 // pulse, short enough that it fades before it starts to feel like noise.
 const DISMISS_HIGHLIGHT_MS = 1600;
 
 function App() {
   const [initialDeepLink] = useState(readInitialDeepLink);
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(initialDeepLink.spot);
+  const [centeredSpotId, setCenteredSpotId] = useState<string | null>(null);
+  const handleSpotCentered = useCallback((spotId: string) => setCenteredSpotId(spotId), []);
+  const [closingSpotId, setClosingSpotId] = useState<string | null>(null);
+  const cancelSpotDismissal = useCallback(() => setClosingSpotId(null), []);
+  useEffect(() => {
+    if (!closingSpotId || selectedSpot?.id !== closingSpotId) return;
+    const timer = window.setTimeout(() => {
+      setSelectedSpot((current) => current?.id === closingSpotId ? null : current);
+      setCenteredSpotId(null);
+      setClosingSpotId(null);
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('.map-timeline [role="slider"]')?.focus({ preventScroll: true }));
+    }, 260);
+    return () => window.clearTimeout(timer);
+  }, [closingSpotId, selectedSpot?.id]);
   // Curated events surface their own editorial sheet, mutually exclusive with
   // the spot ScorePanel (Part 4): opening one closes the other.
   const [selectedEvent, setSelectedEvent] = useState<CuratedEvent | null>(null);
-  // Session-only dismissal of the "Happening Tonight" banner — no localStorage.
-  const [happeningDismissed, setHappeningDismissed] = useState(false);
   const [initialCardType, setInitialCardType] = useState<CardType | undefined>(
     initialDeepLink.cardType,
   );
@@ -257,7 +274,13 @@ function App() {
   const [manualCityMode, setManualCityMode] = useState(false);
   const [citySheetOpen, setCitySheetOpen] = useState(false);
   const [savedSpotsSheetOpen, setSavedSpotsSheetOpen] = useState(false);
-  const savedSpots = useSavedSpots();
+  const privateSpots = usePrivateSpots();
+  const visibleSpots = useMemo(() => [...allSpots, ...privateSpots.spots], [privateSpots.spots]);
+  const knownSpotIds = useMemo(
+    () => new Set([...KNOWN_SPOT_IDS, ...privateSpots.spots.map((spot) => spot.id)]),
+    [privateSpots.spots],
+  );
+  const savedSpots = useSavedSpots({ knownIds: knownSpotIds });
   const activeCityConfig = getCityById(activeCityId) ?? getCityById('sf')!;
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [timelineHourKey, setTimelineHourKey] = useState<string>(initialDeepLink.hourKey ?? '');
@@ -269,7 +292,9 @@ function App() {
   const [now, setNow] = useState(() => new Date());
 
   // Resolve both live and forecast keys in the active city's time zone.
+  const selectedSkyView = initialCardType ?? 'now';
   const viewMode: ViewMode = useMemo(() => {
+    if (selectedSkyView !== 'now') return selectedSkyView;
     const lat = activeCityConfig.center[0];
     const lng = activeCityConfig.center[1];
     return viewModeForHourKey(
@@ -279,7 +304,7 @@ function App() {
       lng,
       now,
     );
-  }, [timelineHourKey, activeCityConfig, now]);
+  }, [timelineHourKey, activeCityConfig, now, selectedSkyView]);
   // Onboarding: welcome card on first load, then a chain of one-time
   // hints tied to specific interactions. Each step is gated by a
   // localStorage flag (see `utils/onboarding.ts`); the component-level
@@ -298,9 +323,14 @@ function App() {
   const [showScrubHint, setShowScrubHint] = useState(false);
   const [showCompleteHint, setShowCompleteHint] = useState(false);
   const activeSpots = useMemo(
-    () => allSpots.filter((s) => s.city === activeCityId),
-    [activeCityId],
+    () => visibleSpots.filter((s) => s.city === activeCityId),
+    [activeCityId, visibleSpots],
   );
+  const [locationPromptOpen, setLocationPromptOpen] = useState(() => !isNativeRuntime() && !wasLocationPromptDismissed());
+  const closeLocationPrompt = useCallback(() => {
+    rememberLocationPromptDismissal();
+    setLocationPromptOpen(false);
+  }, []);
   const location = useLocation();
   const requestLocation = location.request;
   const clearLocation = location.clear;
@@ -320,7 +350,7 @@ function App() {
   const nearbyRecommendationActive = !manualRecommendationActive &&
     bestNearbyCoverage?.status === 'inside-configured-city' &&
     bestNearbyCoverage.city === activeCityId;
-  const landingRecommendationEnabled = !weatherOverlay && !selectedEvent && !timelineHourKey;
+  const landingRecommendationEnabled = !weatherOverlay && !selectedEvent && !timelineHourKey && selectedSkyView === 'now';
   const nearbyTargets = useMemo(
     () => nearbyRecommendationActive && userLocation && landingRecommendationEnabled
       ? selectBestNearbyCandidates(allSpots, userLocation, activeCityId).candidates
@@ -339,19 +369,35 @@ function App() {
       : manualTargets.map((candidate) => candidate.spot),
     [manualTargets, nearbyRecommendationActive, nearbyTargets],
   );
+  const regionalSpot = useMemo<Spot>(() => ({
+    ...activeSpots[0],
+    id: `regional:${activeCityId}`,
+    name: activeCityConfig.name,
+    lat: activeCityConfig.center[0],
+    lng: activeCityConfig.center[1],
+  }), [activeSpots, activeCityConfig, activeCityId]);
+  const timelineEvents = useMemo(
+    () => getUpcomingEventTimes(selectedSpot ?? regionalSpot, now),
+    [selectedSpot, regionalSpot, now],
+  );
+  const selectedEventTime = selectedSkyView === 'now' ? undefined : timelineEvents[selectedSkyView];
+  const effectiveHourKey = selectedEventTime ? formatCanonicalHourKey(selectedEventTime) : timelineHourKey;
+  const forecastSpots = useMemo(() => [...activeSpots, regionalSpot], [activeSpots, regionalSpot]);
   const requestedSpotIds = useMemo(
-    () => selectedSpot
+    () => [regionalSpot.id, ...(selectedSpot
       ? [selectedSpot.id]
-      : recommendationTargetSpots.map((spot) => spot.id),
-    [recommendationTargetSpots, selectedSpot],
+      : recommendationTargetSpots.map((spot) => spot.id))],
+    [recommendationTargetSpots, selectedSpot, regionalSpot],
   );
   const timelineScores = useTimelineScores(
-    activeSpots,
-    timelineHourKey,
+    forecastSpots,
+    effectiveHourKey,
     viewMode,
     activeCityConfig.timeZone,
     now,
     requestedSpotIds,
+    regionalSpot.id,
+    selectedEventTime,
   );
   const liveScores = timelineScores.scores;
   const recommendationForecastsLoading = timelineScores.forecastRetrying ||
@@ -391,7 +437,7 @@ function App() {
       recommendationForecastsLoading,
     ],
   );
-  const activeWeatherHourKey = timelineHourKey || formatCanonicalHourKey(now);
+  const activeWeatherHourKey = effectiveHourKey || formatCanonicalHourKey(now);
   const neighborhoodForecastState = useNeighborhoodForecasts(
     weatherOverlay && activeCityConfig.hasWeatherMode,
     activeCityConfig.timeZone,
@@ -427,16 +473,16 @@ function App() {
 
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
 
-  // Resolve the "now" hour key against the available forecast keys so the
-  // scrubber can mark the live hour. The app's scrubbing convention uses
-  // '' for live-now, so tapping the Now card maps back to '' (see below).
-  const { resolvedNowKey, nowIndex } = useMemo(() => {
-    const candidate = formatCanonicalHourKey(now);
-    const key = weatherHourKeys.includes(candidate)
-      ? candidate
-      : (weatherHourKeys[0] ?? '');
-    return { resolvedNowKey: key, nowIndex: weatherHourKeys.indexOf(key) };
-  }, [now, weatherHourKeys]);
+  const mapTimelineHourKeys = useMemo(() => {
+    const regionalForecast = timelineScores.forecasts.get(regionalSpot.id);
+    const selectedForecast = selectedSpot ? timelineScores.forecasts.get(selectedSpot.id) : undefined;
+    return deriveSpotTimelineHourKeys([
+      ...Object.keys(regionalForecast?.hours ?? {}),
+      ...Object.keys(selectedForecast?.hours ?? {}),
+      ...(weatherOverlay ? weatherHourKeys : []),
+    ], now);
+  }, [now, regionalSpot.id, selectedSpot, timelineScores.forecasts, weatherHourKeys, weatherOverlay]);
+
 
   // Use each metric's fixed semantic range while anchors progressively load.
   // This prevents identical weather from changing color as coverage grows.
@@ -552,6 +598,7 @@ function App() {
   }, [activeCityId]);
 
   const applyActiveCity = useCallback((city: City) => {
+    cancelSpotDismissal();
     setActiveCityIdRaw(city);
     setTimelineHourKey('');
     setSelectedSpot(null);
@@ -567,7 +614,7 @@ function App() {
     if (config && !config.hasWeatherMode) {
       setWeatherOverlay(false);
     }
-  }, []);
+  }, [cancelSpotDismissal]);
 
   const setActiveCity = useCallback((city: City) => {
     setManualCityMode(true);
@@ -621,9 +668,11 @@ function App() {
   // city therefore opens with its city already active, without briefly clearing
   // the selection or showing the prior city's map state.
   const handleSelectSavedSpot = useCallback((spot: Spot) => {
+    cancelSpotDismissal();
     setManualCityMode(true);
     setActiveCityIdRaw(spot.city);
     setTimelineHourKey('');
+    setCenteredSpotId(null);
     setSelectedSpot(spot);
     setHighlightedSpot(null);
     setSelectedEvent(null);
@@ -644,7 +693,7 @@ function App() {
       ).find((dialog) => dialog.getAttribute('aria-label') === expectedLabel);
       scoreSheet?.focus({ preventScroll: true });
     });
-  }, []);
+  }, [cancelSpotDismissal]);
 
   const handleToggleWeatherOverlay = useCallback(() => {
     setCloudPulseKey((k) => k + 1);
@@ -675,9 +724,11 @@ function App() {
   }, [initialDeepLink.spot]);
 
   const handleSelectSpot = useCallback((spot: Spot | null) => {
+    cancelSpotDismissal();
     const prev = selectedSpot;
+    if (spot && (!prev || prev.id !== spot.id)) setCenteredSpotId(null);
     // Card is being dismissed (spot is null) and there *was* something
-    // selected — remember it so the map can recenter + pulse the pin the
+    // selected, remember it so the map can highlight the pin the
     // user was just reading about. Without this hand-off, the pin
     // disappears into the crowd the moment the card slides away.
     if (spot === null && prev !== null) {
@@ -708,9 +759,11 @@ function App() {
         setShowScrollCardsHint(true);
       }
     }
-    setSelectedSpot(spot);
-    setInitialCardType(undefined);
-  }, [selectedSpot]);
+    if (spot === null && prev && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setClosingSpotId(prev.id);
+
+    } else setSelectedSpot(spot);
+  }, [selectedSpot, cancelSpotDismissal]);
 
   const handleSelectRecommendation = useCallback((spotId: string) => {
     const spot = recommendationTargetSpots.find((candidate) => candidate.id === spotId);
@@ -720,9 +773,10 @@ function App() {
   // Selecting an event opens its editorial sheet and closes any open spot
   // ScorePanel — the two bottom sheets are mutually exclusive (Part 4).
   const handleSelectEvent = useCallback((event: CuratedEvent | null) => {
+    cancelSpotDismissal();
     setSelectedEvent(event);
     if (event) setSelectedSpot(null);
-  }, []);
+  }, [cancelSpotDismissal]);
 
   // Auto-clear the dismiss highlight so the pulse doesn't loop forever and
   // the map stops trying to recenter once the user moves on.
@@ -819,6 +873,7 @@ function App() {
   // After scrubbing, show the weather-overlay hint (SF only) or jump
   // straight to the completion hint for cities without weather mode.
   const handleTimelineHourChange = useCallback((key: string) => {
+    setInitialCardType('now');
     setTimelineHourKey(key);
     if (!isOnboardingDone(ONBOARDING_KEYS.scrubTimeline)) {
       markOnboardingDone(ONBOARDING_KEYS.scrubTimeline);
@@ -830,6 +885,11 @@ function App() {
       }
     }
   }, [weatherOverlayAvailable]);
+
+  const handleSkyViewChange = useCallback((type: CardType) => {
+    setInitialCardType(type);
+    setTimelineHourKey('');
+  }, []);
 
   let homeScopeNotice: HomeSheetScopeNotice | null = null;
   if (
@@ -904,6 +964,22 @@ function App() {
       : { ...baseProps, state: cardState === 'ready' ? 'insufficient-evidence' : cardState };
   }
 
+  const renderTimelineControls = () => (
+    <UnifiedTimeline
+      hourKeys={mapTimelineHourKeys}
+      hourKey={effectiveHourKey}
+      onHourChange={handleTimelineHourChange}
+      selectedView={selectedSkyView}
+      selectedEventTime={selectedEventTime}
+      onViewChange={handleSkyViewChange}
+      viewMode={viewMode}
+      eventTimes={timelineEvents}
+      timeZone={activeCityConfig.timeZone}
+      loading={!timelineScores.forecasts.has(regionalSpot.id) && !timelineScores.forecastErrors.has(regionalSpot.id)}
+      now={now}
+    />
+  );
+
   return (
     <div className="h-dvh min-h-dvh w-screen relative bg-cream font-mono overflow-hidden">
       {/* Map is pinned to the actual viewport (not just `dvh`) so it always
@@ -915,6 +991,8 @@ function App() {
         <MapView
           spots={activeSpots}
           selectedSpot={selectedSpot}
+          spotClosing={closingSpotId === selectedSpot?.id}
+          onSpotCentered={handleSpotCentered}
           highlightedSpot={highlightedSpot}
           onSelectSpot={handleSelectSpot}
           onSelectEvent={handleSelectEvent}
@@ -945,7 +1023,7 @@ function App() {
             className={`w-9 h-9 flex items-center justify-center rounded-full border-[0.5px] shadow-sm transition-all duration-300 flex-shrink-0 ${
               weatherOverlay
                 ? 'border-pink-200/60 text-pink-50'
-                : 'bg-[rgba(250,250,248,0.95)] text-gray-600 border-black/[0.08] hover:bg-[rgba(250,250,248,1)]'
+                : 'bg-white text-gray-600 border-black/[0.08] hover:bg-gray-50'
             }`}
             style={weatherOverlay ? { background: 'linear-gradient(135deg, #D946A8, #CC2936)' } : undefined}
             aria-label="Toggle weather overlay"
@@ -978,7 +1056,7 @@ function App() {
         <SearchBar onOpen={() => setSearchOpen(true)} />
         <button
           onClick={() => setMenuOpen(!menuOpen)}
-          className="w-9 h-9 flex items-center justify-center rounded-full bg-[rgba(250,250,248,0.95)] border-[0.5px] border-black/[0.08] shadow-sm hover:bg-[rgba(250,250,248,1)] transition-colors flex-shrink-0"
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white border-[0.5px] border-black/[0.08] shadow-sm hover:bg-gray-50 transition-colors flex-shrink-0"
           aria-label="Settings"
           aria-expanded={menuOpen}
         >
@@ -1023,37 +1101,9 @@ function App() {
 
       {!selectedSpot && !selectedEvent && (
         <HomeSheet
-          locationState={location.state}
-          onRequestLocation={handleRequestLocation}
           onChooseCity={() => setCitySheetOpen(true)}
-          onUseCityInstead={handleUseCityInstead}
-          canOpenLocationSettings={appSettingsController.isAvailable()}
-          onOpenLocationSettings={handleOpenLocationSettings}
           scopeNotice={homeScopeNotice}
-          recommendation={timelineHourKey && !weatherOverlay ? (
-            <section
-              aria-label="Selected forecast hour"
-              className="rounded-2xl border border-black/[0.08] bg-[rgba(250,250,248,0.96)] p-3 shadow-sm"
-            >
-              <h2 className="font-serif text-[17px] font-semibold text-[#1a1a18]">
-                Viewing selected hour
-              </h2>
-              <p className="mt-1 text-[12px] leading-relaxed text-gray-600">
-                The map is showing {formatCanonicalHourLabel(
-                  timelineHourKey,
-                  activeCityConfig.timeZone,
-                  { includeZone: true },
-                )}. Best Nearby Now returns when you return to the current hour.
-              </p>
-              <button
-                type="button"
-                onClick={() => setTimelineHourKey('')}
-                className="mt-1 min-h-11 rounded-md px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8B5E3C] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-800"
-              >
-                Return to Now
-              </button>
-            </section>
-          ) : recommendationCardProps ? (
+          recommendation={!timelineHourKey && recommendationCardProps ? (
             <div>
               <BestNearbyCard {...recommendationCardProps} />
               {manualCityMode && userLocation && (
@@ -1067,19 +1117,26 @@ function App() {
               )}
             </div>
           ) : undefined}
-          timeline={weatherOverlay ? (
-            <WeatherControls
-              hourKeys={weatherHourKeys}
-              hourKey={timelineHourKey || resolvedNowKey}
-              onHourChange={(key) =>
-                handleTimelineHourChange(key === resolvedNowKey ? '' : key)
-              }
-              nowIndex={nowIndex}
-              timeZone={activeCityConfig.timeZone}
-              center={activeCityConfig.center}
-              now={now}
-            />
-          ) : undefined}
+
+        />
+      )}
+
+      {!selectedSpot && (
+        <aside className="map-timeline" aria-label="Map time controls">
+          {renderTimelineControls()}
+        </aside>
+      )}
+      {privateSpots.error && <div className="private-spots-error" role="status">{privateSpots.error}</div>}
+
+      {locationPromptOpen && (
+        <LocationPrompt
+          state={location.state}
+          onRequest={handleRequestLocation}
+          onClose={closeLocationPrompt}
+          onChooseCity={() => { closeLocationPrompt(); setCitySheetOpen(true); }}
+          onUseCityInstead={() => { handleUseCityInstead(); closeLocationPrompt(); }}
+          canOpenLocationSettings={appSettingsController.isAvailable()}
+          onOpenLocationSettings={handleOpenLocationSettings}
         />
       )}
 
@@ -1098,6 +1155,7 @@ function App() {
         onOpenCitySheet={() => setCitySheetOpen(true)}
         savedSpotsCount={savedSpots.savedSpotIds.length}
         onOpenSavedSpots={handleOpenSavedSpots}
+        onOpenLocation={() => { setMenuOpen(false); setLocationPromptOpen(true); }}
       />
 
 
@@ -1111,9 +1169,10 @@ function App() {
         onSuggestSpot={handleSuggestFromSearch}
         city={activeCityId}
         viewMode={viewMode}
-        timelineHourKey={timelineHourKey}
+        timelineHourKey={effectiveHourKey}
         timeZone={activeCityConfig.timeZone}
         timelineNow={now}
+        timelineEventTime={selectedEventTime}
       />
 
       <SuggestSpotOverlay
@@ -1129,11 +1188,13 @@ function App() {
 
       {selectedSpot && (
         <ScorePanel
-          key={selectedSpot.id}
+          mapReady={centeredSpotId === selectedSpot.id}
+          closing={closingSpotId === selectedSpot.id}
           spot={selectedSpot}
           onClose={() => handleSelectSpot(null)}
           userLocation={userLocation}
           initialCardType={initialCardType}
+          onActiveCardChange={handleSkyViewChange}
           travelMode={travelMode}
           onTravelModeChange={setTravelMode}
           liveScores={liveScores}
@@ -1141,7 +1202,7 @@ function App() {
           city={activeCityId}
           viewMode={viewMode}
           timelineHourKey={timelineHourKey}
-          onTimelineHourChange={handleTimelineHourChange}
+          timelineControls={renderTimelineControls}
           timeZone={activeCityConfig.timeZone}
           forecast={timelineScores.forecasts.get(selectedSpot.id) ?? null}
           forecastLoading={
@@ -1157,16 +1218,6 @@ function App() {
           onSetSaved={(nextSaved) => nextSaved
             ? savedSpots.save(selectedSpot.id)
             : savedSpots.unsave(selectedSpot.id)}
-        />
-      )}
-
-      {/* Curated events — Explore mode only (never over the weather overlay).
-          The banner steps aside whenever a spot panel or event sheet is open. */}
-      {!weatherOverlay && !selectedSpot && !selectedEvent && !happeningDismissed && (
-        <HappeningBanner
-          city={activeCityId}
-          onSelectEvent={handleSelectEvent}
-          onDismiss={() => setHappeningDismissed(true)}
         />
       )}
 
@@ -1257,7 +1308,7 @@ function App() {
       <SavedSpotsSheet
         open={savedSpotsSheetOpen}
         onClose={handleCloseSavedSpots}
-        spots={allSpots}
+        spots={visibleSpots}
         savedSpotIds={savedSpots.savedSpotIds}
         status={savedSpots.status}
         error={savedSpots.error}

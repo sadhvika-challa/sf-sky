@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   SCORE_CARD_ORDER,
+  buildTimelineStops,
+  timelinePositionPct,
+  nearestTimelineStopIndex,
   addCityCalendarDays,
   deriveSpotTimelineHourKeys,
   describeActiveForecastTrust,
@@ -121,14 +124,14 @@ describe('canonical timeline identity', () => {
 
   it('formats Search labels in the city calendar', () => {
     const now = new Date('2026-08-30T16:00:00Z');
-    expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', now)).toBe('Right now');
+    expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', now)).toBe('Daytime · Today at 11:00 AM');
     expect(formatActiveTimelineLabel('2026-08-31T01:00:00Z', 'sunset', 'America/Chicago', now))
       .toBe('Sunset · Today at 8:00 PM');
   });
 
   it('includes the zone in live and selected Search labels during a repeated hour', () => {
     expect(formatActiveTimelineLabel('', 'now', 'America/Chicago', new Date('2026-11-01T06:15:00Z')))
-      .toBe('Right now · 1:15 AM CDT');
+      .toBe('Daytime · Today at 1:15 AM CDT');
     expect(formatActiveTimelineLabel('2026-11-01T07:00:00Z', 'now', 'America/Chicago', new Date('2026-11-01T06:15:00Z')))
       .toContain('1:00 AM CST');
   });
@@ -137,5 +140,47 @@ describe('canonical timeline identity', () => {
     expect(describeActiveForecastTrust([true, true])).toBe('Forecast-backed scores');
     expect(describeActiveForecastTrust([true, false])).toBe('Mix of forecast-backed scores and curated estimates');
     expect(describeActiveForecastTrust([false, false])).toBe('Curated estimates');
+  });
+});
+
+
+describe('event snapping on the absolute-time rail', () => {
+  const now = new Date('2026-08-30T01:15:00Z');
+  const events = {
+    sunset: new Date('2026-08-30T02:44:00Z'),
+    stargazing: new Date('2026-08-30T03:40:00Z'),
+    sunrise: new Date('2026-08-30T13:37:00Z'),
+  };
+  const keys = Array.from({ length: 24 }, (_, i) => formatCanonicalHourKey(new Date(now.getTime() + (i + 1) * 3_600_000)));
+
+  it('snaps precisely to sunset between forecast hours, with a short first interval', () => {
+    const stops = buildTimelineStops(keys, now, events);
+    const percent = timelinePositionPct(events.sunset.getTime(), stops);
+    expect(stops[nearestTimelineStopIndex(percent, stops)].view).toBe('sunset');
+    expect(stops[nearestTimelineStopIndex(percent + 0.1, stops)].instantMs).toBe(events.sunset.getTime());
+    expect(timelinePositionPct(new Date(keys[0]).getTime(), stops)).toBeCloseTo(45 / (23 * 60 + 45) * 100);
+  });
+
+  it('keeps tonight’s stargazing time on the rail after dusk', () => {
+    const afterDusk = new Date('2026-08-30T04:30:00Z');
+    const stops = buildTimelineStops(keys, afterDusk, events);
+    expect(stops.find((stop) => stop.view === 'stargazing')?.instantMs).toBe(events.stargazing.getTime());
+    expect(timelinePositionPct(afterDusk.getTime(), stops)).toBeGreaterThan(0);
+    const percent = timelinePositionPct(events.stargazing.getTime(), stops);
+    expect(stops[nearestTimelineStopIndex(percent, stops)].view).toBe('stargazing');
+  });
+
+  it('uses an exact event instead of a duplicate hourly stop', () => {
+    const stops = buildTimelineStops(keys, now, { ...events, sunset: new Date(keys[0]) });
+    expect(stops.filter((stop) => stop.instantMs === new Date(keys[0]).getTime())).toHaveLength(1);
+    expect(stops[1].view).toBe('sunset');
+  });
+
+  it('keeps repeated DST hours at different rail positions', () => {
+    const keys = ['2026-11-01T08:00:00Z', '2026-11-01T09:00:00Z'];
+    const stops = buildTimelineStops(keys, new Date('2026-11-01T07:45:00Z'), {
+      sunrise: new Date('2026-11-01T14:37:00Z'), sunset: new Date('2026-11-02T01:15:00Z'), stargazing: new Date('2026-11-02T02:20:00Z'),
+    });
+    expect(timelinePositionPct(new Date(keys[1]).getTime(), stops)).toBeGreaterThan(timelinePositionPct(new Date(keys[0]).getTime(), stops));
   });
 });

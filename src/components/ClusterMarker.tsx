@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 import { Marker } from 'react-leaflet';
 import L from 'leaflet';
+import { getMapPinColor, getMapPinTextColor } from '../utils/mapPinColor';
 
 interface ClusterMarkerProps {
   position: [number, number];
@@ -15,35 +16,19 @@ interface ClusterMarkerProps {
   onClick: () => void;
 }
 
-// Bigger than the largest single-pin (34px) so a cluster never gets visually
+// Bigger than the largest single-pin (36px) so a cluster never gets visually
 // confused with one really good spot. The halo eats more pixels than the
 // bubble proper, hence the generous hit area.
 const HIT = 60;
 
 function bubbleSize(count: number): number {
-  // Min 40px keeps clusters strictly larger than any individual pin (max 34
+  // Min 40px keeps clusters strictly larger than any individual pin (max 36
   // for "great" tier). Caps at 54 so a citywide cluster doesn't blot out
   // half the viewport.
   if (count >= 25) return 54;
   if (count >= 10) return 48;
   if (count >= 5) return 44;
   return 40;
-}
-
-function bubbleColor(score: number): string {
-  if (score >= 80) return '#5B9A7B';
-  if (score >= 60) return '#8AAD5A';
-  if (score >= 40) return '#C9A94E';
-  if (score >= 20) return '#C4835A';
-  return '#B56B6B';
-}
-
-function bubbleColorRgba(score: number, alpha: number): string {
-  if (score >= 80) return `rgba(91,154,123,${alpha})`;
-  if (score >= 60) return `rgba(138,173,90,${alpha})`;
-  if (score >= 40) return `rgba(201,169,78,${alpha})`;
-  if (score >= 20) return `rgba(196,131,90,${alpha})`;
-  return `rgba(181,107,107,${alpha})`;
 }
 
 // Count font scales with bubble size so 3-digit clusters still fit cleanly.
@@ -55,18 +40,12 @@ function countFontSize(count: number): number {
 
 function createClusterIcon(count: number, bestScore: number): L.DivIcon {
   const size = bubbleSize(count);
-  const color = bubbleColor(bestScore);
-  const haloMid = bubbleColorRgba(bestScore, 0.28);
-  const haloOuter = bubbleColorRgba(bestScore, 0.14);
+  const color = getMapPinColor(bestScore);
   const countFont = countFontSize(count);
-  // Two extra colored halo rings outside the white ring make the bubble
-  // read as a "pulse" / aggregate marker — clearly different from the
-  // single-ring score pins, even without reading the label.
+  // The count label and larger size distinguish clusters without large halos.
   const boxShadow = [
-    `0 0 0 3px rgba(255,255,255,0.7)`,
-    `0 0 0 7px ${haloMid}`,
-    `0 0 0 12px ${haloOuter}`,
-    `0 2px 6px rgba(0,0,0,0.22)`,
+    '0 0 0 2px rgba(255,255,255,0.8)',
+    '0 2px 6px rgba(23,37,39,0.20)',
   ].join(', ');
   const html = `<div style="
     width:${HIT}px; height:${HIT}px;
@@ -80,12 +59,12 @@ function createClusterIcon(count: number, bestScore: number): L.DivIcon {
       border:2px solid white;
       box-shadow: ${boxShadow};
       display:flex; flex-direction:column; align-items:center; justify-content:center;
-      color:white;
+      color:${getMapPinTextColor(bestScore)};
       font-family:'DM Sans', sans-serif;
       line-height:1;
     ">
       <div style="
-        font-family:'DM Mono', monospace;
+        font-family:'DM Sans', sans-serif;
         font-size:${countFont}px;
         font-weight:700;
         letter-spacing:0;
@@ -97,7 +76,6 @@ function createClusterIcon(count: number, bestScore: number): L.DivIcon {
         letter-spacing:0.5px;
         margin-top:0px;
         line-height:1;
-        opacity:0.92;
         text-transform:uppercase;
       ">spots</div>
     </div>

@@ -19,6 +19,8 @@ export interface AccessAlert {
 }
 
 export interface Spot {
+  visibility?: 'private';
+  address?: string;
   id: string;
   name: string;
   lat: number;

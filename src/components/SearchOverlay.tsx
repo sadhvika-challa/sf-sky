@@ -5,7 +5,7 @@ import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
 import { getKarlComment } from '../utils/karl-copy';
 import { computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
-import { formatActiveTimelineLabel } from '../utils/timeline';
+import { formatActiveTimelineLabel, formatCityCalendarDate, formatInstantTimeLabel } from '../utils/timeline';
 import { describeScoreEvidenceSet, type ScoreEvidence } from '../utils/confidence';
 
 interface SearchOverlayProps {
@@ -21,6 +21,7 @@ interface SearchOverlayProps {
   timelineHourKey: string;
   timeZone: string;
   timelineNow: Date;
+  timelineEventTime?: Date;
 }
 
 interface RankedSpot {
@@ -33,10 +34,10 @@ interface RankedSpot {
 }
 
 const TYPE_LABEL: Record<ViewMode, string> = {
-  now: 'Now',
+  now: 'Daytime',
   sunrise: 'Sunrise',
   sunset: 'Sunset',
-  stargazing: 'Stargazing',
+  stargazing: 'Nighttime',
 };
 
 function formatEventTime(date: Date | null): string {
@@ -96,6 +97,7 @@ export default function SearchOverlay({
   timelineHourKey,
   timeZone,
   timelineNow,
+  timelineEventTime,
 }: SearchOverlayProps) {
   const [tempUnit] = useTempUnit();
   const [query, setQuery] = useState('');
@@ -148,7 +150,11 @@ export default function SearchOverlay({
     () => buildRanking(spotList, liveScores, userLocation, viewMode),
     [spotList, liveScores, userLocation, viewMode],
   );
-  const activeTimelineLabel = formatActiveTimelineLabel(
+  const eventDay = timelineEventTime && formatCityCalendarDate(timelineEventTime, timeZone) === formatCityCalendarDate(timelineNow, timeZone)
+    ? 'Today' : timelineEventTime ? new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }).format(timelineEventTime) : '';
+  const activeTimelineLabel = timelineEventTime
+    ? `${TYPE_LABEL[viewMode]} · ${eventDay} at ${formatInstantTimeLabel(timelineEventTime, timeZone)}`
+    : formatActiveTimelineLabel(
     timelineHourKey,
     viewMode,
     timeZone,
@@ -163,7 +169,7 @@ export default function SearchOverlay({
       // Filter by name; preserve score-desc order so the most promising
       // matches still bubble up first.
       return ranked
-        .filter((r) => r.spot.name.toLowerCase().includes(trimmed))
+        .filter((r) => r.spot.name.toLowerCase().includes(trimmed) || r.spot.address?.toLowerCase().includes(trimmed))
         .sort((a, b) => b.score - a.score);
     }
     return [...ranked].sort((a, b) => b.score - a.score);
@@ -238,7 +244,7 @@ export default function SearchOverlay({
 
         {results.length === 0 ? (
           <div className="px-4 py-10 text-center">
-            <p className="font-serif text-base italic text-gray-500">
+            <p className="font-sans text-base italic text-gray-500">
               {city === 'sf'
                 ? "No spots match. Karl can't help with that one."
                 : 'No spots match that search.'}
@@ -276,11 +282,11 @@ export default function SearchOverlay({
                     className="w-full flex items-start gap-3 px-3 py-3 text-left rounded-md active:bg-cream-dark/40 hover:bg-cream-dark/30 transition-colors"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-serif text-base font-semibold text-gray-800 truncate">
+                      <p className="font-sans text-base font-semibold text-gray-800 truncate">
                         {r.spot.name}
                       </p>
                       {karl && (
-                        <p className="font-serif text-[13px] italic text-gray-600 mt-0.5 leading-snug truncate">
+                        <p className="font-sans text-[13px] italic text-gray-600 mt-0.5 leading-snug truncate">
                           {karl}
                         </p>
                       )}
@@ -294,7 +300,7 @@ export default function SearchOverlay({
                       </p>
                     </div>
                     <span
-                      className="font-serif text-2xl font-light leading-none tabular-nums flex-shrink-0 mt-0.5 text-gray-800"
+                      className="font-sans text-2xl font-light leading-none tabular-nums flex-shrink-0 mt-0.5 text-gray-800"
                     >
                       {r.score}
                     </span>

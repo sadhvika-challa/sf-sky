@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SunCalc from 'suncalc';
 import type { Spot } from '../data/spots';
+import { forecastCoordinates } from '../utils/privateSpots';
 import {
   fetchSpotForecast,
   getHourlyForecastCompleteness,
@@ -227,6 +228,8 @@ export function useTimelineScores(
   timeZone: string,
   now: Date,
   requestedSpotIds: ReadonlyArray<string> = spots.map((spot) => spot.id),
+  regionalSpotId?: string,
+  selectedEventTime?: Date,
 ): TimelineScoresResult {
   const [forecasts, setForecasts] = useState<SpotForecastMap>(() => new Map());
   const [forecastErrors, setForecastErrors] = useState<SpotForecastErrorMap>(() => new Map());
@@ -238,6 +241,8 @@ export function useTimelineScores(
     dueAt: number;
   } | null>(null);
   const requestedIdsKey = requestedSpotIds.join(',');
+  const requestedTargetsKey = JSON.stringify(spots.filter((spot) => requestedSpotIds.includes(spot.id))
+    .map(({ id, lat, lng, visibility }) => ({ id, lat, lng, visibility })));
   const requestedSpotCount = requestedIdsKey === '' ? 0 : requestedIdsKey.split(',').length;
   const requestedScope = `${timeZone}:${requestedIdsKey}`;
   const requestHourKey = formatCanonicalHourKey(now);
@@ -274,8 +279,7 @@ export function useTimelineScores(
 
   useEffect(() => {
     const controller = new AbortController();
-    const requested = new Set(requestedIdsKey === '' ? [] : requestedIdsKey.split(','));
-    const pendingSpots = spots.filter((spot) => requested.has(spot.id));
+    const pendingSpots = JSON.parse(requestedTargetsKey) as Spot[];
     const requestGeneration = refreshRequest.generation;
     const scheduleNext = (dueAt: number) => {
       setRefreshSchedule((previous) => {
@@ -292,7 +296,8 @@ export function useTimelineScores(
     let nextSpotIndex = 0;
     const requestSpot = async (spot: Spot) => {
       try {
-        const forecast = await fetchSpotForecast(spot.lat, spot.lng, timeZone, {
+        const coordinates = forecastCoordinates(spot);
+        const forecast = await fetchSpotForecast(coordinates.lat, coordinates.lng, timeZone, {
           maxAgeMs: refreshRequest.force ? 0 : WEATHER_REFRESH_INTERVAL_MS,
           requiredHourKey: requestHourKey,
           signal: controller.signal,
@@ -376,7 +381,7 @@ export function useTimelineScores(
       if (startTimer !== null) window.clearTimeout(startTimer);
       controller.abort();
     };
-  }, [requestHourKey, requestedIdsKey, requestedScope, spots, refreshRequest, timeZone]);
+  }, [requestHourKey, requestedTargetsKey, requestedScope, refreshRequest, timeZone]);
 
   const requestedSet = useMemo(
     () => new Set(requestedIdsKey === '' ? [] : requestedIdsKey.split(',')),
@@ -386,19 +391,22 @@ export function useTimelineScores(
   const currentHourKey = formatCanonicalHourKey(now);
   const selectedHourKey = hourKey || currentHourKey;
   const selectedInstant = useMemo(
-    () => hourKey ? parseCanonicalHourKey(hourKey) : now,
-    [hourKey, now],
+    () => selectedEventTime ?? (hourKey ? parseCanonicalHourKey(hourKey) : now),
+    [hourKey, now, selectedEventTime],
   );
 
   const scores = useMemo<LiveScoresMap>(() => {
     const result: LiveScoresMap = new Map();
     for (const spot of spots) {
-      const forecast = forecasts.get(spot.id) ?? null;
-      const error = forecastErrors.get(spot.id) ?? null;
+      if (spot.id === regionalSpotId) continue;
+      const ownForecast = forecasts.get(spot.id) ?? null;
+      const regionalForecast = regionalSpotId && !requestedSet.has(spot.id) ? forecasts.get(regionalSpotId) ?? null : null;
+      const forecast = ownForecast ?? regionalForecast;
+      const error = forecastErrors.get(spot.id) ?? (regionalSpotId ? forecastErrors.get(regionalSpotId) : null) ?? null;
       const loading = requestedSet.has(spot.id) && forecast === null && error === null;
       const canonical = canonicalScoresForSpot(
         spot,
-        forecast,
+        ownForecast,
         currentHourKey,
         now,
         loading,
@@ -415,6 +423,22 @@ export function useTimelineScores(
         loading,
         error,
       );
+      if (!ownForecast && regionalForecast && spot.id !== regionalSpotId) {
+        active.activeEvidence = {
+          ...active.activeEvidence,
+          confidence: 'low',
+          provenanceLabel: 'City forecast estimate',
+          statusLabel: 'City forecast estimate',
+        };
+        active.activeIsLive = false;
+      }
+      if (spot.visibility === 'private') {
+        active.activeIsLive = false;
+        active.activeEvidence = { ...active.activeEvidence, confidence: 'low', statusLabel: 'Uncalibrated roof estimate' };
+        for (const mode of ['now', 'sunrise', 'sunset', 'stargazing'] as const) {
+          canonical.evidence[mode] = { ...canonical.evidence[mode], confidence: 'low', statusLabel: 'Uncalibrated roof estimate' };
+        }
+      }
       result.set(spot.id, combineTimelineScores(canonical, active));
     }
     return result;
@@ -429,6 +453,7 @@ export function useTimelineScores(
     spots,
     requestedSet,
     viewMode,
+    regionalSpotId,
   ]);
 
   return { scores, forecasts, forecastErrors, retryForecast, forecastRetrying };

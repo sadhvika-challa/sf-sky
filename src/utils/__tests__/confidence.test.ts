@@ -1,3 +1,6 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ConfidenceMetric from '../../components/ConfidenceMetric';
 import { describe, expect, it } from 'vitest';
 import {
   buildScoreEvidence,
@@ -5,6 +8,7 @@ import {
   formatForecastRetrieved,
   getForecastConfidence,
   getForecastFreshness,
+  getConfidenceReviewTimes,
   scoreEvidenceAccessibilityLabel,
 } from '../confidence';
 import { WeatherRequestError, type HourlyForecast } from '../weather';
@@ -180,7 +184,7 @@ describe('buildScoreEvidence', () => {
     ['selected-hour', 'now', 'Selected hour unavailable · curated estimate'],
     ['event', 'sunrise', 'Sunrise forecast unavailable · curated estimate'],
     ['event', 'sunset', 'Sunset forecast unavailable · curated estimate'],
-    ['event', 'stargazing', 'Stargazing forecast unavailable · curated estimate'],
+    ['event', 'stargazing', 'Nighttime forecast unavailable · curated estimate'],
   ] as const)('uses %s/%s missing-hour copy', (moment, mode, statusLabel) => {
     expect(evidence({
       hourly: null,
@@ -272,5 +276,28 @@ describe('getForecastConfidence', () => {
     expect(getForecastConfidence('forecast', 'stale', 'complete', NOW, NOW)).toBe('low');
     expect(getForecastConfidence('forecast', 'fresh', 'partial', NOW, NOW)).toBe('low');
     expect(getForecastConfidence('curated-estimate', 'unknown', 'missing', NOW, NOW)).toBe('low');
+  });
+});
+
+
+describe('confidence metric', () => {
+  it('derives actionable review windows from the exact event instant, including across midnight', () => {
+    const sunset = new Date('2026-10-13T01:38:00Z');
+    expect(getConfidenceReviewTimes(sunset)).toEqual({
+      medium: new Date('2026-10-12T19:38:00Z'),
+      high: new Date('2026-10-12T23:38:00Z'),
+    });
+    expect(getConfidenceReviewTimes(new Date('invalid'))).toBeNull();
+  });
+  it('exposes forecast confidence as a separate named metric', () => {
+    const html = renderToStaticMarkup(createElement(ConfidenceMetric, { evidence: evidence() }));
+    expect(html).toContain('Forecast confidence: High');
+    expect(html).toContain('High confidence');
+    expect(html).not.toContain('Current forecast');
+  });
+  it('keeps missing and partial forecasts at low confidence', () => {
+    const html = renderToStaticMarkup(createElement(ConfidenceMetric, { evidence: evidence({ hourly: null }) }));
+    expect(html).toContain('Forecast confidence: Low');
+    expect(html).not.toContain('High confidence');
   });
 });

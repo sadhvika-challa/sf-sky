@@ -214,10 +214,12 @@ export async function installDeterministicBrowserState(
   page: Page,
   now: Date = FIXED_NOW,
 ): Promise<void> {
+  await page.route('**/__soleil/private-spots', (route) => route.fulfill({ status: 204 }));
   await page.clock.install({ time: now });
   await page.addInitScript((keys: string[]) => {
     for (const key of keys) window.localStorage.setItem(key, '1');
     window.localStorage.setItem('karl-pwa:dismissed-at', String(Date.now()));
+    window.sessionStorage.setItem('soleil:location-prompt-dismissed:v1', '1');
   }, ONBOARDING_KEYS);
 }
 

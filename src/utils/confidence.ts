@@ -62,6 +62,15 @@ export const STALE_FORECAST_MS = 2 * 60 * 60 * 1000;
 export const HIGH_CONFIDENCE_HOURS = 2;
 export const MEDIUM_CONFIDENCE_HOURS = 6;
 
+/** Review windows follow the same elapsed-hour rules as forecast confidence. */
+export function getConfidenceReviewTimes(eventTime: Date) {
+  if (!Number.isFinite(eventTime.getTime())) return null;
+  return {
+    medium: new Date(eventTime.getTime() - MEDIUM_CONFIDENCE_HOURS * 3_600_000),
+    high: new Date(eventTime.getTime() - HIGH_CONFIDENCE_HOURS * 3_600_000),
+  };
+}
+
 export function getForecastFreshness(
   fetchedAt: number | null,
   nowMs: number,
@@ -126,7 +135,7 @@ function forecastStatusLabel(
     return { state: 'selected-hour-forecast', label: 'Selected-hour forecast' };
   }
   const eventLabel = mode === 'stargazing'
-    ? 'Stargazing forecast'
+    ? 'Nighttime forecast'
     : `${mode[0].toUpperCase()}${mode.slice(1)} forecast`;
   return { state: 'event-forecast', label: eventLabel };
 }
@@ -135,7 +144,7 @@ function missingHourStatusLabel(moment: ForecastMoment, mode: ViewMode): string 
   if (moment === 'current') return 'Current forecast unavailable · curated estimate';
   if (moment === 'selected-hour') return 'Selected hour unavailable · curated estimate';
   const eventLabel = mode === 'stargazing'
-    ? 'Stargazing'
+    ? 'Nighttime'
     : `${mode[0].toUpperCase()}${mode.slice(1)}`;
   return `${eventLabel} forecast unavailable · curated estimate`;
 }
