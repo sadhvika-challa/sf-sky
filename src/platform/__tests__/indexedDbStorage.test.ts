@@ -122,3 +122,64 @@ describe('IndexedDB connection lifecycle', () => {
     expect(databases[1].transaction).toHaveBeenCalledTimes(2);
   });
 });
+
+it('mirrors the latest authority when cross-tab completion callbacks arrive out of order', async () => {
+  let authority: string | null = null;
+  let mirror: string | null = null;
+  let transactionCount = 0;
+  const completions: Array<() => void> = [];
+  const database = {
+    objectStoreNames: { contains: () => true },
+    transaction: () => {
+      const ordinal = ++transactionCount;
+      const transaction = { oncomplete: null } as unknown as IDBTransaction;
+      transaction.objectStore = () => ({
+        get: () => {
+          const request = { onsuccess: null } as unknown as IDBRequest;
+          queueMicrotask(() => {
+            Object.defineProperty(request, 'result', { value: authority });
+            request.onsuccess?.({} as Event);
+            const complete = () => transaction.oncomplete?.({} as Event);
+            if (ordinal <= 2) completions.push(complete);
+            else queueMicrotask(complete);
+          });
+          return request;
+        },
+        put: (value: string | null) => { authority = value; },
+      } as unknown as IDBObjectStore);
+      return transaction;
+    },
+  } as unknown as IDBDatabase;
+  const factory = {
+    open: () => {
+      const request = { result: database, onsuccess: null } as unknown as IDBOpenDBRequest;
+      queueMicrotask(() => request.onsuccess?.({} as Event));
+      return request;
+    },
+  } as unknown as IDBFactory;
+  const storage = {
+    getItem: () => mirror,
+    setItem: (_key: string, value: string) => { mirror = value; },
+    removeItem: () => { mirror = null; },
+  } as unknown as Storage;
+  const createStore = () => createIndexedDbKeyValueStore({
+    databaseName: 'cross-tab-test',
+    objectStoreName: 'values',
+    getIndexedDb: () => factory,
+    getLegacyStorage: () => storage,
+    getWindow: () => undefined,
+    createBroadcastChannel: () => undefined,
+  });
+  const first = createStore().update('saved', () => ({ value: 'a', result: undefined }));
+  const second = createStore().update('saved', (current) => ({
+    value: current + ',b',
+    result: undefined,
+  }));
+  await vi.waitFor(() => expect(completions).toHaveLength(2));
+  completions[1]();
+  await second;
+  completions[0]();
+  await first;
+  expect(authority).toBe('a,b');
+  expect(mirror).toBe('a,b');
+});

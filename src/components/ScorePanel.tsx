@@ -426,7 +426,7 @@ function SpotScorePanel({ spot, mapReady, animateEntrance, closing = false, onCl
         setEntered(true);
         const sheet = sheetRef.current;
         if (sheet && !sheet.inert && !sheet.contains(document.activeElement) &&
-          !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+          !document.querySelector('.karl-pwa-root')) {
           sheet.focus({ preventScroll: true });
         }
       });

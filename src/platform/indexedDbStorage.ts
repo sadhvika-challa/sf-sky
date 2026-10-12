@@ -111,6 +111,24 @@ export function createIndexedDbKeyValueStore({
     }
   };
 
+  const mirrorCommitted = (database: IDBDatabase, key: string): Promise<void> =>
+    new Promise((resolve) => {
+      try {
+        // Completion callbacks can arrive out of commit order across tabs.
+        // Read the current authority under the same cross-context write lock
+        // before publishing its compatibility mirror.
+        const transaction = database.transaction(objectStoreName, 'readwrite');
+        const request = transaction.objectStore(objectStoreName).get(key);
+        request.onsuccess = () => mirrorLegacy(key, request.result ?? null);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => resolve();
+        transaction.onabort = () => resolve();
+      } catch {
+        // Mirror availability cannot undo an already durable commit.
+        resolve();
+      }
+    });
+
   const notify = (key: string) => {
     for (const listener of localListeners.get(key) ?? []) listener();
     notificationChannel ??= createBroadcastChannel(channelName);
@@ -123,7 +141,6 @@ export function createIndexedDbKeyValueStore({
   ): Promise<Result> => {
     const database = await openDatabase();
     let wrote = false;
-    let writtenValue: string | null = null;
     const result = await new Promise<Result>((resolve, reject) => {
       const transaction = database.transaction(objectStoreName, 'readwrite');
       const objectStore = transaction.objectStore(objectStoreName);
@@ -144,7 +161,6 @@ export function createIndexedDbKeyValueStore({
           operationResult = update.result;
           if (update.value !== undefined) {
             wrote = true;
-            writtenValue = update.value;
             objectStore.put(update.value, key);
           }
         } catch (error) {
@@ -162,7 +178,7 @@ export function createIndexedDbKeyValueStore({
     });
 
     if (wrote) {
-      mirrorLegacy(key, writtenValue);
+      await mirrorCommitted(database, key);
       notify(key);
     }
     return result;
