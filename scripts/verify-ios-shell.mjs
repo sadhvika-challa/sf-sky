@@ -85,7 +85,7 @@ const checks = [
   ['UserDefaults approved reason', privacy.includes('<string>CA92.1</string>')],
   ['privacy manifest target membership', project.includes('PrivacyInfo.xcprivacy in Resources')],
   ['bundled Leaflet CSS', !nativeIndex.includes('unpkg.com/leaflet')],
-  ['approved OpenFreeMap beta styles', mapLayerSource.includes('https://tiles.openfreemap.org/styles/liberty') && mapLayerSource.includes('https://tiles.openfreemap.org/styles/positron')],
+  ['approved OpenFreeMap light styles', /explore:\s*'https:\/\/tiles\.openfreemap\.org\/styles\/positron'/.test(mapLayerSource) && /weather:\s*'https:\/\/tiles\.openfreemap\.org\/styles\/positron'/.test(mapLayerSource)],
   ['no legacy CARTO map source', !mapLayerSource.includes('cartocdn.com') && !mapLayerSource.includes('CARTO')],
   ['no map credential in source', !/(?:api_?key|apikey|access_token)=/i.test(mapLayerSource)],
   ['no committed live-reload URL', !config.includes('server:') && !nativeConfig.includes('"server"')],
