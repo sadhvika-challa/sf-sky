@@ -268,7 +268,7 @@ export default function PWAInstallPrompt({ spotInteracted }: PWAInstallPromptPro
         first.focus();
       } else if (!dialogRef.current?.contains(document.activeElement)) {
         event.preventDefault();
-        first.focus();
+        (event.shiftKey ? last : first).focus();
       }
     };
     document.addEventListener('keydown', handleKeyDown, true);

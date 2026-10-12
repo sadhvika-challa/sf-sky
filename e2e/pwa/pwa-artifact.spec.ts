@@ -313,6 +313,12 @@ test('keeps keyboard focus inside the install dialog and restores it on Escape',
     await expect(last).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(close).toBeFocused();
+    // A late background transition must not break reverse Tab recovery.
+    await spotSheet.evaluate((sheet) => (sheet as HTMLElement).focus());
+    await page.keyboard.press('Shift+Tab');
+    await expect(last).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(close).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(prompt).toBeHidden();
     await expect(spotSheet).toBeVisible();
