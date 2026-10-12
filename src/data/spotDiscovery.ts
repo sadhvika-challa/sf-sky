@@ -13,7 +13,7 @@ export interface SpotPhoto {
 }
 
 export interface SpotDiscovery {
-  collection: 'hidden-gems';
+  collection?: 'hidden-gems';
   view: string;
   reviewedOn: string;
   verification: 'desk-researched';

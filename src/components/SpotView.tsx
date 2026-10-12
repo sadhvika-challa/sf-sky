@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Spot } from '../data/spots';
 import { getSpotDiscovery, type SpotPhoto } from '../data/spotDiscovery';
+import { CameraIcon, CloseIcon } from './icons/SpotActionIcons';
 
 function PhotoCredit({ photo }: { photo: SpotPhoto }) {
   return (
-    <p className="font-mono text-[10px] leading-5 text-gray-600">
+    <p className="font-mono text-[11px] leading-5 text-gray-600">
       <a href={photo.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Photo: {photo.photographer}</a>
       {' · '}
       <a href={photo.licenseUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{photo.license}</a>
@@ -15,83 +16,101 @@ function PhotoCredit({ photo }: { photo: SpotPhoto }) {
 
 export default function SpotView({ spot }: { spot: Spot }) {
   const discovery = getSpotDiscovery(spot);
+  const photos = discovery?.photos.slice(0, 3) ?? [];
   const [failedPhotos, setFailedPhotos] = useState<ReadonlySet<string>>(() => new Set());
   const [photoIndex, setPhotoIndex] = useState<number | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const previewRef = useRef<HTMLButtonElement>(null);
-  const photos = discovery?.photos.filter((photo) => !failedPhotos.has(photo.id)).slice(0, 3) ?? [];
-  const activePhoto = photoIndex === null ? undefined : photos[Math.min(photoIndex, photos.length - 1)];
+  const cameraRef = useRef<HTMLButtonElement>(null);
+  const activeIndex = photoIndex === null ? 0 : Math.min(photoIndex, photos.length - 1);
+  const activePhoto = photoIndex === null ? undefined : photos[activeIndex];
   const open = Boolean(activePhoto);
 
   useEffect(() => {
     if (!open) return;
     const dialog = dialogRef.current;
-    const previewButton = previewRef.current;
+    const cameraButton = cameraRef.current;
     dialog?.showModal();
     return () => {
       dialog?.close();
-      previewButton?.focus({ preventScroll: true });
+      cameraButton?.focus({ preventScroll: true });
     };
   }, [open]);
 
-  if (!discovery) return null;
-  const preview = photos[0];
+  if (!discovery || photos.length === 0) return null;
   const markFailed = (id: string) => setFailedPhotos((previous) => new Set([...previous, id]));
 
   return (
-    <section aria-label={`View from ${spot.name}`} className="mt-4 border-t border-gray-100 pt-4">
-      <h4 className="font-mono text-[11px] tracking-[1.5px] uppercase text-gray-700 mb-2">View</h4>
-      {preview && (
-        <>
-          <button
-            ref={previewRef}
-            type="button"
-            onClick={() => setPhotoIndex(0)}
-            aria-label={`Enlarge view photo for ${spot.name}`}
-            className="block w-full overflow-hidden rounded-lg bg-cream focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
-          >
-            <img src={preview.src} alt={preview.alt} loading="lazy" decoding="async" className="w-full h-36 object-cover" onError={() => markFailed(preview.id)} />
-          </button>
-          <p className="mt-2 font-mono text-[10px] leading-5 text-gray-600">{preview.context}</p>
-          <PhotoCredit photo={preview} />
-        </>
-      )}
-      <p className="font-serif text-[14px] leading-5 text-gray-700 mt-2">{discovery.view}</p>
-      <details className="mt-2 font-mono text-[10px] text-gray-600">
-        <summary className="min-h-11 flex items-center cursor-pointer underline underline-offset-2">Sources</summary>
-        <ul className="space-y-1 pb-2">
-          {discovery.sources.map((source) => (
-            <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center min-h-11 underline underline-offset-2">{source.platform}</a></li>
-          ))}
-          <li>Source review: {discovery.reviewedOn}. Not a field visit.</li>
-        </ul>
-      </details>
+    <>
+      <button
+        ref={cameraRef}
+        type="button"
+        onClick={() => setPhotoIndex(0)}
+        aria-label={`View photos for ${spot.name}`}
+        title="View photos"
+        className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-gray-600 hover:bg-cream-dark/50 active:bg-cream-dark/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+      >
+        <CameraIcon />
+      </button>
       {activePhoto && createPortal(
         <dialog
           ref={dialogRef}
           aria-label={`View photos for ${spot.name}`}
           onCancel={(event) => { event.preventDefault(); setPhotoIndex(null); }}
           onKeyDown={(event) => event.stopPropagation()}
-          onClick={(event) => { if (event.target === event.currentTarget) setPhotoIndex(null); }}
-          className="spot-view-dialog fixed inset-0 m-auto w-[calc(100vw_-_2rem)] max-w-3xl max-h-[90dvh] overflow-y-auto rounded-2xl border border-cream-dark bg-cream p-4 shadow-2xl backdrop:bg-black/60"
+          className="spot-view-dialog fixed inset-0 m-0 h-[100dvh] w-screen max-h-none max-w-none border-0 bg-cream p-0 backdrop:bg-black/60"
         >
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <h2 className="font-serif text-lg text-gray-800">{spot.name}</h2>
-            <button type="button" autoFocus onClick={() => setPhotoIndex(null)} className="min-h-11 min-w-11 px-3 font-mono text-[12px] text-gray-700 rounded-full border border-cream-dark">Close</button>
-          </div>
-          <img src={activePhoto.src} alt={activePhoto.alt} className="w-full max-h-[55dvh] object-contain rounded-lg" onError={() => markFailed(activePhoto.id)} />
-          <p className="mt-3 font-mono text-[11px] text-gray-600 leading-5">{activePhoto.context} · {activePhoto.dateLabel}</p>
-          <p className="font-mono text-[11px] text-gray-600 leading-5">Reference view. Not a live image or forecast.</p>
-          <PhotoCredit photo={activePhoto} />
-          {photos.length > 1 && (
-            <div className="flex items-center justify-between mt-3">
-              <button type="button" disabled={photoIndex === 0} onClick={() => setPhotoIndex((index) => Math.max(0, (index ?? 0) - 1))} className="min-h-11 px-3 disabled:opacity-40">Previous photo</button>
-              <span className="font-mono text-[11px]">{(photoIndex ?? 0) + 1} / {photos.length}</span>
-              <button type="button" disabled={photoIndex === photos.length - 1} onClick={() => setPhotoIndex((index) => Math.min(photos.length - 1, (index ?? 0) + 1))} className="min-h-11 px-3 disabled:opacity-40">Next photo</button>
+          <div className="flex h-full min-h-0 flex-col">
+            <header className="flex shrink-0 items-center justify-between gap-4 border-b border-cream-dark px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
+              <h2 className="font-serif text-[22px] leading-7 text-gray-800">{spot.name}</h2>
+              <button
+                type="button"
+                autoFocus
+                aria-label="Close photos"
+                onClick={() => setPhotoIndex(null)}
+                className="h-11 w-11 shrink-0 rounded-full border border-cream-dark flex items-center justify-center text-gray-700 hover:bg-cream-dark/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
+              >
+                <CloseIcon />
+              </button>
+            </header>
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-cream-dark/30 p-3 sm:p-6">
+              {failedPhotos.has(activePhoto.id) ? (
+                <div className="text-center">
+                  <p role="status" className="font-serif text-xl text-gray-700">Photo unavailable</p>
+                  <button
+                    type="button"
+                    onClick={() => setFailedPhotos((previous) => { const next = new Set(previous); next.delete(activePhoto.id); return next; })}
+                    className="min-h-11 mt-3 px-4 rounded-full border border-cream-dark font-mono text-[12px] text-gray-700"
+                  >Retry photo</button>
+                </div>
+              ) : (
+                <img src={activePhoto.src} alt={activePhoto.alt} className="h-full w-full object-contain" onError={() => markFailed(activePhoto.id)} />
+              )}
             </div>
-          )}
+            <footer className="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-cream-dark px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+              <p className="font-serif text-[16px] leading-6 text-gray-800">{discovery.view}</p>
+              <p className="mt-2 font-mono text-[11px] text-gray-600 leading-5">{activePhoto.context} · {activePhoto.dateLabel}</p>
+              <p className="font-mono text-[11px] text-gray-600 leading-5">Reference view. Not a live image or forecast.</p>
+              <PhotoCredit photo={activePhoto} />
+              {photos.length > 1 && (
+                <div className="flex items-center justify-between mt-3">
+                  <button type="button" disabled={activeIndex === 0} onClick={() => setPhotoIndex(activeIndex - 1)} className="min-h-11 px-3 disabled:opacity-40">Previous photo</button>
+                  <span className="font-mono text-[11px]">{activeIndex + 1} / {photos.length}</span>
+                  <button type="button" disabled={activeIndex === photos.length - 1} onClick={() => setPhotoIndex(activeIndex + 1)} className="min-h-11 px-3 disabled:opacity-40">Next photo</button>
+                </div>
+              )}
+              <details className="mt-1 font-mono text-[11px] text-gray-600">
+                <summary className="min-h-11 flex items-center cursor-pointer underline underline-offset-2">Sources</summary>
+                <ul className="space-y-1 pb-2">
+                  {discovery.sources.map((source) => (
+                    <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center min-h-11 underline underline-offset-2">{source.platform}</a></li>
+                  ))}
+                  <li>Source review: {discovery.reviewedOn}. Not a field visit.</li>
+                </ul>
+              </details>
+            </footer>
+          </div>
         </dialog>, document.body,
       )}
-    </section>
+    </>
   );
 }
