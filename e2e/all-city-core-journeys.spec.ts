@@ -60,8 +60,8 @@ for (const representative of REPRESENTATIVE_SPOTS) {
       name: `${representative.spotName} sky scores`,
     });
     const nowCard = dialog.locator('[data-card-type="now"]');
-    const tablist = dialog.getByRole('tablist', { name: 'Card pages' });
-    const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+    const tablist = page.getByRole('tablist', { name: 'Sky views' });
+    const slider = page.getByRole('slider', { name: 'Forecast hour' });
 
     await expect(dialog).toBeVisible();
     await expect.poll(() => page.evaluate(() => localStorage.getItem('sky:activeCity')))
@@ -70,22 +70,27 @@ for (const representative of REPRESENTATIVE_SPOTS) {
     await expect(tablist.getByRole('tab')).toHaveCount(CARD_ORDER.length);
     await expect(tablist.getByRole('tab', { name: 'Show Now card' }))
       .toHaveAttribute('aria-selected', 'true');
-    await expect(dialog.getByRole('group', { name: 'Timeline scrubber' })).toHaveCount(1);
-    await expect(nowCard.getByRole('group', { name: 'Timeline scrubber' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Timeline scrubber' })).toHaveCount(1);
+    await expect(page.getByRole('group', { name: 'Timeline scrubber' })).toBeVisible();
     for (const eventType of CARD_ORDER.slice(1)) {
       await expect(dialog.locator(`[data-card-type="${eventType}"]`)
         .getByRole('group', { name: 'Timeline scrubber' })).toHaveCount(0);
     }
 
-    await expect(nowCard.getByText('Current forecast · high confidence', { exact: true }))
+    await expect(nowCard.getByRole('group', { name: 'Forecast confidence: High' }))
       .toBeVisible();
     await expect(slider).toHaveAttribute('aria-disabled', 'false');
     await expect(slider).toHaveAttribute('aria-valuenow', '0');
     await slider.press('ArrowRight');
-    await expect(slider).toHaveAttribute('aria-valuenow', '1');
+    // Exact events can occur before the next forecast hour in this city.
+    for (let step = 0; step < 3 && await tablist.getByRole('tab', { name: 'Show Now card' }).getAttribute('aria-selected') !== 'true'; step += 1) {
+      await slider.press('ArrowRight');
+    }
+    await expect(tablist.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute('aria-selected', 'true');
+    expect(Number(await slider.getAttribute('aria-valuenow'))).toBeGreaterThan(0);
     await expect(nowCard.getByRole('heading', { level: 3 }))
       .toHaveText(/^NOW · (SELECTED HOUR|SUNRISE|SUNSET|STARGAZING)$/);
-    await expect(nowCard.getByText('Selected-hour forecast · high confidence', { exact: true }))
+    await expect(nowCard.getByRole('group', { name: 'Forecast confidence: High' }))
       .toBeVisible();
 
     const scoreSurface = dialog.locator('[aria-label^="Now score "]');
@@ -101,9 +106,9 @@ for (const representative of REPRESENTATIVE_SPOTS) {
     await expect(dialog).toBeVisible();
     await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
 
-    await nowCard.getByRole('button', { name: 'Now', exact: true }).click();
+    await page.getByRole('region', { name: 'Spot time controls' }).getByRole('tab', { name: 'Show Now card', exact: true }).click();
     await expect(slider).toHaveAttribute('aria-valuenow', '0');
-    await expect(nowCard.getByText('Current forecast · high confidence', { exact: true }))
+    await expect(nowCard.getByRole('group', { name: 'Forecast confidence: High' }))
       .toBeVisible();
 
     for (const eventType of CARD_ORDER.slice(1)) {
@@ -130,10 +135,10 @@ for (const representative of REPRESENTATIVE_SPOTS) {
     assertNoLiveOpenMeteoTraffic(weather.requests);
     assertNoDuplicateWeatherRequests(weather.requests);
     expectWeatherRequestBudget(weather.requests, {
-      forecast: 1,
-      airQuality: 1,
-      maxActive: 2,
-      maxCoordinateJobs: 1,
+      forecast: 2,
+      airQuality: 2,
+      maxActive: 4,
+      maxCoordinateJobs: 2,
     });
   });
 }

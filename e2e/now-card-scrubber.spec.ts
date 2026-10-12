@@ -64,7 +64,7 @@ test('gives every card-page tab a full hit target and supports keyboard paging',
   await page.goto(SPOT_URL);
 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
-  const tablist = dialog.getByRole('tablist', { name: 'Card pages' });
+  const tablist = page.getByRole('tablist', { name: 'Sky views' });
   const tabs = tablist.getByRole('tab');
   await expect(dialog).toBeVisible();
   await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
@@ -81,8 +81,8 @@ test('gives every card-page tab a full hit target and supports keyboard paging',
   for (const [index, geometry] of tabGeometry.entries()) {
     expect(geometry.target.width, `${CARD_ORDER[index]} tab width`).toBeGreaterThanOrEqual(43.99);
     expect(geometry.target.height, `${CARD_ORDER[index]} tab height`).toBeGreaterThanOrEqual(43.99);
-    expect(geometry.dot?.width, `${CARD_ORDER[index]} visual dot stays compact`).toBeLessThanOrEqual(12);
-    expect(geometry.dot?.height, `${CARD_ORDER[index]} visual dot stays compact`).toBeLessThanOrEqual(6);
+    expect(geometry.dot?.width, `${CARD_ORDER[index]} visual dot stays compact`).toBeLessThanOrEqual(24);
+    expect(geometry.dot?.height, `${CARD_ORDER[index]} visual dot stays compact`).toBeLessThanOrEqual(24);
     if (index > 0) {
       expect(
         geometry.target.left,
@@ -132,17 +132,20 @@ test('gives every card-page tab a full hit target and supports keyboard paging',
   await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
 });
 
-test('keeps the forecast scrubber in the Now card and preserves the sheet', async ({ page }, testInfo) => {
+test('keeps only the spot scrubber inside the card and preserves its state', async ({ page }, testInfo) => {
   const harness = await installWeatherHarness(page);
   await page.goto(SPOT_URL);
 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const nowCard = dialog.locator('[data-card-type="now"]');
-  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
-  const tablist = dialog.getByRole('tablist', { name: 'Card pages' });
+  const slider = page.getByRole('slider', { name: 'Forecast hour' });
+  const tablist = page.getByRole('tablist', { name: 'Sky views' });
 
   await expect(dialog).toBeVisible();
-  await expect(nowCard.getByRole('group', { name: 'Timeline scrubber' })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Spot time controls' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Map time controls' })).toHaveCount(0);
+  await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveCount(1);
+  await expect(page.getByRole('group', { name: 'Timeline scrubber' })).toBeVisible();
   await expect(cardOrder(dialog)).resolves.toEqual(CARD_ORDER);
   await expect(tablist.getByRole('tab')).toHaveCount(4);
   await expect(tablist.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute('aria-selected', 'true');
@@ -156,7 +159,7 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).not.toHaveAttribute('aria-valuetext', /Now ·/);
-  await expect(nowCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
   await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
   await expect(nowCard.getByRole('heading', { level: 3 })).toHaveText('NOW · SELECTED HOUR');
   await expect(dialog).toBeVisible();
@@ -171,15 +174,15 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
   });
 
   await page.keyboard.press('End');
-  await expect(slider).toHaveAttribute('aria-valuenow', '24');
+  await expect(slider).toHaveAttribute('aria-valuenow', (await slider.getAttribute('aria-valuemax'))!);
   await page.keyboard.press('Home');
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
 
   await page.keyboard.press('ArrowRight');
-  await nowCard.getByRole('button', { name: 'Now', exact: true }).click();
+  await page.getByRole('region', { name: 'Spot time controls' }).getByRole('tab', { name: 'Show Now card', exact: true }).click();
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Now, Now · 6:15 PM');
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
   await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
   await expect(dialog).toBeVisible();
 
@@ -197,7 +200,7 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
     (violation) => violation.impact === 'serious' || violation.impact === 'critical',
   );
   const trustStatusContrast = await new AxeBuilder({ page })
-    .include('[data-contrast-audit="weather-trust-status"]')
+    .include('[data-contrast-audit="forecast-confidence"]')
     .withRules(['color-contrast'])
     .analyze();
   const unresolvedContrast = trustStatusContrast.incomplete.filter(
@@ -207,8 +210,8 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
     (result) => result.id === 'color-contrast',
   );
   const trustStatusBackground = await nowCard
-    .locator('[data-contrast-audit="weather-trust-status"]')
-    .evaluate((element) => getComputedStyle(element).backgroundColor);
+    .locator('[data-contrast-audit="forecast-confidence"]')
+    .evaluate((element) => getComputedStyle(element.closest('[data-card-scroll]')!.firstElementChild!).backgroundColor);
   expect(seriousViolations).toEqual([]);
   expect(trustStatusViolations).toEqual([]);
   expect(unresolvedContrast).toEqual([]);
@@ -220,9 +223,9 @@ test('keeps the forecast scrubber in the Now card and preserves the sheet', asyn
 
   assertNoDuplicateWeatherRequests(harness.requests);
   assertNoLiveOpenMeteoTraffic(harness.requests);
-  expectWeatherRequestBudget(harness.requests, { forecast: 1, airQuality: 1, maxActive: 2 });
+  expectWeatherRequestBudget(harness.requests, { forecast: 2, airQuality: 2, maxActive: 4 });
   console.info(
-    '[weather-fixture] selected-spot budget: one forecast and one air-quality request',
+    '[weather-fixture] selected-spot and city timeline budget: two forecasts and two air-quality requests',
   );
 });
 
@@ -268,9 +271,10 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const nowCard = dialog.locator('[data-card-type="now"]');
-  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  const slider = page.getByRole('slider', { name: 'Forecast hour' });
   await waitForStableGeometry(dialog);
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
 
@@ -291,9 +295,9 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
   const restored = page
     .getByRole('dialog', { name: 'Ocean Beach sky scores' })
     .locator('[data-card-type="now"]');
-  await expect(restored.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '1');
+  await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '1');
   await expect(restored.getByRole('heading', { level: 3 })).toHaveText('NOW · SELECTED HOUR');
-  await expect(restored.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(restored.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
 });
 
 test('keeps selected-hour score, evidence, time, and weather aligned after scrubbing', async ({ page }, testInfo) => {
@@ -303,12 +307,13 @@ test('keeps selected-hour score, evidence, time, and weather aligned after scrub
 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const nowCard = dialog.locator('[data-card-type="now"]');
-  const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+  const slider = page.getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Now, Today · 7:00 PM');
   await expect(nowCard.getByText('66°', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(nowCard.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
 
   const sheetScore = (await dialog.locator('[aria-label^="Now score "]').textContent())?.trim();
   expect(sheetScore).toMatch(/^\d{1,3}$/);
@@ -338,12 +343,12 @@ test('keeps selected-hour score, evidence, time, and weather aligned after scrub
   const reopenedCard = page
     .getByRole('dialog', { name: 'Ocean Beach sky scores' })
     .locator('[data-card-type="now"]');
-  await expect(reopenedCard.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute(
+  await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute(
     'aria-valuetext',
     'Now, Today · 7:00 PM',
   );
   await expect(reopenedCard.getByText('66°', { exact: true })).toBeVisible();
-  await expect(reopenedCard.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(reopenedCard.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
 });
 
 test.describe('city time differs from the browser time zone', () => {
@@ -359,11 +364,11 @@ test.describe('city time differs from the browser time zone', () => {
     }))).toBe('10:15 AM');
     const dialog = page.getByRole('dialog', { name: 'Mount Bonnell (Covert Park) sky scores' });
     const nowCard = dialog.locator('[data-card-type="now"]');
-    const slider = nowCard.getByRole('slider', { name: 'Forecast hour' });
+    const slider = page.getByRole('slider', { name: 'Forecast hour' });
     await expect(slider).toHaveAttribute('aria-valuenow', '0');
-    await expect(slider).toHaveAttribute('aria-valuetext', 'Sunset, Now · 8:15 PM');
+    await expect(slider).toHaveAttribute('aria-valuetext', 'Now, Now · 8:15 PM');
     await expect(nowCard.getByRole('heading', { level: 3 })).toHaveText('RIGHT NOW');
-    await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+    await expect(nowCard.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
     await expect(nowCard.getByText('64°', { exact: true })).toBeVisible();
 
     await page.keyboard.press('Escape');
@@ -380,8 +385,7 @@ test('keeps recovery available when the selected spot forecast fails', async ({ 
   await page.goto('/?spot=sf-twin-peaks&view=now');
 
   const firstSpot = page.getByRole('dialog', { name: 'Twin Peaks sky scores' });
-  const firstSlider = firstSpot.locator('[data-card-type="now"]')
-    .getByRole('slider', { name: 'Forecast hour' });
+  const firstSlider = page.getByRole('slider', { name: 'Forecast hour' });
   await expect(firstSlider).toHaveAttribute('aria-disabled', 'false');
   await firstSlider.press('ArrowRight');
   await expect(firstSlider).toHaveAttribute('aria-valuenow', '1');
@@ -402,12 +406,12 @@ test('keeps recovery available when the selected spot forecast fails', async ({ 
   const requestsBeforeReturn = harness.requests.forecast.filter(
     (value) => value === OCEAN_BEACH_COORDINATES,
   ).length;
-  const returnButton = nowCard.getByRole('button', { name: 'Return to Now' });
+  const returnButton = page.getByRole('region', { name: 'Spot time controls' }).getByRole('tab', { name: 'Show Now card', exact: true });
   await expect(returnButton).toBeVisible();
   await returnButton.click();
 
   await expect(errorDialog).toBeVisible();
-  await expect(returnButton).toBeHidden();
+  await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
   await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
   await expect(cardOrder(errorDialog)).resolves.toEqual(CARD_ORDER);
   expect(harness.requests.forecast.filter(
@@ -422,11 +426,11 @@ test('supports a positional scrub gesture in the narrow touch layout', async ({ 
   await page.goto(SPOT_URL);
 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
-  const slider = dialog.getByRole('slider', { name: 'Forecast hour' });
+  const slider = page.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toBeVisible();
   await expect(
     dialog.locator('[data-card-type="now"]')
-      .getByText('Current forecast · high confidence', { exact: true }),
+      .getByRole('group', { name: 'Forecast confidence: High' }),
   ).toBeVisible();
 
   const box = await waitForStableGeometry(slider);
@@ -587,9 +591,9 @@ test('pages horizontally when the gesture starts over scrollable card content', 
       );
       return cardDistance < closestDistance ? card : closest;
     }, null);
-    const activeTab = element
-      .closest('[role="dialog"]')
-      ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    const activeTab = document.querySelector<HTMLElement>(
+      '[aria-label="Sky views"] [role="tab"][aria-selected="true"]',
+    );
     const centeredType = centeredCard?.dataset.cardType;
 
     return centeredType !== 'now'
@@ -606,7 +610,7 @@ test('dismisses the sheet from the dedicated handle pointer drag', async ({ page
   await expect(handle).toBeVisible();
   await expect(
     dialog.locator('[data-card-type="now"]')
-      .getByText('Current forecast · high confidence', { exact: true }),
+      .getByRole('group', { name: 'Forecast confidence: High' }),
   ).toBeVisible();
   const box = await waitForStableGeometry(handle);
   console.info(`[handle-target] ${Math.round(box.width)}x${Math.round(box.height)}px`);
@@ -636,4 +640,252 @@ test('dismisses the sheet from the dedicated handle pointer drag', async ({ page
   await page.mouse.up();
 
   await expect(dialog).toBeHidden();
+});
+
+
+test('updates map scores from the persistent bottom scrubber without selecting a spot', async ({ page }) => {
+  const harness = await installWeatherHarness(page);
+  await page.goto('/');
+  const timeline = page.getByRole('complementary', { name: 'Map time controls' });
+  const slider = timeline.getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  await expect(page.getByRole('slider')).toHaveCount(1);
+  const pin = page.locator('.leaflet-marker-pane [role="button"][aria-label*="city forecast estimate"]').first();
+  await expect(pin).toHaveAttribute('aria-label', /city forecast estimate/);
+  const before = await pin.getAttribute('aria-label');
+  await slider.press('End');
+  await expect(slider).toHaveAttribute('aria-valuenow', (await slider.getAttribute('aria-valuemax'))!);
+  await expect(pin).not.toHaveAttribute('aria-label', before!);
+  await slider.press('Home');
+  await expect(pin).toHaveAttribute('aria-label', before!);
+  const viewport = page.viewportSize()!;
+  const box = (await timeline.boundingBox())!;
+  expect(box.y + box.height).toBeCloseTo(viewport.height, 0);
+  assertNoDuplicateWeatherRequests(harness.requests);
+});
+
+test('persists private spots on this device and disables public card sharing', async ({ page }) => {
+  const harness = await installWeatherHarness(page);
+  const roof = {
+    id: 'private:test-roof', name: 'Test Roof', address: 'Example address', city: 'sf', visibility: 'private',
+    lat: 37.78123, lng: -122.45123, category: 'skyscraper', elevation: 0,
+    lightPollution: 'High', horizonQuality: 'Partial', sunrise: 60, sunset: 30, stargazing: 20,
+  };
+  await page.unroute('**/__soleil/private-spots');
+  await page.route('**/__soleil/private-spots', (route) => route.fulfill({ json: [roof] }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  await search.getByPlaceholder('Search spots…').fill('Example address');
+  await search.getByRole('button', { name: /Test Roof/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Test Roof sky scores' });
+  await expect(dialog).toContainText('Private · This device');
+  await expect(dialog.getByRole('button', { name: /^Share / })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Remove Test Roof from saved spots' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog).toContainText('Uncalibrated roof estimate');
+  await expect.poll(() => harness.requests.forecast.filter((coordinates) => coordinates === '37.7800,-122.4500').length).toBeGreaterThan(0);
+  expect(harness.requests.forecast.some((coordinates) => coordinates === '37.7812,-122.4512')).toBe(false);
+  await page.route('**/__soleil/private-spots', (route) => route.fulfill({ status: 204 }));
+  await page.reload();
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  await page.getByPlaceholder('Search spots…').fill('Test Roof');
+  await expect(page.getByRole('dialog', { name: 'Search spots' }).getByRole('button', { name: /Test Roof/ })).toBeVisible();
+});
+
+test('keeps bottom controls truthful when city weather is unavailable', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.route('https://api.open-meteo.com/**', (route) => route.fulfill({ status: 503, json: {} }));
+  await page.goto('/');
+  const timeline = page.getByRole('complementary', { name: 'Map time controls' });
+  await expect(timeline).toContainText('Hourly forecast unavailable');
+  await expect(timeline.getByRole('slider')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('button', { name: 'Search spots', exact: true })).toBeVisible();
+});
+
+
+test('synchronizes event icons, card times, timeline labels, and card swipes', async ({ page }) => {
+  const weather = await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  const views = page.getByRole('tablist', { name: 'Sky views' });
+  const timeline = dialog.getByRole('region', { name: 'Spot time controls' });
+  await expect(dialog.locator('[data-card-type="now"]').getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  const requestsBefore = weather.requests.forecast.length;
+  await views.getByRole('tab', { name: 'Show Sunset card' }).click();
+  const sunset = dialog.locator('[data-card-type="sunset"]');
+  await expect(sunset).toHaveAttribute('aria-hidden', 'false');
+  await expect(views.getByRole('tab', { name: 'Show Sunset card' })).toHaveAttribute('aria-selected', 'true');
+  await expect(timeline).toContainText('Sunset');
+  const eventTime = await sunset.locator('span').filter({ hasText: /^\d{1,2}:\d{2}$/ }).first().textContent();
+  await expect(timeline).toContainText(eventTime!.trim());
+  await expect(views.getByRole('tab')).toHaveCount(4);
+  await expect(views.getByRole('tab').locator('svg')).toHaveCount(4);
+  expect((await views.innerText()).trim()).toBe('');
+  for (const artwork of await dialog.locator('[data-sky-artwork]').all()) {
+    expect((await artwork.textContent())?.trim()).toBe('');
+  }
+  await expect(sunset.getByRole('group', { name: /^Forecast confidence:/ })).toBeVisible();
+  await expect(dialog.locator('[aria-label^="Sunset score"]')).toHaveAttribute('aria-label', /forecast/);
+  await dialog.locator('.score-cards-scroll').evaluate((element) => {
+    const target = element.querySelector<HTMLElement>('[data-card-type="sunrise"]')!;
+    element.scrollTo({ left: target.offsetLeft - (element as HTMLElement).offsetLeft, behavior: 'instant' });
+  });
+  await expect(views.getByRole('tab', { name: 'Show Sunrise card' })).toHaveAttribute('aria-selected', 'true');
+  await expect(timeline).toContainText('Sunrise');
+  await timeline.getByRole('slider').press('ArrowRight');
+  await expect(views.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute('aria-selected', 'true');
+  await expect(dialog.locator('[data-card-type="now"]')).toHaveAttribute('aria-hidden', 'false');
+  await timeline.getByRole('tab', { name: 'Show Now card' }).click();
+  await expect(timeline.getByRole('slider')).toHaveAttribute('aria-valuenow', '0');
+  expect(weather.requests.forecast.length).toBe(requestsBefore);
+});
+
+test('removes the nighttime event strip and uses icon-only choices on the map', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: /The Bay Lights|Photosynthesis|SPECTRA|Dismiss tonight/ })).toHaveCount(0);
+  const views = page.getByRole('group', { name: 'Sky views' });
+  expect((await views.innerText()).trim()).toBe('');
+  await views.getByRole('button', { name: 'Sunrise', exact: true }).click();
+  await expect(views.getByRole('button', { name: 'Sunrise', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('complementary', { name: 'Map time controls' })).toContainText('Sunrise');
+});
+
+
+test('snaps event dots to the matching card, exact timestamp, and thumb position', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto(SPOT_URL);
+  const slider = page.getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  for (const view of ['sunset', 'sunrise', 'stargazing']) {
+    const marker = page.locator(`[data-timeline-event="${view}"]`);
+    await waitForStableGeometry(slider);
+    const box = await marker.boundingBox();
+    if (!box) throw new Error('Missing event marker');
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.getByRole('tab', { name: `Show ${view[0].toUpperCase() + view.slice(1)} card` })).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(async () => {
+      const thumb = await page.locator('[data-timeline-thumb]').boundingBox();
+      const dot = await marker.boundingBox();
+      return Math.abs((thumb!.x + thumb!.width / 2) - (dot!.x + dot!.width / 2));
+    }).toBeLessThan(0.5);
+    const timeText = await page.getByRole('group', { name: 'Timeline scrubber' }).innerText();
+    const cardText = await dialog.locator(`[data-card-type="${view}"]`).innerText();
+    expect(cardText.replace(/\s+/g, ' ').toLowerCase()).toContain(timeText.split(' · ')[1].trim().toLowerCase());
+  }
+  await slider.press('Home');
+  await expect(page.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('shows location automatically before requesting access and remembers dismissal for the session', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('location-popup-test-started')) {
+      sessionStorage.removeItem('soleil:location-prompt-dismissed:v1');
+      sessionStorage.setItem('location-popup-test-started', '1');
+    }
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition: () => { throw new Error('Location requested before consent'); },
+    } });
+  });
+  await page.goto('/');
+  const prompt = page.getByRole('dialog', { name: 'Find nearby spots' });
+  await expect(prompt).toBeVisible();
+  await expect(prompt.getByRole('button', { name: 'Use my location' })).toBeVisible();
+  await expect(prompt.getByRole('status')).toContainText('Your coordinates are never saved');
+  await prompt.press('Shift+Tab');
+  await expect(prompt.getByRole('button', { name: 'Not now' })).toBeFocused();
+  await prompt.getByRole('button', { name: 'Not now' }).press('Tab');
+  await expect(prompt.getByRole('button', { name: 'Use my location' })).toBeFocused();
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations.filter((violation) => ['serious', 'critical'].includes(violation.impact ?? ''))).toEqual([]);
+  await prompt.getByRole('button', { name: 'Not now' }).click();
+  await expect(prompt).toBeHidden();
+  await expect(page.getByRole('region', { name: 'Location preferences' })).toHaveCount(0);
+  await page.reload();
+  await expect(prompt).toBeHidden();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Location', exact: true }).filter({ visible: true }).click();
+  await expect(prompt).toBeVisible();
+  await prompt.press('Escape');
+  await expect(prompt).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
+});
+
+test('recovers from denied location and closes the popup after an allowed retry', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.addInitScript(() => {
+    let requests = 0;
+    Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+      getCurrentPosition: (success: PositionCallback, error: PositionErrorCallback) => {
+        requests += 1;
+        if (requests === 1) error({ code: 1, message: 'Denied' } as GeolocationPositionError);
+        else success({ coords: { latitude: 37.7594, longitude: -122.5107, accuracy: 30 }, timestamp: Date.now() } as GeolocationPosition);
+      },
+    } });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Location', exact: true }).filter({ visible: true }).click();
+  const prompt = page.getByRole('dialog', { name: 'Find nearby spots' });
+  await prompt.getByRole('button', { name: 'Use my location' }).click();
+  await expect(prompt.getByRole('status')).toContainText('denied');
+  await expect(prompt.getByRole('button', { name: 'Choose a city' })).toBeVisible();
+  await prompt.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(prompt).toBeHidden();
+  await expect(page.getByRole('region', { name: 'Location preferences' })).toHaveCount(0);
+});
+
+
+test('aligns tonight’s stargazing card and marker after dusk', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-08-29T21:30:00-07:00'));
+  await installWeatherHarness(page);
+  await page.goto('/?spot=sf-ocean-beach&view=stargazing');
+  const slider = page.getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  const card = page.locator('[data-card-type="stargazing"]');
+  const timeline = page.getByRole('group', { name: 'Timeline scrubber' });
+  await expect(timeline).toContainText('Today');
+  const time = (await timeline.innerText()).split(' · ')[1].trim().toLowerCase();
+  expect((await card.innerText()).replace(/\s+/g, ' ').toLowerCase()).toContain(time);
+  const thumb = await page.locator('[data-timeline-thumb]').boundingBox();
+  const marker = await page.locator('[data-timeline-event="stargazing"]').boundingBox();
+  expect(Math.abs(thumb!.x + thumb!.width / 2 - marker!.x - marker!.width / 2)).toBeLessThan(0.5);
+  await slider.press('Home');
+  await expect(page.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute('aria-selected', 'true');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
+});
+
+
+test('moves one timeline between the map and spot card without losing the selected hour', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/');
+  const mapTimeline = page.getByRole('complementary', { name: 'Map time controls' });
+  const slider = page.getByRole('slider', { name: 'Forecast hour' });
+  await expect(mapTimeline).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  await slider.press('ArrowRight');
+  const selectedTime = await slider.getAttribute('aria-valuetext');
+  await page.getByRole('button', { name: 'Search spots' }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
+  await search.getByRole('button', { name: /Ocean Beach/ }).click();
+  const spot = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  await expect(spot.getByRole('region', { name: 'Spot time controls' })).toBeVisible();
+  await expect(mapTimeline).toHaveCount(0);
+  await expect(slider).toHaveCount(1);
+  await expect(slider).toHaveAttribute('aria-valuetext', selectedTime!);
+  await spot.press('Escape');
+  await expect(slider).toHaveCount(1);
+  await expect(mapTimeline).toHaveCount(0);
+  await spot.getByRole('button', { name: 'Expand Ocean Beach details' }).click();
+  await expect(spot.getByRole('region', { name: 'Spot time controls' })).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', selectedTime!);
+  await spot.press('Escape');
+  await spot.press('Escape');
+  await expect(spot).toHaveCount(0);
+  await expect(mapTimeline).toBeVisible();
+  await expect(slider).toHaveCount(1);
+  await expect(slider).toHaveAttribute('aria-valuetext', selectedTime!);
 });

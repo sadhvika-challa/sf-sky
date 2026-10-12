@@ -8,11 +8,15 @@ The current application is a React and TypeScript PWA. The product direction is 
 
 ## Product Commitments
 
+- Discuss UI changes with Sadhvika before implementing them. Preserve the lighter map and approved timeline placement unless she approves another direction.
+- Private custom spots belong only in device storage, never in the curated catalog, source code, public listings, or shared cards and links. Future publication must preserve an explicit private visibility choice and enforce ownership if account sync is introduced.
+
 - Support every configured city and feature unless an issue explicitly narrows the scope.
 - Treat score, forecast confidence, and forecast freshness as distinct concepts.
 - Keep the map, selected spot sheet, score, weather presentation, and time selection synchronized.
-- Put time scrubbing for a selected spot in the Now experience. Sunrise, Sunset, and Stargazing remain event-specific views.
+- Show the bottom map scrubber only while no spot is selected. Opening a spot replaces it with one timeline inside the white score card, preserving selected time and exact event snapping. Never show map and spot scrubbing controls simultaneously. Keep one icon-only row beneath the active scrubber for Now, Sunrise, Sunset, and Stargazing. Selecting an icon or swiping a card synchronizes the card, timeline label, event time, and map scores. Hourly scrubbing returns to the Now card. Keep confidence beside the score and text labels out of the colored sky artwork. Do not restore the nighttime event strip without Sadhvika's approval.
 - Persist saved spots across launches without requiring an account for the first release.
+- Show web/PWA location access in an automatic popup once per browsing session, with Location in Settings to reopen it. Request browser permission only after the user chooses Use my location. Keep the map clear of the persistent location card. The timeline uses a single absolute-time scale for its thumb and event markers, with exact sunrise, sunset, and stargazing snap points from the same event times as the cards.
 - Ask for location only after explaining the user benefit. The experience must still work when location is denied or unavailable.
 - Keep the PWA viable as the public, shareable counterpart to the iOS app.
 - The all-city weather overlay is not required for the first App Store release.

@@ -1,7 +1,4 @@
 import type { ReactNode } from 'react';
-import type { LocationState } from '../hooks/useLocation';
-import type { OpenAppSettingsResult } from '../platform/appSettings';
-import LocationControl from './LocationControl';
 
 export type HomeSheetScopeNotice =
   | {
@@ -19,12 +16,7 @@ export type HomeSheetScopeNotice =
     };
 
 interface HomeSheetProps {
-  locationState: LocationState;
-  onRequestLocation: () => void | Promise<LocationState>;
   onChooseCity: () => void;
-  onUseCityInstead: () => void;
-  canOpenLocationSettings?: boolean;
-  onOpenLocationSettings?: () => Promise<OpenAppSettingsResult>;
   scopeNotice?: HomeSheetScopeNotice | null;
   recommendation?: ReactNode;
   timeline?: ReactNode;
@@ -103,29 +95,18 @@ function ScopeNotice({ notice, onChooseCity }: {
 }
 
 export default function HomeSheet({
-  locationState,
-  onRequestLocation,
   onChooseCity,
-  onUseCityInstead,
-  canOpenLocationSettings = false,
-  onOpenLocationSettings,
   scopeNotice = null,
   recommendation,
   timeline,
 }: HomeSheetProps) {
+  if (!scopeNotice && !recommendation && !timeline) return null;
   return (
     <aside
       aria-label="Sky outlook"
-      className="absolute bottom-0 left-0 right-0 z-20 max-h-[min(62dvh,38rem)] overflow-y-auto rounded-t-xl bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] backdrop-blur-sm overscroll-contain"
+      style={{ bottom: 'var(--map-timeline-height)', maxHeight: 'calc(62dvh - var(--map-timeline-height))' }}
+      className="absolute left-0 right-0 z-20 max-h-[min(62dvh,38rem)] overflow-y-auto rounded-t-xl bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] backdrop-blur-sm overscroll-contain"
     >
-      <LocationControl
-        state={locationState}
-        onRequest={onRequestLocation}
-        onChooseCity={onChooseCity}
-        onUseCityInstead={onUseCityInstead}
-        canOpenLocationSettings={canOpenLocationSettings}
-        onOpenLocationSettings={onOpenLocationSettings}
-      />
       <div className="space-y-2">
         {scopeNotice && <ScopeNotice notice={scopeNotice} onChooseCity={onChooseCity} />}
         {!scopeNotice && recommendation}

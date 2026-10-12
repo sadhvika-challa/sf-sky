@@ -7,24 +7,21 @@ import { type Spot, type City, type AccessAlert, getPoetic } from '../data/spots
 import SunCalc from 'suncalc';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
 import { clampPercentage, fogDensity, weatherRefreshExplanation, type HourlyForecast, type SpotForecast } from '../utils/weather';
-import type { ScoreEvidence } from '../utils/confidence';
+import { scoreEvidenceAccessibilityLabel, type ScoreEvidence } from '../utils/confidence';
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
-import { computeSparkPoints, type SparkPoint } from '../utils/sparkline';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
-import UnifiedTimeline from './UnifiedTimeline';
-import { computeEventTimes } from '../utils/events';
+import ConfidenceMetric from './ConfidenceMetric';
 import {
-  deriveSpotTimelineHourKeys,
   addCityCalendarDays,
   formatCanonicalHourKey,
   formatCityCalendarDate,
   formatInstantTimeLabel,
-  normalizeTimelineHourKey,
 } from '../utils/timeline';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
 
 interface ScoreCardProps {
+  embedded?: boolean;
   spot: Spot;
   type: CardType;
   eventInstant: Date;
@@ -34,7 +31,6 @@ interface ScoreCardProps {
   activeScore?: number;
   canonicalScore?: number;
   scoreEvidence: ScoreEvidence;
-  onTimelineHourChange?: (key: string) => void;
   timeZone: string;
   forecast: SpotForecast | null;
   forecastLoading: boolean;
@@ -275,67 +271,6 @@ const typeTitle: Record<CardType, string> = {
   stargazing: "STARGAZING",
 };
 
-// ── Score sparkline ─────────────────────────────────────────────────────
-//
-// Compact per-hour score strip. Fixed outer height so the card doesn't jump
-// when the forecast resolves — while loading, the container renders empty
-// (skeleton); once we have points, bars fill in in-place.
-
-// Container height is fixed so the skeleton and the rendered strip occupy
-// the same vertical space. BAR_AREA_PX is the max height a single bar can
-// reach; the remaining pixels above it host the peak-hour dot.
-const SPARK_CONTAINER_PX = 26;
-const SPARK_BAR_AREA_PX = 20;
-const SPARK_BAR_MIN_PX = 3;
-
-function formatSparkTime(date: Date, timeZone: string): string {
-  return date
-    .toLocaleTimeString('en-US', { timeZone, hour: 'numeric', hour12: true })
-    .toLowerCase()
-    .replace(/\s/g, '');
-}
-
-interface SparkStripProps {
-  points: SparkPoint[];
-  timeZone: string;
-}
-
-function SparkStrip({ points, timeZone }: SparkStripProps) {
-  return (
-    <div
-      className="mt-3 flex items-end gap-[3px]"
-      style={{ height: SPARK_CONTAINER_PX }}
-      role="img"
-      aria-label={`Score trend across ${points.length} hours around the event`}
-    >
-      {points.map((p, i) => {
-        const barPx = Math.max(
-          SPARK_BAR_MIN_PX,
-          Math.round((p.score / 100) * SPARK_BAR_AREA_PX),
-        );
-        return (
-          <div key={i} className="flex-1 flex flex-col items-center justify-end">
-            {p.isPeak && (
-              <span
-                aria-hidden
-                className="w-1 h-1 rounded-full mb-[2px]"
-                style={{ background: p.color }}
-              />
-            )}
-            <div
-              className="w-full rounded-sm"
-              style={{ height: barPx, background: p.color }}
-              title={`${p.score} · ${formatSparkTime(p.date, timeZone)}`}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Access Alert Badge ──────────────────────────────────────────────────
-
 const ALERT_TOOLTIP_WIDTH = 230;
 const ALERT_TOOLTIP_GAP = 10;
 const ALERT_VIEWPORT_MARGIN = 8;
@@ -493,7 +428,7 @@ function windBarPercent(mph: number): number {
 
 // ── Main ScoreCard ──────────────────────────────────────────────────────
 
-export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, onTimelineHourChange, timeZone, forecast, forecastLoading: loading, forecastError: error, onRetryForecast, forecastRetrying = false, now }: ScoreCardProps) {
+export default function ScoreCard({ embedded = false, spot, type, eventInstant, city, scrubHourKey, scrubViewMode, activeScore, canonicalScore, scoreEvidence, timeZone, forecast, forecastError: error, onRetryForecast, forecastRetrying = false, now }: ScoreCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -538,7 +473,6 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
     if (canonicalScore !== undefined) return canonicalScore;
     return breakdown ? breakdown.total : spot[type];
   })();
-  const isForecastBacked = scoreEvidence.provenance === 'forecast';
   const refreshExplanation = weatherRefreshExplanation(error);
 
   const spotScore = type === 'now' ? computeNowBaseScore(spot) : spot[type];
@@ -549,16 +483,6 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
     return scoreSunWeather(hourly);
   })();
 
-  const sparkPoints: SparkPoint[] = forecast && type !== 'now'
-    ? computeSparkPoints(spot, type, forecast, eventInstant, moonIllum.fraction)
-    : [];
-  // Reserve space for the sparkline while the forecast is still resolving so
-  // the metrics strip below doesn't jump when data lands. If we already know
-  // there's nothing to plot (error, or forecast has no matching hours), hide
-  // the row entirely instead of leaving an empty gap.
-  const showSparkSkeleton = type !== 'now' && !forecast && !error;
-  const showSparkStrip = type !== 'now' && sparkPoints.length > 0;
-
   const poetic = getPoetic(displayType, score);
   const isSunEvent = displayType === 'sunrise' || displayType === 'sunset';
   const karlLine = breakdown && isSunEvent
@@ -566,10 +490,6 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
     : getKarlComment(score, displayType, spot.id, eventInstant, city);
   const gradient = getSkyGradient(displayType, score);
 
-  const timelineHourKeys = forecast
-    ? deriveSpotTimelineHourKeys(Object.keys(forecast.hours), now)
-    : [];
-  const eventTimes = computeEventTimes(now, spot.lat, spot.lng);
 
   const tempF = hourly && Number.isFinite(hourly.tempF) ? hourly.tempF : null;
   const [tempUnit, setTempUnit] = useTempUnit();
@@ -581,6 +501,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
   const dots = dotColors[type];
 
   const handleShare = async () => {
+    if (spot.visibility === 'private') return;
     const eventLabel = type === 'now' && scrubHourKey
       ? 'selected hour'
       : typeTitle[type].toLowerCase();
@@ -690,7 +611,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
   const windBarValue = windMph === null ? undefined : windBarPercent(windMph);
 
   return (
-    <div ref={cardRef} className="relative rounded-xl bg-white shadow-md w-full">
+    <div ref={cardRef} className={`relative bg-white w-full ${embedded ? '' : 'rounded-xl shadow-md'}`}>
       <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
 
         {/* ── Face A: Summary ── */}
@@ -702,11 +623,12 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
           aria-hidden={showDetail}
           inert={showDetail}
         >
-          <div className="rounded-xl flex flex-col overflow-hidden h-full">
+          <div className={`flex flex-col overflow-hidden h-full ${embedded ? '' : 'rounded-xl'}`}>
             {/* Sky gradient header */}
             <div
               className="relative overflow-hidden flex-shrink-0"
               style={{ background: gradient, minHeight: 140 }}
+              data-sky-artwork
             >
               <div className="absolute top-2 left-2.5 flex items-center gap-1 z-10">
                 {dots.map((c, i) => (
@@ -717,7 +639,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                 {spot.accessAlert && (
                   <AccessAlertBadge alert={spot.accessAlert} spotName={spot.name} />
                 )}
-                <button
+                {spot.visibility !== 'private' && <button
                   type="button"
                   onClick={handleShare}
                   className="w-6 h-6 rounded-full bg-white/85 backdrop-blur-sm shadow-sm flex items-center justify-center hover:bg-white transition-colors active:scale-95"
@@ -728,32 +650,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                     <path d="m7 8 5-5 5 5" />
                     <path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" />
                   </svg>
-                </button>
-              </div>
-              {copied && (
-                <div className="absolute top-9 right-1.5 z-10 px-2 py-1 rounded-md bg-gray-800/90 text-white text-[9px] font-mono tracking-wide uppercase shadow-md">
-                  Link copied
-                </div>
-              )}
-              {type === 'stargazing' && (
-                <div
-                  className="absolute bottom-1.5 right-2.5 text-white/45 text-[8px] font-mono tracking-wider uppercase"
-                  style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}
-                >
-                  Moon {Math.round(moonIllum.fraction * 100)}%
-                </div>
-              )}
-              <div
-                className="absolute bottom-1.5 left-2.5 flex items-center gap-1 rounded-full bg-gray-900 px-2 py-1 text-white text-[9px] font-mono tracking-[1.25px] uppercase shadow-sm"
-                style={{ backgroundColor: '#111827' }}
-                aria-live="polite"
-                data-contrast-audit="weather-trust-status"
-              >
-                <span
-                  className={`inline-block w-1.5 h-1.5 rounded-full ${isForecastBacked ? 'bg-emerald-400' : 'bg-white/40'}`}
-                  style={isForecastBacked ? { boxShadow: '0 0 6px rgba(52,211,153,0.85)' } : undefined}
-                />
-                {scoreEvidence.statusLabel}
+                </button>}
               </div>
               {type === 'stargazing' && (
                 <>
@@ -778,9 +675,6 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                           : typeTitle[type])
                       : <>{dateLabel}&apos;s {typeTitle[type]}</>}
                   </h3>
-                  <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
-                    {poetic}
-                  </p>
                 </div>
                 <span className="font-mono text-[9px] text-gray-500 tracking-wide flex-shrink-0 mt-1">
                   {fullDate}
@@ -799,12 +693,21 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
 
               {/* Score + poetic description */}
               <div className="mt-4">
-                <div className="flex items-baseline gap-2">
-                  <span className="font-serif text-[28px] font-light text-gray-800 leading-none tabular-nums">
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1">
+                  <span
+                    className="font-serif text-[28px] font-light text-gray-800 leading-none tabular-nums"
+                    aria-label={`${type === 'now' ? 'Now' : type[0].toUpperCase() + type.slice(1)} score ${scoreEvidenceAccessibilityLabel(score, scoreEvidence)}`}
+                  >
                     {score}
                   </span>
+                  <ConfidenceMetric evidence={scoreEvidence} />
                   <span className="font-serif italic text-[14px] text-gray-500">{poetic}</span>
                 </div>
+                <p className="font-mono text-[9px] text-gray-500 mt-1.5" aria-live="polite">
+                  {scoreEvidence.statusLabel.replace(/ · (low|medium|high) confidence$/i, '')}
+                  {type === 'stargazing' && <span> · Moon {Math.round(moonIllum.fraction * 100)}%</span>}
+                  {copied && <span role="status"> · Link copied</span>}
+                </p>
                 <p className="font-mono text-[8px] tracking-[1.5px] text-gray-500 uppercase mt-1.5">
                   {scoreEvidence.provenanceLabel}
                   <span aria-hidden="true"> · </span>
@@ -825,33 +728,8 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                     {forecastRetrying ? `Retrying forecast for ${spot.name}` : `Retry forecast for ${spot.name}`}
                   </button>
                 )}
-                {showSparkStrip ? (
-                  <SparkStrip points={sparkPoints} timeZone={timeZone} />
-                ) : showSparkSkeleton ? (
-                  <div
-                    className="mt-3"
-                    style={{ height: SPARK_CONTAINER_PX }}
-                    aria-hidden
-                  />
-                ) : null}
-              </div>
 
-              {type === 'now' && onTimelineHourChange && (
-                <div className="mt-4 border-t border-gray-100 pt-3">
-                  <UnifiedTimeline
-                    hourKeys={timelineHourKeys}
-                    hourKey={scrubHourKey ?? ''}
-                    onHourChange={(key) =>
-                      onTimelineHourChange(normalizeTimelineHourKey(key, timelineHourKeys))
-                    }
-                    viewMode={displayType}
-                    eventTimes={eventTimes}
-                    timeZone={timeZone}
-                    loading={loading}
-                    now={now}
-                  />
-                </div>
-              )}
+              </div>
 
               {/* Condensed metrics strip */}
               {type === 'now' ? (
@@ -949,7 +827,7 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
           aria-hidden={!showDetail}
           inert={!showDetail}
         >
-          <div className="rounded-xl flex flex-col overflow-hidden h-full">
+          <div className={`flex flex-col overflow-hidden h-full ${embedded ? '' : 'rounded-xl'}`}>
             {/* Gradient-backed score context row */}
             <div
               className="flex items-center justify-between px-5 py-3.5 rounded-t-xl flex-shrink-0"
@@ -979,8 +857,8 @@ export default function ScoreCard({ spot, type, eventInstant, city, scrubHourKey
                 />
                 <DetailRow
                   label="Elevation"
-                  value={`${spot.elevation} m`}
-                  barValue={Math.min(100, (spot.elevation / 500) * 100)}
+                  value={spot.visibility === 'private' && spot.elevation === 0 ? 'Unknown' : `${spot.elevation} m`}
+                  barValue={spot.visibility === 'private' && spot.elevation === 0 ? undefined : Math.min(100, (spot.elevation / 500) * 100)}
                   barColor={DETAIL_BAR_COLORS.elevation}
                 />
                 <DetailRow

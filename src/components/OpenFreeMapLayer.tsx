@@ -7,7 +7,7 @@ import '@maplibre/maplibre-gl-leaflet';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 export const OPEN_FREE_MAP_STYLES = {
-  explore: 'https://tiles.openfreemap.org/styles/liberty',
+  explore: 'https://tiles.openfreemap.org/styles/positron',
   weather: 'https://tiles.openfreemap.org/styles/positron',
 } as const;
 

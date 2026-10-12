@@ -1,5 +1,5 @@
 import type { ViewMode } from './scoring';
-import { resolveViewMode } from './events';
+import { resolveViewMode, type UpcomingEvents } from './events';
 import type { HourlyForecast, SpotForecast } from './weather';
 
 export const SCORE_CARD_ORDER = ['now', 'sunrise', 'sunset', 'stargazing'] as const;
@@ -198,4 +198,44 @@ export function deriveSpotTimelineHourKeys(availableHourKeys: readonly string[],
 export function viewModeForHourKey(hourKey: string, _timeZone: string, lat: number, lng: number, now: Date): ViewMode {
   const selectedInstant = hourKey === '' ? now : parseCanonicalHourKey(hourKey);
   return resolveViewMode(selectedInstant ?? now, lat, lng);
+}
+
+export interface TimelineStop {
+  view: ViewMode;
+  instantMs: number;
+  hourKey: string;
+}
+
+/** Hours and sky events share one absolute-time scale, including tonight's dusk. */
+export function buildTimelineStops(hourKeys: readonly string[], now: Date, events: UpcomingEvents): TimelineStop[] {
+  const stops: TimelineStop[] = [{ view: 'now', instantMs: now.getTime(), hourKey: '' }];
+  for (const key of hourKeys) {
+    const instant = parseCanonicalHourKey(key);
+    if (instant && instant > now) stops.push({ view: 'now', instantMs: instant.getTime(), hourKey: key });
+  }
+  for (const view of ['sunrise', 'sunset', 'stargazing'] as const) {
+    const instantMs = events[view].getTime();
+    if (Number.isFinite(instantMs)) stops.push({ view, instantMs, hourKey: '' });
+  }
+  // An exact event replaces its coincident hourly stop, while live Now stays reachable.
+  const eventInstants = new Set(stops.filter((stop) => stop.view !== 'now').map((stop) => stop.instantMs));
+  return stops.filter((stop) => !stop.hourKey || !eventInstants.has(stop.instantMs))
+    .sort((a, b) => a.instantMs - b.instantMs);
+}
+
+export function timelinePositionPct(instantMs: number, stops: readonly TimelineStop[]): number {
+  if (stops.length < 2) return 0;
+  const start = stops[0].instantMs;
+  const span = stops[stops.length - 1].instantMs - start;
+  return span > 0 ? Math.max(0, Math.min(100, (instantMs - start) / span * 100)) : 0;
+}
+
+export function nearestTimelineStopIndex(percent: number, stops: readonly TimelineStop[]): number {
+  const target = stops[0]?.instantMs + Math.max(0, Math.min(100, percent)) / 100 *
+    ((stops[stops.length - 1]?.instantMs ?? 0) - (stops[0]?.instantMs ?? 0));
+  let closest = 0;
+  for (let index = 1; index < stops.length; index += 1) {
+    if (Math.abs(stops[index].instantMs - target) < Math.abs(stops[closest].instantMs - target)) closest = index;
+  }
+  return closest;
 }

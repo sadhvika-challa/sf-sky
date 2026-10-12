@@ -104,7 +104,7 @@ async function selectAndExerciseNowSheet(page: Page, spotName: string) {
   const sheet = page.getByRole('dialog', { name: `${spotName} sky scores` });
   await expect(sheet).toBeVisible();
   await expect(sheet.locator('[data-card-type="now"]')).toBeVisible();
-  await expect(sheet.getByRole('tab', { name: 'Show Now card' })).toHaveAttribute(
+  await expect(page.getByRole('tablist', { name: 'Sky views' }).getByRole('tab', { name: 'Show Now card' })).toHaveAttribute(
     'aria-selected',
     'true',
   );
@@ -118,15 +118,15 @@ test.beforeEach(async ({ page }) => {
   await installDeterministicBrowserState(page);
 });
 
-test('requests the official Liberty style, never CARTO, and exposes linked attribution', async ({ page }) => {
+test('requests the lighter official Positron style, never CARTO, and exposes linked attribution', async ({ page }) => {
   const traffic = await isolateProviderTraffic(page, (route) => fulfillEmptyStyle(route));
 
   await page.goto('/');
 
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(1);
   await expectLinkedAttribution(page);
-  expect(traffic.libertyRequests.length).toBeGreaterThan(0);
-  expect(new Set(traffic.libertyRequests)).toEqual(new Set([LIBERTY_STYLE_URL]));
+  expect(traffic.positronRequests.length).toBeGreaterThan(0);
+  expect(new Set(traffic.positronRequests)).toEqual(new Set([POSITRON_STYLE_URL]));
   expect(traffic.cartoRequests).toEqual([]);
   expect(traffic.unexpectedRequests).toEqual([]);
 });
@@ -207,7 +207,7 @@ test('keeps Weather controls and recovery above the Now sheet during a style out
   await page.clock.runFor(3_000);
   await expect(notice).toBeHidden();
   await expect(page.locator('.leaflet-container')).toBeFocused();
-  expect(traffic.libertyRequests.length).toBeGreaterThan(0);
+  expect(traffic.positronRequests.length).toBeGreaterThan(0);
   expect(traffic.positronRequests.length).toBeGreaterThanOrEqual(2);
   expect(traffic.weatherRequests.length).toBeGreaterThan(0);
   expect(traffic.cartoRequests).toEqual([]);

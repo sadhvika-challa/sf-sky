@@ -5,7 +5,7 @@ import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { useTempUnit } from '../hooks/useTempUnit';
 import { getKarlComment } from '../utils/karl-copy';
 import { computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
-import { formatActiveTimelineLabel } from '../utils/timeline';
+import { formatActiveTimelineLabel, formatCityCalendarDate, formatInstantTimeLabel } from '../utils/timeline';
 import { describeScoreEvidenceSet, type ScoreEvidence } from '../utils/confidence';
 
 interface SearchOverlayProps {
@@ -21,6 +21,7 @@ interface SearchOverlayProps {
   timelineHourKey: string;
   timeZone: string;
   timelineNow: Date;
+  timelineEventTime?: Date;
 }
 
 interface RankedSpot {
@@ -96,6 +97,7 @@ export default function SearchOverlay({
   timelineHourKey,
   timeZone,
   timelineNow,
+  timelineEventTime,
 }: SearchOverlayProps) {
   const [tempUnit] = useTempUnit();
   const [query, setQuery] = useState('');
@@ -148,7 +150,11 @@ export default function SearchOverlay({
     () => buildRanking(spotList, liveScores, userLocation, viewMode),
     [spotList, liveScores, userLocation, viewMode],
   );
-  const activeTimelineLabel = formatActiveTimelineLabel(
+  const eventDay = timelineEventTime && formatCityCalendarDate(timelineEventTime, timeZone) === formatCityCalendarDate(timelineNow, timeZone)
+    ? 'Today' : timelineEventTime ? new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }).format(timelineEventTime) : '';
+  const activeTimelineLabel = timelineEventTime
+    ? `${TYPE_LABEL[viewMode]} · ${eventDay} at ${formatInstantTimeLabel(timelineEventTime, timeZone)}`
+    : formatActiveTimelineLabel(
     timelineHourKey,
     viewMode,
     timeZone,
@@ -163,7 +169,7 @@ export default function SearchOverlay({
       // Filter by name; preserve score-desc order so the most promising
       // matches still bubble up first.
       return ranked
-        .filter((r) => r.spot.name.toLowerCase().includes(trimmed))
+        .filter((r) => r.spot.name.toLowerCase().includes(trimmed) || r.spot.address?.toLowerCase().includes(trimmed))
         .sort((a, b) => b.score - a.score);
     }
     return [...ranked].sort((a, b) => b.score - a.score);

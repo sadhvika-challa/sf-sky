@@ -28,7 +28,7 @@ const STYLE: StyleSpecification = {
 describe('OpenFreeMapLayer', () => {
   it('uses official OpenFreeMap styles and a bounded attempt', () => {
     expect(OPEN_FREE_MAP_STYLES).toEqual({
-      explore: 'https://tiles.openfreemap.org/styles/liberty',
+      explore: 'https://tiles.openfreemap.org/styles/positron',
       weather: 'https://tiles.openfreemap.org/styles/positron',
     });
     expect(MAP_BACKGROUND_ATTEMPT_TIMEOUT_MS).toBeGreaterThan(0);

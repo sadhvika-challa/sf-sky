@@ -3,22 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import HomeSheet from '../HomeSheet';
 
 describe('HomeSheet', () => {
+  it('leaves the map clear when no result or coverage notice is needed', () => {
+    expect(renderToStaticMarkup(<HomeSheet onChooseCity={vi.fn()} />)).toBe('');
+  });
   it('keeps a located city mismatch explicit and reversible', () => {
     const html = renderToStaticMarkup(
       <HomeSheet
-        locationState={{
-          status: 'allowed',
-          location: {
-            lat: 30.27,
-            lng: -97.74,
-            accuracyMeters: 20,
-            precision: 'precise',
-            capturedAt: 1,
-          },
-        }}
-        onRequestLocation={vi.fn()}
         onChooseCity={vi.fn()}
-        onUseCityInstead={vi.fn()}
         scopeNotice={{
           kind: 'city-mismatch',
           activeCityName: 'San Francisco',
@@ -39,19 +30,7 @@ describe('HomeSheet', () => {
   it('suggests coverage without claiming the map switched', () => {
     const html = renderToStaticMarkup(
       <HomeSheet
-        locationState={{
-          status: 'allowed',
-          location: {
-            lat: 34.05,
-            lng: -118.24,
-            accuracyMeters: 1_000,
-            precision: 'approximate',
-            capturedAt: 1,
-          },
-        }}
-        onRequestLocation={vi.fn()}
         onChooseCity={vi.fn()}
-        onUseCityInstead={vi.fn()}
         scopeNotice={{
           kind: 'outside-coverage',
           suggestedCityName: 'Santa Cruz',

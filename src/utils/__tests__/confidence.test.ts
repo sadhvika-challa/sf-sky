@@ -1,3 +1,6 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ConfidenceMetric from '../../components/ConfidenceMetric';
 import { describe, expect, it } from 'vitest';
 import {
   buildScoreEvidence,
@@ -272,5 +275,20 @@ describe('getForecastConfidence', () => {
     expect(getForecastConfidence('forecast', 'stale', 'complete', NOW, NOW)).toBe('low');
     expect(getForecastConfidence('forecast', 'fresh', 'partial', NOW, NOW)).toBe('low');
     expect(getForecastConfidence('curated-estimate', 'unknown', 'missing', NOW, NOW)).toBe('low');
+  });
+});
+
+
+describe('confidence metric', () => {
+  it('exposes forecast confidence as a separate named metric', () => {
+    const html = renderToStaticMarkup(createElement(ConfidenceMetric, { evidence: evidence() }));
+    expect(html).toContain('Forecast confidence: High');
+    expect(html).toContain('High confidence');
+    expect(html).not.toContain('Current forecast');
+  });
+  it('keeps missing and partial forecasts at low confidence', () => {
+    const html = renderToStaticMarkup(createElement(ConfidenceMetric, { evidence: evidence({ hourly: null }) }));
+    expect(html).toContain('Forecast confidence: Low');
+    expect(html).not.toContain('High confidence');
   });
 });

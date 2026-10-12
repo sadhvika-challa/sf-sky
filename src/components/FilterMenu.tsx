@@ -20,6 +20,7 @@ interface FilterMenuProps {
   onOpenCitySheet: () => void;
   savedSpotsCount: number;
   onOpenSavedSpots: () => void;
+  onOpenLocation?: () => void;
 }
 
 const CATEGORY_OPTIONS: ReadonlyArray<{ value: SpotCategory; label: string }> = [
@@ -105,6 +106,7 @@ function FilterContent({
   onOpenCitySheet,
   savedSpotsCount,
   onOpenSavedSpots,
+  onOpenLocation,
 }: Omit<FilterMenuProps, 'open'>) {
   const title = useMemo(() => contextualTitle(), []);
 
@@ -150,6 +152,9 @@ function FilterContent({
       )}
 
       <div className="mt-4 pt-3 border-t border-cream-dark flex flex-col">
+        {onOpenLocation && (
+          <button type="button" onClick={onOpenLocation} className="w-full min-h-11 rounded-lg border-b border-cream-dark px-3 py-3.5 text-left font-mono text-[12px] tracking-[1px] text-gray-600 hover:bg-cream-dark/40">Location</button>
+        )}
         <button
           type="button"
           onClick={onOpenSavedSpots}
@@ -230,6 +235,7 @@ export default function FilterMenu({
   onOpenCitySheet,
   savedSpotsCount,
   onOpenSavedSpots,
+  onOpenLocation,
 }: FilterMenuProps) {
   useEffect(() => {
     if (!open) return;
@@ -254,6 +260,7 @@ export default function FilterMenu({
     onOpenCitySheet,
     savedSpotsCount,
     onOpenSavedSpots,
+    onOpenLocation,
   };
 
   return (

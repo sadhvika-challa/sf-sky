@@ -1,12 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ViewMode } from '../utils/scoring';
-import type { EventTimes } from '../utils/events';
+import type { UpcomingEvents } from '../utils/events';
+import { NowIcon, SunriseIcon, SunsetIcon, StargazingIcon } from './icons/ScrubberIcons';
 import {
   formatCanonicalHourLabel,
   formatCityCalendarDate,
   formatInstantTimeLabel,
   parseCanonicalHourKey,
   isRepeatedLocalHourInstant,
+  buildTimelineStops,
+  timelinePositionPct,
+  nearestTimelineStopIndex,
 } from '../utils/timeline';
 
 interface UnifiedTimelineProps {
@@ -14,10 +18,14 @@ interface UnifiedTimelineProps {
   hourKey: string;
   onHourChange: (key: string) => void;
   viewMode: ViewMode;
-  eventTimes: EventTimes;
+  eventTimes: UpcomingEvents;
   timeZone: string;
   loading?: boolean;
   now: Date;
+  selectedView: ViewMode;
+  selectedEventTime?: Date;
+  onViewChange: (view: ViewMode) => void;
+  hasSelectedSpot?: boolean;
 }
 
 const ZONE_COLORS: Record<ViewMode, string> = {
@@ -34,15 +42,6 @@ const VIEW_MODE_LABELS: Record<ViewMode, string> = {
   sunset: 'Sunset',
 };
 
-function formatTime(date: Date, timeZone: string, includeMinutes = true): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour: 'numeric',
-    minute: includeMinutes ? '2-digit' : undefined,
-    hour12: true,
-  }).format(date).toLowerCase().replace(/\s/g, '');
-}
-
 function formatSelectedTime(hourKey: string, timeZone: string, now: Date): string {
   if (!hourKey) return `Now · ${formatInstantTimeLabel(now, timeZone)}`;
   const instant = parseCanonicalHourKey(hourKey);
@@ -56,19 +55,13 @@ function formatSelectedTime(hourKey: string, timeZone: string, now: Date): strin
   return `${dayLabel} · ${formatCanonicalHourLabel(hourKey, timeZone, { includeZone })}`;
 }
 
-function nearestHourKeyForTime(eventTime: Date, hourKeys: string[]): string {
-  let best = '';
-  let bestDiff = Infinity;
-  for (const key of hourKeys) {
-    const instant = parseCanonicalHourKey(key);
-    if (!instant) continue;
-    const diff = Math.abs(instant.getTime() - eventTime.getTime());
-    if (diff < bestDiff) {
-      best = key;
-      bestDiff = diff;
-    }
-  }
-  return best;
+const SKY_VIEWS = ['now', 'sunrise', 'sunset', 'stargazing'] as const;
+const VIEW_ICONS = { now: NowIcon, sunrise: SunriseIcon, sunset: SunsetIcon, stargazing: StargazingIcon };
+
+function formatEventTime(instant: Date, timeZone: string, now: Date): string {
+  const day = formatCityCalendarDate(instant, timeZone) === formatCityCalendarDate(now, timeZone)
+    ? 'Today' : new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }).format(instant);
+  return `${day} · ${formatInstantTimeLabel(instant, timeZone)}`;
 }
 
 export default function UnifiedTimeline({
@@ -80,51 +73,58 @@ export default function UnifiedTimeline({
   timeZone,
   loading = false,
   now,
+  selectedView,
+  selectedEventTime,
+  onViewChange,
+  hasSelectedSpot = false,
 }: UnifiedTimelineProps) {
   const railRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const [pulseKey, setPulseKey] = useState(0);
+  const viewButtons = useRef<Partial<Record<ViewMode, HTMLButtonElement | null>>>({});
   const disabled = hourKeys.length === 0;
-  // Position zero is always the canonical live state. Forecast hours begin at one.
-  const max = hourKeys.length;
-  const selectedForecastIndex = hourKey === '' ? -1 : hourKeys.indexOf(hourKey);
-  const selectionUnavailable = hourKey !== '' && selectedForecastIndex < 0;
-  const currentIndex = selectedForecastIndex >= 0 ? selectedForecastIndex + 1 : 0;
-  const thumbPct = max > 0 ? (currentIndex / max) * 100 : 0;
+  const stops = useMemo(() => buildTimelineStops(hourKeys, now, eventTimes), [hourKeys, now, eventTimes]);
+  const max = stops.length - 1;
+  const selectionUnavailable = !selectedEventTime && hourKey !== '' && !hourKeys.includes(hourKey);
+  const selectedInstant = selectedEventTime?.getTime() ?? (parseCanonicalHourKey(hourKey)?.getTime() ?? now.getTime());
+  const currentIndex = Math.max(0, stops.findIndex((stop) => selectedEventTime
+    ? stop.view === selectedView : stop.view === 'now' && stop.hourKey === hourKey));
+  const thumbPct = timelinePositionPct(selectedInstant, stops);
+  const labelView = selectedView === 'now' ? (hourKey ? viewMode : 'now') : selectedView;
+  const selectedTimeLabel = selectedEventTime
+    ? formatEventTime(selectedEventTime, timeZone, now)
+    : formatSelectedTime(hourKey, timeZone, now);
 
-  const railPcts = useMemo(() => ({
-    sunrisePct: eventTimes.sunrisePct,
-    sunsetPct: eventTimes.sunsetPct,
-  }), [eventTimes.sunrisePct, eventTimes.sunsetPct]);
+  const markers = (['sunrise', 'sunset', 'stargazing'] as const).map((view) => ({
+    view, percent: timelinePositionPct(eventTimes[view].getTime(), stops),
+  }));
+  const solarMarkers = markers.filter((marker) => marker.view !== 'stargazing').sort((a, b) => a.percent - b.percent);
+  let color = solarMarkers[0]?.view === 'sunrise' ? ZONE_COLORS.stargazing : ZONE_COLORS.now;
+  const gradientStops = [`${color} 0%`];
+  for (const marker of solarMarkers) {
+    const start = Math.max(0, marker.percent - 3);
+    const end = Math.min(100, marker.percent + 3);
+    gradientStops.push(`${color} ${start}%`, `${ZONE_COLORS[marker.view]} ${start}%`, `${ZONE_COLORS[marker.view]} ${end}%`);
+    color = marker.view === 'sunrise' ? ZONE_COLORS.now : ZONE_COLORS.stargazing;
+    gradientStops.push(`${color} ${end}%`);
+  }
+  gradientStops.push(`${color} 100%`);
+  const zoneGradient = `linear-gradient(to right, ${gradientStops.join(', ')})`;
 
-  const zoneGradient = useMemo(() => {
-    const sunriseStart = Math.max(0, railPcts.sunrisePct - 3);
-    const sunriseEnd = Math.min(100, railPcts.sunrisePct + 3);
-    const sunsetStart = Math.max(0, railPcts.sunsetPct - 3);
-    const sunsetEnd = Math.min(100, railPcts.sunsetPct + 3);
-    return `linear-gradient(to right, ${ZONE_COLORS.stargazing} 0%, ${ZONE_COLORS.stargazing} ${sunriseStart}%, ${ZONE_COLORS.sunrise} ${sunriseStart}%, ${ZONE_COLORS.sunrise} ${sunriseEnd}%, ${ZONE_COLORS.now} ${sunriseEnd}%, ${ZONE_COLORS.now} ${sunsetStart}%, ${ZONE_COLORS.sunset} ${sunsetStart}%, ${ZONE_COLORS.sunset} ${sunsetEnd}%, ${ZONE_COLORS.stargazing} ${sunsetEnd}%, ${ZONE_COLORS.stargazing} 100%)`;
-  }, [railPcts]);
-
-  const keyForIndex = useCallback((index: number): string => {
-    if (index <= 0) return '';
-    return hourKeys[Math.min(index - 1, hourKeys.length - 1)] ?? '';
-  }, [hourKeys]);
+  const selectStop = useCallback((index: number) => {
+    const stop = stops[Math.max(0, Math.min(max, index))];
+    if (stop.view === 'now') onHourChange(stop.hourKey);
+    else onViewChange(stop.view);
+  }, [stops, max, onHourChange, onViewChange]);
 
   const resolvePosition = useCallback((clientX: number) => {
     const rail = railRef.current;
     if (!rail || disabled) return;
     const rect = rail.getBoundingClientRect();
-    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    const index = Math.round((x / Math.max(rect.width, 1)) * max);
-    onHourChange(keyForIndex(index));
-  }, [disabled, keyForIndex, max, onHourChange]);
+    selectStop(nearestTimelineStopIndex((clientX - rect.left) / Math.max(rect.width, 1) * 100, stops));
+  }, [disabled, selectStop, stops]);
 
-  const jumpToEvent = useCallback((event: 'sunrise' | 'sunset') => {
-    const key = nearestHourKeyForTime(eventTimes[event], hourKeys);
-    if (key) onHourChange(key);
-  }, [eventTimes, hourKeys, onHourChange]);
-
-  const valueText = `${VIEW_MODE_LABELS[viewMode]}, ${formatSelectedTime(hourKey, timeZone, now)}`;
+  const valueText = `${VIEW_MODE_LABELS[labelView]}, ${selectedTimeLabel}`;
 
   return (
     <div
@@ -137,10 +137,10 @@ export default function UnifiedTimeline({
     >
       <div className="flex items-center justify-between px-0.5">
         <span className="font-serif text-[18px] leading-tight text-gray-800">
-          {VIEW_MODE_LABELS[viewMode]}
+          {VIEW_MODE_LABELS[labelView]}
         </span>
         <span className="font-mono text-[11px] tabular-nums text-gray-500" aria-live="polite">
-          {formatSelectedTime(hourKey, timeZone, now)}
+          {selectedTimeLabel}
         </span>
       </div>
 
@@ -183,57 +183,70 @@ export default function UnifiedTimeline({
         onKeyDown={(event) => {
           if (disabled) return;
           let nextIndex = currentIndex;
-          if (event.key === 'ArrowRight' || event.key === 'ArrowUp') nextIndex += 1;
-          else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') nextIndex -= 1;
-          else if (event.key === 'Home') nextIndex = 0;
+          if (event.key === 'ArrowRight' || event.key === 'ArrowUp') nextIndex = Math.floor(currentIndex) + 1;
+          else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') nextIndex = Math.ceil(currentIndex) - 1;
+          else if (event.key === 'Home') nextIndex = stops.findIndex((stop) => stop.view === 'now' && !stop.hourKey);
           else if (event.key === 'End') nextIndex = max;
           else return;
           event.preventDefault();
-          onHourChange(keyForIndex(Math.max(0, Math.min(max, nextIndex))));
+          selectStop(nextIndex);
         }}
       >
+        {(disabled || selectionUnavailable) && (
+          <p className="absolute inset-0 z-30 flex items-center justify-center rounded-lg bg-[#FAF9F6]/95 px-2 text-center font-mono text-[10px] text-gray-500" role="status">
+            {selectionUnavailable ? 'That hour is unavailable. Choose another hour or Now.' : loading ? 'Loading forecast hours…' : 'Hourly forecast unavailable'}
+          </p>
+        )}
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[6px] rounded-full" style={{ background: zoneGradient }} aria-hidden="true" />
-        <span className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-[#1a1a18]" style={{ left: 0 }} aria-hidden="true" />
-        {railPcts.sunrisePct > 0 && railPcts.sunrisePct < 100 && (
-          <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#D946A8] border-2 border-[#FAF9F6]" style={{ left: `${railPcts.sunrisePct}%` }} aria-hidden="true" />
-        )}
-        {railPcts.sunsetPct > 0 && railPcts.sunsetPct < 100 && (
-          <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#CC2936] border-2 border-[#FAF9F6]" style={{ left: `${railPcts.sunsetPct}%` }} aria-hidden="true" />
-        )}
+        <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-[#1a1a18]" style={{ left: `${timelinePositionPct(now.getTime(), stops)}%` }} aria-hidden="true" />
+        {markers.map((marker) => (
+          <span key={marker.view} data-timeline-event={marker.view} className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-2 border-[#FAF9F6]" style={{ left: `${marker.percent}%`, backgroundColor: marker.view === 'sunrise' ? '#D946A8' : marker.view === 'sunset' ? '#CC2936' : '#2c2c4a' }} aria-hidden="true" />
+        ))}
         {!disabled && (
-          <span className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-[#1a1a18] pointer-events-none z-20 border-[2.5px] border-[#FAF9F6]" style={{ left: `${thumbPct}%` }} aria-hidden="true">
+          <span data-timeline-thumb className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-[#1a1a18] pointer-events-none z-20 border-[2.5px] border-[#FAF9F6]" style={{ left: `${thumbPct}%` }} aria-hidden="true">
             <span key={pulseKey} className="block absolute inset-0 rounded-full border border-[#1a1a18]/40 weather-thumb-pulse" />
           </span>
         )}
       </div>
 
-      {selectionUnavailable && (
-        <p className="text-center font-mono text-[10px] text-amber-700" role="status">
-          That exact hour is unavailable. Choose another hour or return to Now.
-        </p>
-      )}
-      {disabled ? (
-        <div className="min-h-10 flex items-center justify-between gap-2">
-          <p className="font-mono text-[10px] text-gray-500" role="status">
-            {loading ? 'Loading forecast hours…' : 'Hourly forecast unavailable'}
-          </p>
-          {hourKey !== '' && (
+      <div className="grid grid-cols-4 gap-1" role={hasSelectedSpot ? 'tablist' : 'group'} aria-label="Sky views">
+        {SKY_VIEWS.map((view) => {
+          const Icon = VIEW_ICONS[view];
+          const selected = view === selectedView;
+          return (
             <button
+              key={view}
+              ref={(element) => { viewButtons.current[view] = element; }}
+              id={`score-card-tab-${view}`}
               type="button"
-              className="min-h-11 px-3 rounded-lg text-[10px] font-mono text-gray-700 bg-gray-100 active:bg-gray-200"
-              onClick={() => onHourChange('')}
+              role={hasSelectedSpot ? 'tab' : undefined}
+              aria-selected={hasSelectedSpot ? selected : undefined}
+              aria-pressed={hasSelectedSpot ? undefined : selected}
+              aria-controls={hasSelectedSpot ? `score-card-panel-${view}` : undefined}
+              aria-label={hasSelectedSpot ? `Show ${VIEW_MODE_LABELS[view]} card` : VIEW_MODE_LABELS[view]}
+              title={VIEW_MODE_LABELS[view]}
+              tabIndex={hasSelectedSpot && !selected ? -1 : 0}
+              className={`min-h-11 flex items-center justify-center rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-gray-700 ${selected ? 'bg-gray-800/8 text-gray-900' : 'text-gray-500 hover:bg-gray-800/5'}`}
+              onClick={() => onViewChange(view)}
+              onKeyDown={(event) => {
+                const index = SKY_VIEWS.indexOf(view);
+                let nextIndex = index;
+                if (event.key === 'ArrowRight') nextIndex = (index + 1) % SKY_VIEWS.length;
+                else if (event.key === 'ArrowLeft') nextIndex = (index + SKY_VIEWS.length - 1) % SKY_VIEWS.length;
+                else if (event.key === 'Home') nextIndex = 0;
+                else if (event.key === 'End') nextIndex = SKY_VIEWS.length - 1;
+                else return;
+                event.preventDefault();
+                const next = SKY_VIEWS[nextIndex];
+                onViewChange(next);
+                viewButtons.current[next]?.focus();
+              }}
             >
-              Return to Now
+              <Icon size={24} />
             </button>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 gap-1" aria-label="Timeline shortcuts">
-          <button type="button" className="min-h-11 rounded-lg text-[10px] font-mono text-gray-600 active:bg-gray-100" onClick={() => onHourChange('')}>Now</button>
-          <button type="button" className="min-h-11 rounded-lg text-[10px] font-mono text-[#9B1D7D] active:bg-pink-50" onClick={() => jumpToEvent('sunrise')}>Sunrise {formatTime(eventTimes.sunrise, timeZone, false)}</button>
-          <button type="button" className="min-h-11 rounded-lg text-[10px] font-mono text-[#8B1A23] active:bg-red-50" onClick={() => jumpToEvent('sunset')}>Sunset {formatTime(eventTimes.sunset, timeZone, false)}</button>
-        </div>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }

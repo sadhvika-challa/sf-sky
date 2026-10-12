@@ -1,4 +1,4 @@
-import { type UIEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type UIEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { type Spot, type City } from '../data/spots';
 import { type UserLocation, getDistanceMiles } from '../hooks/useGeolocation';
 import { type TravelMode } from '../App';
@@ -8,7 +8,6 @@ import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
 import { parseCanonicalHourKey, SCORE_CARD_ORDER } from '../utils/timeline';
 import type { SpotForecast } from '../utils/weather';
-import { scoreEvidenceAccessibilityLabel } from '../utils/confidence';
 import { getUpcomingEventTimes } from '../utils/events';
 
 type CardType = 'now' | 'sunrise' | 'sunset' | 'stargazing';
@@ -273,6 +272,7 @@ interface ScorePanelProps {
   onClose: () => void;
   userLocation: UserLocation | null;
   initialCardType?: CardType;
+  onActiveCardChange: (type: CardType) => void;
   travelMode: TravelMode;
   onTravelModeChange: (mode: TravelMode) => void;
   liveScores: LiveScoresMap;
@@ -280,7 +280,7 @@ interface ScorePanelProps {
   city: City;
   viewMode?: ViewMode;
   timelineHourKey?: string;
-  onTimelineHourChange: (key: string) => void;
+  timelineControls: (expanded: boolean) => ReactNode;
   timeZone: string;
   forecast: SpotForecast | null;
   forecastLoading: boolean;
@@ -319,7 +319,7 @@ function formatTravelTime(minutes: number): TravelTimeParts {
   return { value: '', unit: '', compound: { h, m } };
 }
 
-export default function ScorePanel({ spot, onClose, userLocation, initialCardType, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', onTimelineHourChange, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps) {
+export default function ScorePanel({ spot, onClose, userLocation, initialCardType, onActiveCardChange, travelMode, onTravelModeChange, liveScores, onCardSwipe, city, viewMode, timelineHourKey = '', timelineControls, timeZone, forecast, forecastLoading, forecastError, onRetryForecast, forecastRetrying, now, saved, savedSpotsStatus, onSetSaved }: ScorePanelProps) {
   const [tempUnit] = useTempUnit();
   const [savePending, setSavePending] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
@@ -359,7 +359,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   const cards = getNextEvents(spot, timelineHourKey, now);
   // The Now card remains the sheet's primary card. Its score uses the active
   // mode field from the same live map that drives the selected map pin.
-  const primary = cards[0];
+  const primary = cards.find((card) => card.type === (initialCardType ?? 'now'))!;
   const live = liveScores.get(spot.id);
   const activeMode = viewMode ?? 'now';
   const primaryScore = live?.active ?? (
@@ -376,13 +376,9 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
   // Open fully expanded so a pin tap goes straight to the scorecard rather
   // than parking on a peek strip the user has to tap a second time.
   const [expanded, setExpanded] = useState(true);
-  // Which card is currently centered in the swipe scroller — drives the
-  // active page-indicator dot at the bottom of the sheet.
-  const initialActiveCardType: CardType =
-    initialCardType ?? 'now';
-  const [activeCardType, setActiveCardType] = useState<CardType>(
-    initialActiveCardType,
-  );
+  // The persistent icon row owns selection; swiping a card updates it.
+  const [initialActiveCardType] = useState<CardType>(initialCardType ?? 'now');
+  const activeCardType = initialCardType ?? 'now';
   // Onboarding hand-off: fire `onCardSwipe` exactly once when the user
   // moves to a card other than the one we mounted on. Tracking via a
   // ref (instead of a derived effect) means we don't re-fire on
@@ -397,7 +393,6 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const cardTabRefs = useRef<Partial<Record<CardType, HTMLButtonElement | null>>>({});
 
   // Drive the entrance animation via inline transform (rather than a CSS
   // keyframe with `animation-fill-mode: forwards`), because a forwards-mode
@@ -515,7 +510,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     let closestDistance = Number.POSITIVE_INFINITY;
 
     for (const cardEl of cardEls) {
-      const cardCenter = cardEl.offsetLeft + cardEl.offsetWidth / 2;
+      const cardCenter = cardEl.offsetLeft - scroller.offsetLeft + cardEl.offsetWidth / 2;
       const distance = Math.abs(cardCenter - viewportCenter);
       const type = cardEl.dataset.cardType;
       if (
@@ -527,7 +522,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
       }
     }
 
-    if (closestType) setActiveCardType(closestType);
+    if (closestType && closestDistance <= 1 && closestType !== activeCardType) onActiveCardChange(closestType);
   };
 
   useEffect(() => {
@@ -537,72 +532,8 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
     if (!scroller) return;
     const target = scroller.querySelector<HTMLElement>(`[data-card-type="${scrollTarget}"]`);
     if (!target) return;
-    scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
+    scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'instant' });
   }, [initialCardType, spot.id, expanded]);
-
-  // Track which card is centered as the user swipes. We watch each card with
-  // an IntersectionObserver scoped to the horizontal scroller, picking the
-  // entry with the highest intersection ratio as "active". This stays in sync
-  // with both finger swipes and the programmatic scrollTo above.
-  useEffect(() => {
-    if (!expanded) return;
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-
-    const cardEls = Array.from(
-      scroller.querySelectorAll<HTMLElement>('[data-card-type]')
-    );
-    if (cardEls.length === 0) return;
-
-    const ratios = new Map<HTMLElement, number>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          ratios.set(entry.target as HTMLElement, entry.intersectionRatio);
-        }
-        let bestEl: HTMLElement | null = null;
-        let bestRatio = 0;
-        for (const [el, ratio] of ratios) {
-          if (ratio > bestRatio) {
-            bestRatio = ratio;
-            bestEl = el;
-          }
-        }
-        const next = bestEl?.dataset.cardType;
-        if (next === 'now' || next === 'sunrise' || next === 'sunset' || next === 'stargazing') {
-          setActiveCardType(next);
-        }
-      },
-      { root: scroller, threshold: [0.25, 0.5, 0.75, 1] }
-    );
-
-    for (const el of cardEls) observer.observe(el);
-    return () => observer.disconnect();
-  }, [expanded, spot.id]);
-
-  const handleDotClick = (type: CardType) => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const target = scroller.querySelector<HTMLElement>(`[data-card-type="${type}"]`);
-    if (!target) return;
-    scroller.scrollTo({ left: target.offsetLeft - scroller.offsetLeft, behavior: 'smooth' });
-    setActiveCardType(type);
-  };
-
-  const handleCardTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, type: CardType) => {
-    const currentIndex = SCORE_CARD_ORDER.indexOf(type);
-    let nextIndex = currentIndex;
-    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % SCORE_CARD_ORDER.length;
-    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + SCORE_CARD_ORDER.length) % SCORE_CARD_ORDER.length;
-    else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = SCORE_CARD_ORDER.length - 1;
-    else return;
-
-    event.preventDefault();
-    const nextType = SCORE_CARD_ORDER[nextIndex];
-    handleDotClick(nextType);
-    cardTabRefs.current[nextType]?.focus({ preventScroll: true });
-  };
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -640,13 +571,13 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
       <div
         ref={sheetRef}
         role="dialog"
-        aria-modal={expanded}
+        aria-modal={false}
         aria-label={`${spot.name} sky scores`}
         tabIndex={-1}
         className="absolute left-0 right-0 bottom-0 z-10 pointer-events-auto flex flex-col bg-cream/95 backdrop-blur-md border-t border-cream-dark shadow-2xl rounded-t-2xl overflow-hidden"
         style={{
-          maxHeight: 'min(82dvh, 680px)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
+          bottom: 0,
+          maxHeight: 'min(calc(100dvh - 5rem), 826px)',
           transform: !entered
             ? 'translate3d(0, 100%, 0)'
             : dragY
@@ -692,6 +623,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
               <div className="flex items-start justify-between gap-2">
                 <h2 className="font-serif text-lg font-semibold text-gray-800 truncate min-w-0">
                   {spot.name}
+                  {spot.visibility === 'private' && <span className="ml-2 font-mono text-[10px] font-normal text-gray-500">Private · This device</span>}
                 </h2>
                 <button
                   type="button"
@@ -708,18 +640,7 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
                     <path d="M6 3h12v18l-6-4-6 4V3z" />
                   </svg>
                 </button>
-                <span
-                  className="font-serif text-3xl font-light leading-none flex-shrink-0 tabular-nums"
-                  style={{ color: getScoreColor(getScoreFor(activeCardType)) }}
-                  aria-label={`${typeLabel[activeCardType]} score ${scoreEvidenceAccessibilityLabel(
-                    getScoreFor(activeCardType),
-                    activeCardType === 'now'
-                      ? live!.activeEvidence
-                      : live!.evidence[activeCardType],
-                  )}`}
-                >
-                  {getScoreFor(activeCardType)}
-                </span>
+
               </div>
 
               {saveFeedback && (
@@ -861,131 +782,103 @@ export default function ScorePanel({ spot, onClose, userLocation, initialCardTyp
               </div>
             </div>
 
-            {/* Cards — swipeable, one card per page, snaps cleanly */}
-            <div
-              ref={scrollerRef}
-              onScroll={handleCardScroll}
-              className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
-              style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
-            >
-              {cards.map((card) => {
-                const isActive = card.type === activeCardType;
-                return (
-                  <div
-                    key={card.type}
-                    id={`score-card-panel-${card.type}`}
-                    role="tabpanel"
-                    aria-labelledby={`score-card-tab-${card.type}`}
-                    aria-hidden={!isActive}
-                    inert={!isActive}
-                    data-card-type={card.type}
-                    className="w-full min-h-0 flex-shrink-0 snap-center"
-                    style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
-                  >
+            <div className="mx-3 mb-[calc(env(safe-area-inset-bottom)+0.75rem)] mt-1 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-md">
+              {/* Cards: swipeable pages with one shared timeline inside the card surface. */}
+              <div
+                ref={scrollerRef}
+                onScroll={handleCardScroll}
+                className="score-cards-scroll flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory w-full min-h-0 flex-1"
+                style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+              >
+                {cards.map((card) => {
+                  const isActive = card.type === activeCardType;
+                  return (
                     <div
-                      data-card-scroll
-                      onWheel={handleCardWheel}
-                      className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 pb-4 pt-1"
+                      key={card.type}
+                      id={`score-card-panel-${card.type}`}
+                      role="tabpanel"
+                      aria-labelledby={`score-card-tab-${card.type}`}
+                      aria-hidden={!isActive}
+                      inert={!isActive}
+                      data-card-type={card.type}
+                      className="w-full min-h-0 flex-shrink-0 snap-center"
                       style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
                     >
-                      <ScoreCard
-                        spot={spot}
-                        type={card.type}
-                        eventInstant={card.eventTime}
-                        city={city}
-                        scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
-                        scrubViewMode={card.type === 'now' ? viewMode : undefined}
-                        activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
-                        canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
-                        scoreEvidence={card.type === 'now'
-                          ? live!.activeEvidence
-                          : live!.evidence[card.type]}
-                        onTimelineHourChange={card.type === 'now' ? onTimelineHourChange : undefined}
-                        timeZone={timeZone}
-                        forecast={forecast}
-                        forecastLoading={forecastLoading}
-                        forecastError={forecastError}
-                        onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
-                        forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
-                        now={now}
-                      />
+                      <div
+                        data-card-scroll
+                        onWheel={handleCardWheel}
+                        className="h-full min-h-0 overflow-y-auto overscroll-y-contain"
+                        style={{ touchAction: 'pan-x pan-y', WebkitOverflowScrolling: 'touch' }}
+                      >
+                        <ScoreCard
+                          embedded
+                          spot={spot}
+                          type={card.type}
+                          eventInstant={card.eventTime}
+                          city={city}
+                          scrubHourKey={card.type === 'now' ? timelineHourKey : undefined}
+                          scrubViewMode={card.type === 'now' ? viewMode : undefined}
+                          activeScore={card.type === 'now' ? getScoreFor('now') : undefined}
+                          canonicalScore={card.type === 'now' ? undefined : getScoreFor(card.type)}
+                          scoreEvidence={card.type === 'now'
+                            ? live!.activeEvidence
+                            : live!.evidence[card.type]}
+                          timeZone={timeZone}
+                          forecast={forecast}
+                          forecastLoading={forecastLoading}
+                          forecastError={forecastError}
+                          onRetryForecast={card.type === 'now' ? onRetryForecast : undefined}
+                          forecastRetrying={card.type === 'now' ? forecastRetrying : undefined}
+                          now={now}
+                        />
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Page tabs keep a compact visual dot inside a full-size target.
-                The active tab follows swipes, and tab activation pages the cards. */}
-            <div
-              className="flex items-center justify-center pb-2 flex-shrink-0"
-              role="tablist"
-              aria-label="Card pages"
-            >
-              {cards.map((card) => {
-                const isActive = card.type === activeCardType;
-                return (
-                  <button
-                    key={card.type}
-                    id={`score-card-tab-${card.type}`}
-                    type="button"
-                    role="tab"
-                    ref={(element) => {
-                      cardTabRefs.current[card.type] = element;
-                    }}
-                    aria-selected={isActive}
-                    aria-controls={`score-card-panel-${card.type}`}
-                    aria-label={`Show ${typeLabel[card.type]} card`}
-                    tabIndex={isActive ? 0 : -1}
-                    onClick={() => handleDotClick(card.type)}
-                    onKeyDown={(event) => handleCardTabKeyDown(event, card.type)}
-                    className="group w-11 h-11 flex items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-gray-700"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`block rounded-full transition-all duration-200 ${
-                        isActive
-                          ? 'w-3 h-1.5 bg-gray-700'
-                          : 'w-1.5 h-1.5 bg-gray-300 group-hover:bg-gray-400'
-                      }`}
-                    />
-                  </button>
-                );
-              })}
+                  );
+                })}
+              </div>
+              <section className="spot-timeline flex-shrink-0 border-t border-gray-100 px-5 pb-3 pt-3" aria-label="Spot time controls">
+                {timelineControls(true)}
+              </section>
             </div>
           </div>
         ) : (
-          // Collapsed glanceable strip
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="w-full flex items-center gap-3 px-4 pt-1 pb-3 text-left active:bg-cream-dark/30 transition-colors"
-            aria-label={`Expand ${spot.name} details`}
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h2 className="font-serif text-base font-semibold text-gray-800 truncate">
-                  {spot.name}
-                </h2>
-                <span
-                  className="flex-shrink-0 font-mono text-[9px] tracking-[1.5px] uppercase px-1.5 py-0.5 rounded-full text-white"
-                  style={{ background: tierColors[karlPill.tier] }}
-                >
-                  {karlPill.label}
-                </span>
-              </div>
-              <p className="font-mono text-[10px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
-                {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime, timeZone)}
-                {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}${userLocation?.precision === 'approximate' ? ' approx.' : ''}`}
-              </p>
-            </div>
-            <span
-              className="font-serif text-3xl font-light leading-none flex-shrink-0 tabular-nums"
-              style={{ color: scoreColor }}
+          // Collapsed spot context retains one timeline inside the sheet.
+          <>
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="w-full flex items-center gap-3 px-4 pt-1 pb-3 text-left active:bg-cream-dark/30 transition-colors"
+              aria-label={`Expand ${spot.name} details`}
             >
-              {primaryScore}
-            </span>
-          </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-serif text-base font-semibold text-gray-800 truncate">
+                    {spot.name}
+                    {spot.visibility === 'private' && <span className="ml-2 font-mono text-[10px] font-normal text-gray-500">Private · This device</span>}
+                  </h2>
+                  <span
+                    className="flex-shrink-0 font-mono text-[9px] tracking-[1.5px] uppercase px-1.5 py-0.5 rounded-full text-white"
+                    style={{ background: tierColors[karlPill.tier] }}
+                  >
+                    {karlPill.label}
+                  </span>
+                </div>
+                <p className="font-mono text-[10px] tracking-[1.5px] text-gray-500 uppercase mt-1 truncate">
+                  {typeLabel[primary.type]} &middot; {formatStripTime(primary.eventTime, timeZone)}
+                  {distanceMi !== null && ` \u00b7 ${tempUnit === 'C' ? (distanceMi * 1.60934).toFixed(1) : distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}${userLocation?.precision === 'approximate' ? ' approx.' : ''}`}
+                </p>
+              </div>
+              <span
+                className="font-serif text-3xl font-light leading-none flex-shrink-0 tabular-nums"
+                style={{ color: scoreColor }}
+              >
+                {primaryScore}
+              </span>
+            </button>
+            <section className="spot-timeline px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]" aria-label="Spot time controls">
+              {timelineControls(false)}
+            </section>
+          </>
         )}
       </div>
     </div>
