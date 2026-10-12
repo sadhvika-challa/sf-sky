@@ -11,6 +11,7 @@ import { scoreEvidenceAccessibilityLabel, type ScoreEvidence } from '../utils/co
 import { cloudCoverLabel, cloudQualityScore, cloudQualityLabel, computeScoreBreakdown, computeNowScore, computeNowBaseScore, scoreSunWeather, scoreStargazingWeather, type ScoreBreakdown } from '../utils/scoring';
 import { getKarlComment, getKarlBreakdownLine } from '../utils/karl-copy';
 import ConfidenceMetric from './ConfidenceMetric';
+import SpotView from './SpotView';
 import {
   addCityCalendarDays,
   formatCanonicalHourKey,
@@ -797,6 +798,8 @@ export default function ScoreCard({ embedded = false, spot, type, eventInstant, 
               )}
 
             </div>
+
+            <div className="px-5"><SpotView spot={spot} /></div>
 
             {/* See breakdown tap target */}
             <div className="px-5 pb-4 pt-3 flex-shrink-0">

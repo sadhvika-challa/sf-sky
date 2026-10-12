@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type Spot, type SpotCategory, type City } from './data/spots';
 import { type CuratedEvent } from './data/events';
 import { allSpots } from './data/all-spots';
+import { isHiddenGem } from './data/spotDiscovery';
 import { getCityById, getValidCityId } from './data/cities';
 import { useLocation } from './hooks/useLocation';
 import { useTimelineScores } from './hooks/useTimelineScores';
@@ -311,6 +312,13 @@ function App() {
   const activeSpots = useMemo(
     () => visibleSpots.filter((s) => s.city === activeCityId),
     [activeCityId, visibleSpots],
+  );
+  const [hiddenGemsOnly, setHiddenGemsOnly] = useState(false);
+  const hasHiddenGems = activeSpots.some(isHiddenGem);
+  const hiddenGemsActive = hasHiddenGems && hiddenGemsOnly;
+  const discoverySpots = useMemo(
+    () => hiddenGemsActive ? activeSpots.filter(isHiddenGem) : activeSpots,
+    [activeSpots, hiddenGemsActive],
   );
   const [locationPromptOpen, setLocationPromptOpen] = useState(() => !isNativeRuntime() && !wasLocationPromptDismissed());
   const closeLocationPrompt = useCallback(() => {
@@ -967,7 +975,7 @@ function App() {
       <div className="fixed inset-0 z-0">
         <MapErrorBoundary>
         <MapView
-          spots={activeSpots}
+          spots={discoverySpots}
           selectedSpot={selectedSpot}
           highlightedSpot={highlightedSpot}
           onSelectSpot={handleSelectSpot}
@@ -1132,13 +1140,19 @@ function App() {
         savedSpotsCount={savedSpots.savedSpotIds.length}
         onOpenSavedSpots={handleOpenSavedSpots}
         onOpenLocation={() => { setMenuOpen(false); setLocationPromptOpen(true); }}
+        hasHiddenGems={hasHiddenGems}
+        hiddenGemsOnly={hiddenGemsActive}
+        onHiddenGemsChange={setHiddenGemsOnly}
       />
 
 
       <SearchOverlay
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        spots={activeSpots}
+        spots={discoverySpots}
+        hasHiddenGems={hasHiddenGems}
+        hiddenGemsOnly={hiddenGemsActive}
+        onHiddenGemsChange={setHiddenGemsOnly}
         liveScores={liveScores}
         userLocation={userLocation}
         onSelectSpot={handleSelectSpot}

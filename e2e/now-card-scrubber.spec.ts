@@ -59,6 +59,70 @@ test.beforeEach(async ({ page }) => {
   await installDeterministicBrowserState(page);
 });
 
+test('shows a historical view without changing time selection and restores focus after closing it', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/?spot=sf-panorama-park&view=sunset');
+  const sheet = page.getByRole('dialog', { name: 'Panorama Park, Yerba Buena Island sky scores' });
+  const photoButton = sheet.getByRole('button', { name: 'Enlarge view photo for Panorama Park, Yerba Buena Island' });
+  const slider = sheet.getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toBeVisible();
+  await expect(sheet.getByRole('tabpanel').getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  const timeBefore = await slider.getAttribute('aria-valuetext');
+  await photoButton.click();
+  const viewer = page.getByRole('dialog', { name: 'View photos for Panorama Park, Yerba Buena Island' });
+  await expect(viewer).toBeVisible();
+  await expect(viewer.getByText('Reference view. Not a live image or forecast.')).toBeVisible();
+  await expect(viewer.getByRole('img')).toHaveJSProperty('naturalWidth', 1280);
+  await expect(viewer.getByRole('link', { name: 'Photo: Awinch1001' })).toBeVisible();
+  expect((await new AxeBuilder({ page }).include('.spot-view-dialog').analyze()).violations).toEqual([]);
+  await viewer.getByRole('button', { name: 'Close', exact: true }).press('Escape');
+  await expect(viewer).toHaveCount(0);
+  await expect(photoButton).toBeFocused();
+  await expect(sheet).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', timeBefore!);
+  await expect(sheet.getByRole('tab', { name: 'Show Sunset card' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('recovers from a failed view photo and makes hidden gems reversible in search', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.route('**/spot-views/*.jpg', (route) => route.abort());
+  await page.goto('/?spot=sf-panorama-park&view=sunset');
+  const sheet = page.getByRole('dialog', { name: 'Panorama Park, Yerba Buena Island sky scores' });
+  await sheet.getByRole('heading', { name: 'View', exact: true }).scrollIntoViewIfNeeded();
+  await expect(sheet.getByRole('button', { name: 'Enlarge view photo for Panorama Park, Yerba Buena Island' })).toHaveCount(0);
+  await expect(sheet.getByRole('tabpanel').getByText('Bay Bridge and San Francisco skyline across the bay, beside the Point of Infinity sculpture.')).toBeVisible();
+  await sheet.press('Escape');
+  await sheet.press('Escape');
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  const gems = search.getByRole('button', { name: 'Hidden gems', exact: true });
+  await gems.click();
+  await expect(gems).toHaveAttribute('aria-pressed', 'true');
+  await expect(search.locator('li')).toHaveCount(7);
+  await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
+  await expect(search.getByRole('button', { name: 'Show all spots' })).toBeVisible();
+  await search.getByRole('button', { name: 'Show all spots' }).click();
+  await expect(search.locator('li')).toHaveCount(1);
+  await expect(gems).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('keeps cities without hidden gems browsable after enabling the collection in SF', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  await search.getByRole('button', { name: 'Hidden gems', exact: true }).click();
+  await expect(search.locator('li')).toHaveCount(7);
+  await search.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Switch city' }).click();
+  await page.getByRole('button', { name: 'Select Austin', exact: true }).click();
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  await expect(search.getByRole('button', { name: 'Hidden gems' })).toHaveCount(0);
+  await search.getByPlaceholder('Search spots…').fill('Mount Bonnell');
+  await expect(search.locator('li')).toHaveCount(1);
+});
+
 test('gives every card-page tab a full hit target and supports keyboard paging', async ({ page }) => {
   await installWeatherHarness(page);
   await page.goto(SPOT_URL);
@@ -650,14 +714,15 @@ test('updates map scores from the persistent bottom scrubber without selecting a
   const slider = timeline.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await expect(page.getByRole('slider')).toHaveCount(1);
-  const pin = page.locator('.leaflet-marker-pane [role="button"][aria-label*="city forecast estimate"]').first();
-  await expect(pin).toHaveAttribute('aria-label', /city forecast estimate/);
-  const before = await pin.getAttribute('aria-label');
+  const pins = page.locator('.leaflet-marker-pane [role="button"][aria-label*="city forecast estimate"]');
+  await expect(pins.first()).toHaveAttribute('aria-label', /city forecast estimate/);
+  const pinScores = () => pins.evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')).sort());
+  const before = await pinScores();
   await slider.press('End');
   await expect(slider).toHaveAttribute('aria-valuenow', (await slider.getAttribute('aria-valuemax'))!);
-  await expect(pin).not.toHaveAttribute('aria-label', before!);
+  await expect.poll(pinScores).not.toEqual(before);
   await slider.press('Home');
-  await expect(pin).toHaveAttribute('aria-label', before!);
+  await expect.poll(pinScores).toEqual(before);
   const viewport = page.viewportSize()!;
   const box = (await timeline.boundingBox())!;
   expect(box.y + box.height).toBeCloseTo(viewport.height, 0);

@@ -7,6 +7,7 @@ import { getKarlComment } from '../utils/karl-copy';
 import { computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
 import { formatActiveTimelineLabel, formatCityCalendarDate, formatInstantTimeLabel } from '../utils/timeline';
 import { describeScoreEvidenceSet, type ScoreEvidence } from '../utils/confidence';
+import HiddenGemsFilter from './HiddenGemsFilter';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -22,6 +23,9 @@ interface SearchOverlayProps {
   timeZone: string;
   timelineNow: Date;
   timelineEventTime?: Date;
+  hasHiddenGems?: boolean;
+  hiddenGemsOnly?: boolean;
+  onHiddenGemsChange?: (active: boolean) => void;
 }
 
 interface RankedSpot {
@@ -98,6 +102,9 @@ export default function SearchOverlay({
   timeZone,
   timelineNow,
   timelineEventTime,
+  hasHiddenGems = false,
+  hiddenGemsOnly = false,
+  onHiddenGemsChange,
 }: SearchOverlayProps) {
   const [tempUnit] = useTempUnit();
   const [query, setQuery] = useState('');
@@ -231,6 +238,12 @@ export default function SearchOverlay({
         </button>
       </div>
 
+      {hasHiddenGems && onHiddenGemsChange && (
+        <div className="px-4 py-2 border-b border-cream-dark/60">
+          <HiddenGemsFilter active={hiddenGemsOnly} onChange={onHiddenGemsChange} />
+        </div>
+      )}
+
       {/* Results list */}
       <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="px-4 pt-4 pb-2">
@@ -249,6 +262,9 @@ export default function SearchOverlay({
                 ? "No spots match. Karl can't help with that one."
                 : 'No spots match that search.'}
             </p>
+            {hiddenGemsOnly && onHiddenGemsChange && (
+              <button type="button" onClick={() => onHiddenGemsChange(false)} className="block mx-auto min-h-11 mt-3 font-mono text-[12px] underline underline-offset-2 text-gray-700">Show all spots</button>
+            )}
             <button
               type="button"
               onClick={() => onSuggestSpot(query.trim())}

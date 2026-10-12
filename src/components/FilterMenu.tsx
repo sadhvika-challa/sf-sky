@@ -4,6 +4,7 @@ import type { City, SpotCategory } from '../data/spots';
 import { getCityById } from '../data/cities';
 import type { LiveScoresMap } from '../hooks/useLiveScores';
 import CityRow from './CityRow';
+import HiddenGemsFilter from './HiddenGemsFilter';
 
 interface FilterMenuProps {
   open: boolean;
@@ -21,6 +22,9 @@ interface FilterMenuProps {
   savedSpotsCount: number;
   onOpenSavedSpots: () => void;
   onOpenLocation?: () => void;
+  hasHiddenGems?: boolean;
+  hiddenGemsOnly?: boolean;
+  onHiddenGemsChange?: (active: boolean) => void;
 }
 
 const CATEGORY_OPTIONS: ReadonlyArray<{ value: SpotCategory; label: string }> = [
@@ -107,6 +111,9 @@ function FilterContent({
   savedSpotsCount,
   onOpenSavedSpots,
   onOpenLocation,
+  hasHiddenGems,
+  hiddenGemsOnly,
+  onHiddenGemsChange,
 }: Omit<FilterMenuProps, 'open'>) {
   const title = useMemo(() => contextualTitle(), []);
 
@@ -149,6 +156,12 @@ function FilterContent({
           onChange={(next) => onChange({ ...filters, category: next })}
           onReset={onResetCategory}
         />
+      )}
+
+      {hasHiddenGems && onHiddenGemsChange && (
+        <div className="mt-3">
+          <HiddenGemsFilter active={Boolean(hiddenGemsOnly)} onChange={onHiddenGemsChange} />
+        </div>
       )}
 
       <div className="mt-4 pt-3 border-t border-cream-dark flex flex-col">
@@ -236,6 +249,9 @@ export default function FilterMenu({
   savedSpotsCount,
   onOpenSavedSpots,
   onOpenLocation,
+  hasHiddenGems,
+  hiddenGemsOnly,
+  onHiddenGemsChange,
 }: FilterMenuProps) {
   useEffect(() => {
     if (!open) return;
@@ -261,6 +277,9 @@ export default function FilterMenu({
     savedSpotsCount,
     onOpenSavedSpots,
     onOpenLocation,
+    hasHiddenGems,
+    hiddenGemsOnly,
+    onHiddenGemsChange,
   };
 
   return (
