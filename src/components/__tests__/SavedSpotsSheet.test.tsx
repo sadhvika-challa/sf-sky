@@ -73,6 +73,8 @@ describe('SavedSpotsSheet', () => {
         onOpenCitySheet={vi.fn()}
         savedSpotsCount={2}
         onOpenSavedSpots={vi.fn()}
+        forecastRange="24h"
+        onForecastRangeChange={vi.fn()}
       />,
     );
     expect(html).toContain('aria-label="Saved spots, 2"');

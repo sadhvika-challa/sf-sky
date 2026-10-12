@@ -6,7 +6,7 @@ import {
   canonicalScoresForSpot,
   combineTimelineScores,
 } from '../../hooks/useTimelineScores';
-import { getUpcomingEventTimes } from '../events';
+import { getUpcomingEventTimes, getEventsForDate } from '../events';
 import { computeLiveScore, computeScoreAtTime, computeNowScore } from '../scoring';
 import { formatCanonicalHourKey, parseCanonicalHourKey } from '../timeline';
 import type { HourlyForecast, SpotForecast } from '../weather';
@@ -222,5 +222,33 @@ describe('timeline score contract', () => {
     expect(first.active).not.toBe(second.active);
     expect(first.activeIsLive).toBe(true);
     expect(second.activeIsLive).toBe(true);
+  });
+});
+
+
+describe('selected-date event scores', () => {
+  it('uses the future date for every event and preserves missing air quality as a Low-confidence estimate', () => {
+    const source = forecast();
+    const selected = new Date('2026-09-03T19:00:00Z');
+    const events = getEventsForDate(spot, selected, TIME_ZONE);
+    const sunsetHour = hour({ cloud: 73, cloudLow: 63, pm25: NaN });
+    source.hours[formatCanonicalHourKey(events.sunrise)] = hour({ cloud: 5 });
+    source.hours[formatCanonicalHourKey(events.sunset)] = sunsetHour;
+    source.hours[formatCanonicalHourKey(events.stargazing)] = hour({ cloud: 2 });
+    const result = canonicalScoresForSpot(spot, source, formatCanonicalHourKey(NOW), NOW, false, null, selected, TIME_ZONE);
+    expect(result.sunset).toBe(computeLiveScore(spot, 'sunset', sunsetHour));
+    expect(result.evidence.sunset).toMatchObject({ reason: 'missing-air-quality', confidence: 'low', completeness: 'partial' });
+    const active = activeScoreForSpot(spot, source, formatCanonicalHourKey(events.sunset), events.sunset, 'sunset', NOW, false);
+    expect(active.active).toBe(result.sunset);
+    expect(active.activeIsLive).toBe(false);
+    expect(active.activeEvidence).toMatchObject({ reason: 'missing-air-quality', confidence: 'low' });
+    expect(result.stargazing).toBe(computeLiveScore(spot, 'stargazing', hour({ cloud: 2 }), SunCalc.getMoonIllumination(events.stargazing).fraction));
+  });
+
+  it("does not use tomorrow's weather when the selected date is missing", () => {
+    const selected = new Date('2026-09-10T19:00:00Z');
+    const result = canonicalScoresForSpot(spot, forecast(), formatCanonicalHourKey(NOW), NOW, false, null, selected, TIME_ZONE);
+    expect(result.sunset).toBe(spot.sunset);
+    expect(result.evidence.sunset).toMatchObject({ provenance: 'curated-estimate', reason: 'missing-hour' });
   });
 });

@@ -2,8 +2,9 @@ import { memo, useEffect, useMemo, useRef } from 'react';
 import { Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import { type Spot } from '../data/spots';
-import { getScoreTier, getSpectrumColor, type ScoreTier } from '../utils/scoring';
-import { scoreEvidenceAccessibilityLabel, type ScoreEvidence } from '../utils/confidence';
+import { getScoreTier, type ScoreTier } from '../utils/scoring';
+import { getMapPinColor, getMapPinTextColor } from '../utils/mapPinColor';
+import { scoreEvidenceAccessibilityLabel, formatScoreValue, type ScoreEvidence } from '../utils/confidence';
 
 const isCoarsePointer =
   typeof window !== 'undefined' &&
@@ -33,15 +34,15 @@ interface PinSpec {
 function pinSpec(tier: ScoreTier): PinSpec {
   switch (tier) {
     case 'vivid':
-      return { size: 34, fontSize: 12, showScore: true };
+      return { size: 36, fontSize: 14, showScore: true };
     case 'good':
-      return { size: 31, fontSize: 12, showScore: true };
+      return { size: 34, fontSize: 13, showScore: true };
     case 'fair':
-      return { size: 28, fontSize: 11, showScore: true };
+      return { size: 32, fontSize: 12, showScore: true };
     case 'low':
-      return { size: 24, fontSize: 10, showScore: true };
+      return { size: 30, fontSize: 12, showScore: true };
     case 'poor':
-      return { size: 22, fontSize: 9, showScore: false };
+      return { size: 28, fontSize: 11, showScore: true };
     default: {
       const _exhaustive: never = tier;
       throw new Error(`Unhandled tier: ${String(_exhaustive)}`);
@@ -51,14 +52,13 @@ function pinSpec(tier: ScoreTier): PinSpec {
 
 const HIT = 44;
 
-function createMarkerIcon(score: number, isActive: boolean, isHighlighted: boolean): L.DivIcon {
+function createMarkerIcon(score: number, isActive: boolean, isHighlighted: boolean, scoreLabel: string): L.DivIcon {
   const tier = getScoreTier(score);
-  // Fill comes from the continuous spectrum (so 69 and 70 look near-identical);
-  // tier still drives the dot's size and whether the number is shown.
-  const color = getSpectrumColor(score);
+  // Score colors change smoothly; the selected spot has a distinct teal ring.
+  const color = getMapPinColor(score);
   const { size, fontSize, showScore } = pinSpec(tier);
   const borderWidth = isActive ? 3 : 2;
-  const ring = isActive ? 'box-shadow: 0 0 0 3px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.25);' : 'box-shadow: 0 1px 4px rgba(0,0,0,0.22);';
+  const ring = isActive ? 'box-shadow: 0 0 0 2px #155561, 0 3px 8px rgba(21,85,97,0.24);' : 'box-shadow: 0 2px 5px rgba(23,37,39,0.20);';
 
   // Sonar-style ring stamped behind the dot. Sized to the dot itself so the
   // pulse always feels proportional to the pin tier, and tinted with the
@@ -72,17 +72,15 @@ function createMarkerIcon(score: number, isActive: boolean, isHighlighted: boole
         pointer-events:none;
       "></span>`
     : '';
-  const safeScore = Math.max(0, Math.min(100, Math.round(score)));
   const label = showScore
     ? `<span style="
-        color:white;
-        font-family:'DM Mono', monospace;
+        color:${getMapPinTextColor(score)};
+        font-family:'DM Sans', sans-serif;
         font-size:${fontSize}px;
-        font-weight:600;
+        font-weight:700;
         line-height:1;
         letter-spacing:0;
-        text-shadow:0 1px 1px rgba(0,0,0,0.18);
-      ">${safeScore}</span>`
+      ">${scoreLabel}</span>`
     : '';
 
   const dot = `<div style="
@@ -119,9 +117,10 @@ function SpotMarker({ spot, score, evidence, isActive, isHighlighted = false, on
   // Memoize the icon so live-score ticks that don't change the displayed
   // number (or active state) don't trigger leaflet's setIcon DOM swap.
   // Without this, every `liveScores` update repaints all ~115 markers.
+  const scoreLabel = formatScoreValue(score);
   const icon = useMemo(
-    () => createMarkerIcon(score, isActive, isHighlighted),
-    [score, isActive, isHighlighted],
+    () => createMarkerIcon(score, isActive, isHighlighted, scoreLabel),
+    [score, isActive, isHighlighted, scoreLabel],
   );
   // Higher-scoring pins render on top so dense clusters favor the better
   // night, then highlighted/active pins win so the pulse isn't masked by a

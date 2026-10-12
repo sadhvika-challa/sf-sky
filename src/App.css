@@ -32,8 +32,8 @@
   --color-amber-warm: #D97706;
   --color-blue-soft: #60A5FA;
   --color-green-muted: #6B9E6B;
-  --color-cream: #FDF8F0;
-  --color-cream-dark: #F5EDE0;
+  --color-cream: #FFFFFF;
+  --color-cream-dark: #EDF2F3;
   /* Score-tier palette — vibrant, green-leaning (but still watercolor, not
      neon). Used by the outlook dot and score chrome on cards; pins/score
      numbers now paint from the continuous spectrum. Keep in sync with
@@ -68,7 +68,7 @@ body,
 }
 
 body {
-  background: #D4E6F1;
+  background: #A6D8F4;
   /* Suppress iOS rubber-band overscroll revealing the body bg above/below
      the app — the app is overflow-hidden but PWA mode still bounces. */
   overscroll-behavior: none;
@@ -80,7 +80,7 @@ body {
   /* Soft blue matching the Carto Voyager water color so the bay reads blue
      instantly while tiles are still loading (was a warm cream that made
      the empty map feel foggy/grey before paint). */
-  background: #D4E6F1;
+  background: #A6D8F4;
 }
 
 .leaflet-control-zoom {
@@ -386,4 +386,106 @@ body {
   .sun-spin {
     animation: none;
   }
+}
+
+:root {
+  --map-timeline-height: calc(128px + env(safe-area-inset-bottom));
+}
+
+.map-timeline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  height: auto;
+  min-height: calc(118px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  padding: 10px max(16px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: #FFFFFF;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.map-timeline [role="slider"]:focus-visible,
+.spot-timeline [role="slider"]:focus-visible {
+  outline: 2px solid #1a1a18;
+  outline-offset: 2px;
+}
+
+/* Keep controls clear of the landscape notch and compact Safari viewport. */
+.score-panel-sheet:has([data-card-details="true"]) {
+  height: min(calc(100dvh - 5rem), 826px);
+}
+
+.score-panel-sheet {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .score-panel-sheet {
+    max-height: calc(100dvh - 0.5rem) !important;
+  }
+  .score-panel-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 1rem;
+  }
+  .score-panel-header { padding-top: 0; padding-bottom: 0; }
+  .score-panel-handle { min-height: 32px; }
+  .score-panel-cards { margin-bottom: calc(env(safe-area-inset-bottom) + 0.25rem); }
+  .score-panel-sheet [data-card-summary-body] { padding-top: 0; }
+  .score-panel-travel { margin-top: 0; }
+  .score-panel-sheet .spot-timeline { padding-bottom: 0.25rem; }
+  .score-panel-sheet [data-day-navigation],
+  .score-panel-sheet [data-day-navigation] button,
+  .score-panel-sheet [data-time-caption] { min-height: 32px; }
+  .score-panel-sheet [data-sky-artwork] { display: none; }
+  .score-panel-sheet:has([data-card-details="true"]) { height: 100dvh; max-height: 100dvh !important; }
+  .score-panel-sheet:has([data-card-details="true"]) .score-panel-handle { min-height: 24px; }
+  .score-panel-sheet [data-details-context] { display: none; }
+  .score-panel-sheet .score-card-back { padding-top: 4px; padding-bottom: 4px; }
+  .score-panel-cards:has([data-card-details="true"]) {
+    flex-direction: row;
+    gap: 1rem;
+  }
+  .score-panel-cards:has([data-card-details="true"]) .score-cards-scroll {
+    width: 58%;
+    min-width: 0;
+  }
+  .score-panel-cards:has([data-card-details="true"]) .spot-timeline {
+    width: 42%;
+    min-width: 0;
+  }
+}
+
+.private-spots-error {
+  position: absolute;
+  top: 64px;
+  left: 16px;
+  right: 16px;
+  z-index: 40;
+  padding: 12px;
+  background: #fffbeb;
+  color: #78350f;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+
+@keyframes mapTimelineReveal {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.map-timeline {
+  animation: mapTimelineReveal 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-timeline { animation: none; }
+  .score-panel-sheet { transition: none !important; }
 }

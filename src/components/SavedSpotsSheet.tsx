@@ -115,7 +115,7 @@ function SavedSpotRow({ spot, onSelect, onUnsave }: SavedSpotRowProps) {
           className="min-h-11 flex-1 min-w-0 px-3 py-2 text-left rounded-lg active:bg-cream-dark/40 transition-colors"
           aria-label={`Open ${spot.name}`}
         >
-          <span className="block font-serif text-base font-medium text-gray-800 truncate">
+          <span className="block font-sans text-base font-medium text-gray-800 truncate">
             {spot.name}
           </span>
           <span
@@ -298,7 +298,7 @@ export default function SavedSpotsSheet({
         </div>
         <div className="flex items-start justify-between gap-3 px-4 pt-2 pb-3 border-b border-cream-dark">
           <div>
-            <h2 id="saved-spots-title" className="font-serif text-xl font-semibold text-gray-800">
+            <h2 id="saved-spots-title" className="font-sans text-xl font-semibold text-gray-800">
               Saved spots
             </h2>
             <p className="mt-1 font-mono text-[10px] leading-4 text-gray-500">
@@ -347,7 +347,7 @@ export default function SavedSpotsSheet({
 
           {status !== 'loading' && groups.length === 0 && status !== 'protected' && error !== 'read-failed' && (
             <div className="py-10 text-center">
-              <p className="font-serif text-lg text-gray-700">No saved spots yet</p>
+              <p className="font-sans text-lg text-gray-700">No saved spots yet</p>
               <p className="mt-2 font-mono text-[11px] leading-4 text-gray-500">
                 Open any spot and use its save button. The spot catalog is built into Soleil. Live weather and map tiles need a connection.
               </p>

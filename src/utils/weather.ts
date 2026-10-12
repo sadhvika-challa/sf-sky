@@ -12,7 +12,7 @@ const AIR_QUALITY_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 const CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3h max, tightened by forecastTtlMs
 // Bump the version whenever the shape of HourlyForecast changes so we don't
 // hand stale entries (missing fields) to consumers after a deploy.
-const CACHE_PREFIX = 'weather:v5:';
+const CACHE_PREFIX = 'weather:v6:';
 
 const NEAR_EVENT_HOURS = 4;
 const NEAR_EVENT_TTL_MS = 45 * 60 * 1000;
@@ -417,7 +417,7 @@ function buildForecastUrl(lat: number, lng: number, timeZone: string): string {
     wind_speed_unit: 'mph',
     timezone: timeZone,
     timeformat: 'unixtime',
-    forecast_days: '3',
+    forecast_days: '8',
   });
   return `${FORECAST_URL}?${params.toString()}`;
 }
@@ -429,7 +429,7 @@ function buildAirQualityUrl(lat: number, lng: number, timeZone: string): string 
     hourly: ['pm2_5', 'us_aqi'].join(','),
     timezone: timeZone,
     timeformat: 'unixtime',
-    forecast_days: '3',
+    forecast_days: '7',
   });
   return `${AIR_QUALITY_URL}?${params.toString()}`;
 }

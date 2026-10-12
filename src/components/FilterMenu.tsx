@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import type { Filters } from '../App';
 import type { City, SpotCategory } from '../data/spots';
 import { getCityById } from '../data/cities';
 import type { LiveScoresMap } from '../hooks/useLiveScores';
 import CityRow from './CityRow';
+import SelectMenu from './SelectMenu';
+import { type ForecastRange } from '../utils/timeline';
 
 interface FilterMenuProps {
   open: boolean;
@@ -20,6 +22,9 @@ interface FilterMenuProps {
   onOpenCitySheet: () => void;
   savedSpotsCount: number;
   onOpenSavedSpots: () => void;
+  onOpenLocation?: () => void;
+  forecastRange: ForecastRange;
+  onForecastRangeChange: (range: ForecastRange) => void;
 }
 
 const CATEGORY_OPTIONS: ReadonlyArray<{ value: SpotCategory; label: string }> = [
@@ -30,13 +35,6 @@ const CATEGORY_OPTIONS: ReadonlyArray<{ value: SpotCategory; label: string }> = 
   { value: 'waterfront', label: 'Waterfront' },
   { value: 'park', label: 'Park' },
 ];
-
-function contextualTitle(now: Date = new Date()): string {
-  const hour = now.getHours();
-  if (hour < 12) return "This Morning's Sky";
-  if (hour < 17) return "Today's Sky";
-  return "Tonight's Sky";
-}
 
 interface CategoryFilterSectionProps {
   selected: SpotCategory[];
@@ -105,13 +103,15 @@ function FilterContent({
   onOpenCitySheet,
   savedSpotsCount,
   onOpenSavedSpots,
+  onOpenLocation,
+  forecastRange,
+  onForecastRangeChange,
 }: Omit<FilterMenuProps, 'open'>) {
-  const title = useMemo(() => contextualTitle(), []);
 
   return (
     <>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="font-serif text-xl text-gray-800">{title}</h2>
+        <h2 className="font-sans text-xl text-gray-800">Settings</h2>
         <button
           onClick={onClose}
           className="w-8 h-8 rounded-full bg-cream-dark/50 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors"
@@ -150,6 +150,14 @@ function FilterContent({
       )}
 
       <div className="mt-4 pt-3 border-t border-cream-dark flex flex-col">
+        <div className="flex min-h-11 flex-wrap items-center justify-between gap-3 border-b border-cream-dark px-3 py-2.5">
+          <span className="font-mono text-[12px] tracking-[1px] text-gray-600">Forecast range</span>
+          <SelectMenu<ForecastRange> menuMinWidth={100} label="Forecast range" value={forecastRange} onChange={onForecastRangeChange}
+            options={[{ value: '24h', label: '24 hours' }, { value: '7d', label: '7 days' }]} />
+        </div>
+        {onOpenLocation && (
+          <button type="button" onClick={onOpenLocation} className="w-full min-h-11 rounded-lg border-b border-cream-dark px-3 py-3.5 text-left font-mono text-[12px] tracking-[1px] text-gray-600 hover:bg-cream-dark/40">Location</button>
+        )}
         <button
           type="button"
           onClick={onOpenSavedSpots}
@@ -230,6 +238,9 @@ export default function FilterMenu({
   onOpenCitySheet,
   savedSpotsCount,
   onOpenSavedSpots,
+  onOpenLocation,
+  forecastRange,
+  onForecastRangeChange,
 }: FilterMenuProps) {
   useEffect(() => {
     if (!open) return;
@@ -254,12 +265,15 @@ export default function FilterMenu({
     onOpenCitySheet,
     savedSpotsCount,
     onOpenSavedSpots,
+    onOpenLocation,
+    forecastRange,
+    onForecastRangeChange,
   };
 
   return (
     <>
       {/* Mobile: centered modal with backdrop */}
-      <div className={`sm:hidden ${open ? '' : 'pointer-events-none'}`}>
+      <div className={`sm:hidden ${open ? '' : 'pointer-events-none'}`} inert={!open} aria-hidden={!open}>
         <div
           onClick={onClose}
           className={`fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity duration-200 ${
@@ -270,8 +284,8 @@ export default function FilterMenu({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Sky outlook"
-          className={`fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-cream/95 backdrop-blur-md border border-cream-dark shadow-2xl transition-all duration-200 ${
+          aria-label="Settings"
+          className={`fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-cream/95 backdrop-blur-md border border-cream-dark shadow-2xl transition-all duration-200 ${
             open ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
           }`}
           style={{
@@ -287,10 +301,12 @@ export default function FilterMenu({
 
       {/* Desktop: right-side slide panel */}
       <div
-        className={`hidden sm:block absolute z-30 top-0 right-0 w-72 h-full bg-cream/95 backdrop-blur-md border-l border-cream-dark shadow-xl transition-transform duration-300 ease-out ${
+        inert={!open}
+        aria-hidden={!open}
+        className={`hidden sm:block absolute z-30 top-0 right-0 w-72 h-full overflow-y-auto bg-cream/95 backdrop-blur-md border-l border-cream-dark shadow-xl transition-transform duration-300 ease-out ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
-        style={{ paddingTop: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}
+        style={{ paddingTop: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))', paddingRight: 'env(safe-area-inset-right)', width: 'calc(18rem + env(safe-area-inset-right))' }}
       >
         <div className="px-4 pb-4">
           <FilterContent {...contentProps} />

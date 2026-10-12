@@ -1,8 +1,25 @@
 import type { ViewMode } from './scoring';
-import { resolveViewMode } from './events';
+import { resolveViewMode, type UpcomingEvents } from './events';
 import type { HourlyForecast, SpotForecast } from './weather';
 
 export const SCORE_CARD_ORDER = ['now', 'sunrise', 'sunset', 'stargazing'] as const;
+export type ForecastRange = '24h' | '7d';
+export const FORECAST_RANGE_HOURS: Record<ForecastRange, number> = { '24h': 24, '7d': 168 };
+export const FORECAST_RANGE_STORAGE_KEY = 'sky:forecastRange';
+
+/** Hourly night scores and an explicitly chosen stargazing event have distinct labels. */
+export function timelineScoreLabel(viewMode: ViewMode, selectedView: ViewMode): string {
+  if (selectedView === 'now') {
+    if (viewMode === 'now') return 'Daytime';
+    if (viewMode === 'stargazing') return 'Nighttime';
+  }
+  const mode = selectedView === 'now' ? viewMode : selectedView;
+  return mode === 'sunrise' ? 'Sunrise' : mode === 'sunset' ? 'Sunset' : 'Stargazing';
+}
+
+export function parseForecastRange(value: string | null): ForecastRange {
+  return value === '7d' ? '7d' : '24h';
+}
 
 declare const canonicalHourKeyBrand: unique symbol;
 /** A forecast-hour identity. It always names an absolute UTC instant. */
@@ -190,12 +207,97 @@ export function hasExactTimelineHour(hourKey: string, availableHourKeys: readonl
   return isCanonicalHourKey(hourKey) && availableHourKeys.includes(hourKey);
 }
 
-export function deriveSpotTimelineHourKeys(availableHourKeys: readonly string[], now: Date): string[] {
+export function cityDayStart(reference: Date, timeZone: string, offsetDays = 0): Date {
+  const parts = cityCalendarParts(reference, timeZone);
+  const target = Date.UTC(parts.year, parts.month - 1, parts.day + offsetDays);
+  let instant = target;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const local = cityCalendarParts(new Date(instant), timeZone);
+    instant += target - Date.UTC(local.year, local.month - 1, local.day, local.hour);
+  }
+  return new Date(instant);
+}
+
+export function forecastRangeWindow(now: Date, range: ForecastRange, timeZone: string): { start: Date; end: Date } {
+  return range === '7d'
+    ? { start: cityDayStart(now, timeZone, 1), end: cityDayStart(now, timeZone, 8) }
+    : { start: now, end: new Date(now.getTime() + 24 * 3_600_000) };
+}
+
+export function rangeStartHourKey(now: Date, range: ForecastRange, timeZone: string): string {
+  return range === '7d' ? formatCanonicalHourKey(forecastRangeWindow(now, range, timeZone).start) : '';
+}
+
+export function deriveSpotTimelineHourKeys(availableHourKeys: readonly string[], now: Date, range: ForecastRange = '24h', timeZone = 'UTC'): string[] {
   const currentKey = formatCanonicalHourKey(now);
-  return [...new Set(availableHourKeys)].filter(isCanonicalHourKey).filter((key) => key > currentKey).sort().slice(0, 24);
+  const { start, end } = forecastRangeWindow(now, range, timeZone);
+  return [...new Set(availableHourKeys)].filter(isCanonicalHourKey)
+    .filter((key) => range === '7d'
+      ? Date.parse(key) >= start.getTime() && Date.parse(key) < end.getTime()
+      : key > currentKey && Date.parse(key) <= end.getTime()).sort();
+}
+
+/** A fixed elapsed-time rail remains truthful when forecast hours are missing. */
+export function buildForecastRangeHourKeys(now: Date, range: ForecastRange, timeZone = 'UTC'): string[] {
+  if (range === '24h') {
+    const firstMs = Date.parse(formatCanonicalHourKey(now)) + 3_600_000;
+    return Array.from({ length: 24 }, (_, index) => formatCanonicalHourKey(new Date(firstMs + index * 3_600_000)));
+  }
+  const { start, end } = forecastRangeWindow(now, range, timeZone);
+  const keys: string[] = [];
+  for (let instantMs = start.getTime(); instantMs < end.getTime(); instantMs += 3_600_000) {
+    keys.push(formatCanonicalHourKey(new Date(instantMs)));
+  }
+  return keys;
 }
 
 export function viewModeForHourKey(hourKey: string, _timeZone: string, lat: number, lng: number, now: Date): ViewMode {
   const selectedInstant = hourKey === '' ? now : parseCanonicalHourKey(hourKey);
   return resolveViewMode(selectedInstant ?? now, lat, lng);
+}
+
+export interface TimelineStop {
+  view: ViewMode;
+  instantMs: number;
+  hourKey: string;
+}
+
+/** Hours and sky events share one absolute-time scale, including tonight's dusk. */
+export function buildTimelineStops(hourKeys: readonly string[], now: Date, events: UpcomingEvents | readonly UpcomingEvents[], includeNow = true): TimelineStop[] {
+  const stops: TimelineStop[] = includeNow ? [{ view: 'now', instantMs: now.getTime(), hourKey: '' }] : [];
+  for (const key of hourKeys) {
+    const instant = parseCanonicalHourKey(key);
+    if (instant && (includeNow ? instant > now : instant >= now)) stops.push({ view: 'now', instantMs: instant.getTime(), hourKey: key });
+  }
+  if (stops.length === 0) stops.push({ view: 'now', instantMs: now.getTime(), hourKey: formatCanonicalHourKey(now) });
+  const days: readonly UpcomingEvents[] = Array.isArray(events) ? events : [events as UpcomingEvents];
+  const endMs = Math.max(now.getTime(), ...stops.map((stop) => stop.instantMs));
+  for (const day of days) {
+    for (const view of ['sunrise', 'sunset', 'stargazing'] as const) {
+      const instantMs = day[view].getTime();
+      const withinRange = !Array.isArray(events) || (instantMs >= now.getTime() && instantMs <= endMs);
+      if (Number.isFinite(instantMs) && withinRange) stops.push({ view, instantMs, hourKey: '' });
+    }
+  }
+  // An exact event replaces its coincident hourly stop, while live Now stays reachable.
+  const eventInstants = new Set(stops.filter((stop) => stop.view !== 'now').map((stop) => stop.instantMs));
+  return stops.filter((stop) => !stop.hourKey || !eventInstants.has(stop.instantMs))
+    .sort((a, b) => a.instantMs - b.instantMs);
+}
+
+export function timelinePositionPct(instantMs: number, stops: readonly TimelineStop[]): number {
+  if (stops.length < 2) return 0;
+  const start = stops[0].instantMs;
+  const span = stops[stops.length - 1].instantMs - start;
+  return span > 0 ? Math.max(0, Math.min(100, (instantMs - start) / span * 100)) : 0;
+}
+
+export function nearestTimelineStopIndex(percent: number, stops: readonly TimelineStop[]): number {
+  const target = stops[0]?.instantMs + Math.max(0, Math.min(100, percent)) / 100 *
+    ((stops[stops.length - 1]?.instantMs ?? 0) - (stops[0]?.instantMs ?? 0));
+  let closest = 0;
+  for (let index = 1; index < stops.length; index += 1) {
+    if (Math.abs(stops[index].instantMs - target) < Math.abs(stops[closest].instantMs - target)) closest = index;
+  }
+  return closest;
 }

@@ -179,6 +179,8 @@ async function setLocationMode(
 }
 
 async function openLocationPreferences(page: Page): Promise<Locator> {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Location', exact: true }).filter({ visible: true }).click();
   const preferences = page.getByRole('region', { name: 'Location preferences' });
   await expect(preferences).toBeVisible();
   return preferences;
@@ -212,7 +214,7 @@ test('requests location only after activation and restores the marker and distan
   await expect.poll(() => locationCalls(page)).toBe(0);
 
   await preferences.getByRole('button', { name: 'Use my location' }).click();
-  await expect(preferences).toContainText('Using your precise location. Nearby distances are ready.');
+  await expect(page.getByRole('dialog', { name: 'Find nearby spots' })).toBeHidden();
   await expect.poll(() => locationCalls(page)).toBe(1);
   await expect(page.getByTitle('Your location')).toBeAttached();
 
@@ -235,7 +237,7 @@ for (const failure of ['denied', 'timeout', 'unavailable'] as const) {
 
     await setLocationMode(page, 'allowed');
     await preferences.getByRole('button', { name: 'Retry', exact: true }).click();
-    await expect(preferences).toContainText('Using your precise location. Nearby distances are ready.');
+    await expect(page.getByRole('dialog', { name: 'Find nearby spots' })).toBeHidden();
     await expect.poll(() => locationCalls(page)).toBe(2);
     await expect(page.getByTitle('Your location')).toBeAttached();
   });
@@ -265,7 +267,7 @@ test('opens native iOS Settings after denial and recovers only after explicit re
 
   await setLocationMode(page, 'allowed');
   await preferences.getByRole('button', { name: 'Retry location' }).click();
-  await expect(preferences).toContainText('Using your precise location. Nearby distances are ready.');
+  await expect(page.getByRole('dialog', { name: 'Find nearby spots' })).toBeHidden();
   await expect.poll(() => locationCalls(page)).toBe(2);
   await expect(page.getByTitle('Your location')).toBeAttached();
 });
@@ -293,10 +295,10 @@ test('keeps manual city browsing usable after location failure', async ({ page }
   await preferences.getByRole('button', { name: 'Use my location' }).click();
   await expect(preferences).toContainText(FAILURE_COPY.denied);
 
-  await page.getByRole('button', { name: 'Settings' }).click();
-  await page.locator('button[aria-label="Switch city"]:visible').click();
+  await preferences.getByRole('button', { name: 'Choose a city' }).click();
   const cities = page.getByRole('dialog', { name: 'Choose a city' });
   await cities.getByRole('button', { name: 'Select Austin' }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Switch city' }).locator('..').getByText('Austin', { exact: true }),
   ).toBeVisible();
@@ -322,7 +324,7 @@ test('labels reduced-accuracy results and all derived distances as approximate',
 
   const preferences = await openLocationPreferences(page);
   await preferences.getByRole('button', { name: 'Use my location' }).click();
-  await expect(preferences).toContainText('Using approximate location. Distances are approximate.');
+  await expect(page.getByRole('dialog', { name: 'Find nearby spots' })).toBeHidden();
   await expect(page.getByTitle('Your approximate location')).toBeAttached();
 
   const oceanBeach = await openOceanBeachSearchResult(page);

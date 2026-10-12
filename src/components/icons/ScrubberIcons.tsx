@@ -33,7 +33,7 @@ export function SunsetIcon({ size = 20, className }: IconProps) {
       {/* half sun resting on the horizon */}
       <path d="M7.5 17.2c0.2-2.5 2.1-4.4 4.6-4.3 2.4 0.1 4.1 2.1 4.1 4.4" />
       {/* uneven rays */}
-      <path d="M12 9.5V7" />
+      <path d="M12 4v6m-2-2 2 2 2-2" />
       <path d="M6.6 11.1 5.2 9.4" />
       <path d="M17.2 10.8 18.9 9.2" />
       <path d="M9 8.4 8.1 6.7" />
@@ -50,7 +50,7 @@ export function SunriseIcon({ size = 20, className }: IconProps) {
       {/* the very top of the sun peeking up */}
       <path d="M8 18c0.1-2.1 1.8-3.8 4.1-3.8 2.2 0 3.9 1.6 4 3.7" />
       {/* rays pointing up and out, slightly uneven */}
-      <path d="M12 11.8V9.2" />
+      <path d="M12 11V4m-2 2 2-2 2 2" />
       <path d="M6.4 13 4.8 11.6" />
       <path d="M17.4 12.7 19.2 11.3" />
       <path d="M8.7 12 7.6 10.4" />
