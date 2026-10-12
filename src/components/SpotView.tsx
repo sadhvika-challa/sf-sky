@@ -87,7 +87,7 @@ export default function SpotView({ spot }: { spot: Spot }) {
               )}
             </div>
             <footer className="max-h-[40dvh] shrink-0 overflow-y-auto border-t border-cream-dark px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-              <p className="font-serif text-[16px] leading-6 text-gray-800">{discovery.view}</p>
+              <p className="font-serif text-[16px] leading-6 text-gray-800">{activePhoto.view ?? discovery.view}</p>
               <p className="mt-2 font-mono text-[11px] text-gray-600 leading-5">{activePhoto.context} · {activePhoto.dateLabel}</p>
               <p className="font-mono text-[11px] text-gray-600 leading-5">Reference view. Not a live image or forecast.</p>
               <PhotoCredit photo={activePhoto} />

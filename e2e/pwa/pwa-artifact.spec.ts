@@ -114,10 +114,14 @@ async function dismissSpotSheet(page: Page, spotName: string): Promise<void> {
 }
 
 async function openAndroidContext(browser: Browser): Promise<BrowserContext> {
-  return browser.newContext({
+  const context = await browser.newContext({
     userAgent: ANDROID_CHROME_USER_AGENT,
     serviceWorkers: 'block',
   });
+  await context.addInitScript(() => {
+    sessionStorage.setItem('soleil:location-prompt-dismissed:v1', '1');
+  });
+  return context;
 }
 
 async function listFiles(directory: string, prefix = ''): Promise<string[]> {
@@ -232,6 +236,9 @@ test('offers Android installation only when the browser provides a working promp
   const inAppContext = await browser.newContext({
     userAgent: IOS_IN_APP_USER_AGENT,
     serviceWorkers: 'block',
+  });
+  await inAppContext.addInitScript(() => {
+    sessionStorage.setItem('soleil:location-prompt-dismissed:v1', '1');
   });
   try {
     const inAppPage = await inAppContext.newPage();
@@ -439,6 +446,7 @@ test('cold-starts a hydrated catalog offline from one complete revisioned shell'
     await expect(offlinePage.getByText('Wrong shell')).toHaveCount(0);
     await expect(offlinePage.getByRole('region', { name: 'Location preferences' })).toBeVisible();
     await expect(offlinePage.getByRole('button', { name: 'Search spots' })).toBeVisible();
+    await offlinePage.getByRole('button', { name: 'Not now', exact: true }).click();
 
     await offlinePage.getByRole('button', { name: 'Search spots' }).click();
     const search = offlinePage.getByRole('dialog', { name: 'Search spots' });
@@ -466,6 +474,9 @@ test('cold-starts a hydrated catalog offline from one complete revisioned shell'
 });
 
 test('cold-starts every city and saved representative offline with honest live-data limits', async ({ context, page }) => {
+  await context.addInitScript(() => {
+    sessionStorage.setItem('soleil:location-prompt-dismissed:v1', '1');
+  });
   await page.goto('/');
   await waitForControlledShell(page);
   await seedAllCitySavedSpots(page);
@@ -535,4 +546,85 @@ test('keeps the public privacy and support documents available offline', async (
   } finally {
     await context.setOffline(false);
   }
+});
+
+test('loads photos only on camera open and keeps viewed photos available offline', async ({ context, page }) => {
+  await page.addInitScript(() => {
+    for (const key of ['welcome', 'tap-spot', 'scroll-cards', 'weather-overlay', 'metrics', 'scrub-timeline', 'complete']) localStorage.setItem(`onboarding:v2:${key}`, '1');
+    sessionStorage.setItem('soleil:location-prompt-dismissed:v1', '1');
+    localStorage.setItem('karl-pwa:dismissed-at', String(Date.now()));
+  });
+  const photoRequests: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/spot-views/') && request.resourceType() === 'image') photoRequests.push(request.url());
+  });
+  await page.goto('/');
+  await waitForControlledShell(page);
+  expect(photoRequests).toEqual([]);
+  const shellPhotos = await page.evaluate(async () => {
+    const name = (await caches.keys()).find((key) => key.startsWith('soleil-shell-'))!;
+    return (await (await caches.open(name)).keys()).filter((key) => /\/spot-views\/.*\.jpg$/.test(key.url)).length;
+  });
+  expect(shellPhotos).toBe(0);
+  async function openPhoto(name: string) {
+    await page.getByRole('button', { name: 'Search spots' }).click();
+    const search = page.getByRole('dialog', { name: 'Search spots' });
+    await search.getByPlaceholder('Search spots…').fill(name);
+    await search.getByRole('button', { name: new RegExp(name) }).click();
+    await page.getByRole('button', { name: `View photos for ${name}` }).click();
+    return page.getByRole('dialog', { name: `View photos for ${name}` });
+  }
+  const name = 'Panorama Park, Yerba Buena Island';
+  let viewer = await openPhoto(name);
+  await expect(viewer.locator('img')).toHaveJSProperty('naturalWidth', 1280);
+  await expect.poll(() => page.evaluate(async () => (await (await caches.open('soleil-photos-v1')).keys()).length)).toBe(1);
+  await viewer.getByRole('button', { name: 'Close photos' }).click();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Network.clearBrowserCache');
+  await context.setOffline(true);
+  try {
+    await page.getByRole('button', { name: `View photos for ${name}` }).click();
+    viewer = page.getByRole('dialog', { name: `View photos for ${name}` });
+    await expect(viewer.locator('img')).toHaveJSProperty('naturalWidth', 1280);
+    await viewer.getByRole('button', { name: 'Close photos' }).click();
+    await dismissSpotSheet(page, name);
+    const unavailable = await openPhoto('Tank Hill Park');
+    await expect(unavailable.getByText('Photo unavailable', { exact: true })).toBeVisible();
+    await expect(unavailable.getByRole('button', { name: 'Retry photo' })).toBeVisible();
+    await context.setOffline(false);
+    await unavailable.getByRole('button', { name: 'Retry photo' }).click();
+    await expect.poll(() => unavailable.locator('img').evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  } finally {
+    await context.setOffline(false);
+  }
+});
+
+test('bounds the visited photo cache and evicts the least recently viewed image', async ({ page }) => {
+  await page.goto('/');
+  await waitForControlledShell(page);
+  const evidence = await page.evaluate(async () => {
+    const manifest = await (await fetch('/spot-views/manifest.json')).json();
+    const photo = manifest['sf-panorama-park'].photos[0].src;
+    const cache = await caches.open('soleil-photos-v1');
+    for (let index = 0; index < 40; index++) {
+      await (await fetch(`${photo}?cache-check=${index}`)).arrayBuffer();
+      // Wait for the worker's asynchronous cache write before the next request.
+      while (!(await cache.match(`${photo}?cache-check=${index}`))) await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await (await fetch(`${photo}?cache-check=0`)).arrayBuffer();
+    while ((await cache.keys()).at(-1)?.url !== new URL(`${photo}?cache-check=0`, location.href).href) await new Promise((resolve) => setTimeout(resolve, 25));
+    await (await fetch(`${photo}?cache-check=40`)).arrayBuffer();
+    while (!(await cache.match(`${photo}?cache-check=40`))) await new Promise((resolve) => setTimeout(resolve, 25));
+    // Seeding a large previously cached entry verifies the byte budget on the next write.
+    await cache.put('/spot-views/budget-check.jpg', new Response(new Blob([new Uint8Array(20 * 1024 * 1024)]), { headers: { 'Content-Type': 'image/jpeg', 'X-Soleil-Photo-Bytes': String(20 * 1024 * 1024) } }));
+    const recency = { oldestEvicted: !(await cache.match(`${photo}?cache-check=1`)), touchedRetained: !!(await cache.match(`${photo}?cache-check=0`)), count: (await cache.keys()).length - 1 };
+    await (await fetch(`${photo}?cache-check=41`)).arrayBuffer();
+    while (!(await cache.match(`${photo}?cache-check=41`)) || (await cache.match('/spot-views/budget-check.jpg'))) await new Promise((resolve) => setTimeout(resolve, 25));
+    const keys = await cache.keys();
+    const sizes = await Promise.all(keys.map(async (key) => Number((await cache.match(key))?.headers.get('X-Soleil-Photo-Bytes'))));
+    return { ...recency, finalCount: keys.length, bytes: sizes.reduce((sum, size) => sum + size, 0) };
+  });
+  expect(evidence).toMatchObject({ oldestEvicted: true, touchedRetained: true, count: 40 });
+  expect(evidence.finalCount).toBeLessThanOrEqual(40);
+  expect(evidence.bytes).toBeLessThanOrEqual(20 * 1024 * 1024);
 });
