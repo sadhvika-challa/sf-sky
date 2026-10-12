@@ -1152,6 +1152,70 @@
       }
     ]
   },
+  "sf-cityscape-sky-bar": {
+    "view": "Historic skyline view from a 37th-floor Hilton hotel room. This is a reference for the building, not a verified view from the bar.",
+    "reviewedOn": "2026-10-12",
+    "verification": "desk-researched",
+    "locationSourceUrl": "https://www.flickr.com/photos/fraktus/3182567539/",
+    "locationPrecision": "park",
+    "sources": [
+      {
+        "platform": "Photo archive",
+        "url": "https://www.flickr.com/photos/fraktus/3182567539/"
+      }
+    ],
+    "locationEvidence": "The original photographer describes a view from a 37th-floor Hilton room in San Francisco. The height and reviewed downtown skyline are consistent with Hilton Union Square. The photograph is not claimed to have been taken inside Cityscape Sky Bar.",
+    "photos": [
+      {
+        "id": "598d17710b0744c817f7",
+        "src": "/spot-views/598d17710b0744c817f7.jpg",
+        "alt": "Panoramic San Francisco skyline and fog photographed from a high-floor Hilton hotel room.",
+        "view": "Historic skyline view from a 37th-floor Hilton hotel room. This is a reference for the building, not a verified view from the bar.",
+        "context": "Historical photo · Hotel-room reference",
+        "dateLabel": "January 9, 2009",
+        "photographer": "fraktus",
+        "sourceUrl": "https://www.flickr.com/photos/fraktus/3182567539/",
+        "license": "CC BY-SA 2.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0/",
+        "bytes": 52944,
+        "width": 1024,
+        "height": 222,
+        "sha256": "598d17710b0744c817f7c02c2b8f056b5e91cc6dec7f2531194a5ccb03b65c8e"
+      }
+    ]
+  },
+  "sf-clark-kerr-fire-trail": {
+    "view": "Trailhead in the hills behind Clark Kerr Campus. This shows the approach, rather than a summit view.",
+    "reviewedOn": "2026-10-12",
+    "verification": "desk-researched",
+    "locationSourceUrl": "https://www.flickr.com/photos/josecamoessilva/26105624112/",
+    "locationPrecision": "park",
+    "sources": [
+      {
+        "platform": "Photo archive",
+        "url": "https://www.flickr.com/photos/josecamoessilva/26105624112/"
+      }
+    ],
+    "locationEvidence": "The original Flickr title identifies a trailhead in the hills behind Clark Kerr Campus. The reviewed photograph shows the wooded trail approach, not the panoramic viewpoint.",
+    "photos": [
+      {
+        "id": "440cbe610127427b09b8",
+        "src": "/spot-views/440cbe610127427b09b8.jpg",
+        "alt": "Dirt trail and eucalyptus trees at a trailhead in the hills behind Clark Kerr Campus, Berkeley.",
+        "view": "Trailhead in the hills behind Clark Kerr Campus. This shows the approach, rather than a summit view.",
+        "context": "Historical photo · Trailhead reference",
+        "dateLabel": "April 2, 2016",
+        "photographer": "Jose Camões Silva",
+        "sourceUrl": "https://www.flickr.com/photos/josecamoessilva/26105624112/",
+        "license": "CC BY 2.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+        "bytes": 369185,
+        "width": 765,
+        "height": 1024,
+        "sha256": "440cbe610127427b09b8851d5e1a37b782cec833143c1f848fca6469314e4c52"
+      }
+    ]
+  },
   "sf-coit-tower": {
     "view": "Downtown San Francisco and the Transamerica Pyramid viewed from the top of Coit Tower.",
     "reviewedOn": "2026-10-12",
@@ -2141,6 +2205,38 @@
         "width": 1280,
         "height": 960,
         "sha256": "e88ba4c300b999bb16288232f7f81c81cac06762e8a0a758bdb2bb34a0427d1f"
+      }
+    ]
+  },
+  "sf-islais-creek": {
+    "view": "Islais Creek water and the working waterfront. The exact promenade viewing position is not documented.",
+    "reviewedOn": "2026-10-12",
+    "verification": "desk-researched",
+    "locationSourceUrl": "https://www.flickr.com/photos/veritatem/44591791/",
+    "locationPrecision": "park",
+    "sources": [
+      {
+        "platform": "Photo archive",
+        "url": "https://www.flickr.com/photos/veritatem/44591791/"
+      }
+    ],
+    "locationEvidence": "The original Flickr title identifies Islais Creek, and the reviewed photograph shows its working waterfront. The exact promenade capture position is not documented.",
+    "photos": [
+      {
+        "id": "dd607996b99afa77404d",
+        "src": "/spot-views/dd607996b99afa77404d.jpg",
+        "alt": "Creekfront water, old wooden pilings and waterfront facilities at Islais Creek.",
+        "view": "Islais Creek water and the working waterfront. The exact promenade viewing position is not documented.",
+        "context": "Historical photo · Creekfront reference",
+        "dateLabel": "July 27, 2005",
+        "photographer": "Heidi De Vries",
+        "sourceUrl": "https://www.flickr.com/photos/veritatem/44591791/",
+        "license": "CC BY 2.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+        "bytes": 89168,
+        "width": 576,
+        "height": 432,
+        "sha256": "dd607996b99afa77404dd8ec2ec162d650af6e77ff256a338d3c84ca2f20ada6"
       }
     ]
   },
@@ -3456,6 +3552,38 @@
       }
     ]
   },
+  "sf-pier-9": {
+    "view": "Pier 9 entrance on the Embarcadero. This shows the place from the street, rather than a sunset viewing position.",
+    "reviewedOn": "2026-10-12",
+    "verification": "desk-researched",
+    "locationSourceUrl": "https://www.flickr.com/photos/kenlund/24847607127/",
+    "locationPrecision": "park",
+    "sources": [
+      {
+        "platform": "Photo archive",
+        "url": "https://www.flickr.com/photos/kenlund/24847607127/"
+      }
+    ],
+    "locationEvidence": "The original Flickr title identifies Pier 9 on the Embarcadero, San Francisco. Its public photo geotag is 37.799427, -122.397698, and the entrance facade was visually reviewed.",
+    "photos": [
+      {
+        "id": "685e02eed297b98bf4fa",
+        "src": "/spot-views/685e02eed297b98bf4fa.jpg",
+        "alt": "The Pier 9 entrance building and sidewalk along the San Francisco Embarcadero.",
+        "view": "Pier 9 entrance on the Embarcadero. This shows the place from the street, rather than a sunset viewing position.",
+        "context": "Historical photo · Entrance reference",
+        "dateLabel": "January 12, 2018",
+        "photographer": "Ken Lund",
+        "sourceUrl": "https://www.flickr.com/photos/kenlund/24847607127/",
+        "license": "CC BY-SA 2.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by-sa/2.0/",
+        "bytes": 154939,
+        "width": 1023,
+        "height": 679,
+        "sha256": "685e02eed297b98bf4fac9e601be580b0474edfe7d6fd21a0b4c41c8a8ec590f"
+      }
+    ]
+  },
   "sf-pigeon-point": {
     "view": "Pigeon Point Lighthouse and coastal wildflowers beside the Pacific.",
     "reviewedOn": "2026-10-12",
@@ -3837,6 +3965,38 @@
         "width": 1280,
         "height": 960,
         "sha256": "0534b33b8bc26b00b7ec6b57af0a76d84b408677b7bbee05046d06b624cd00ad"
+      }
+    ]
+  },
+  "sf-rossi-playground": {
+    "view": "Lawn, trees and paths inside Rossi Playground. The surrounding skyline is not shown.",
+    "reviewedOn": "2026-10-12",
+    "verification": "desk-researched",
+    "locationSourceUrl": "https://www.flickr.com/photos/mrfraley/23723087388/",
+    "locationPrecision": "park",
+    "sources": [
+      {
+        "platform": "Photo archive",
+        "url": "https://www.flickr.com/photos/mrfraley/23723087388/"
+      }
+    ],
+    "locationEvidence": "The original Flickr title identifies Rossi Playground. The reviewed photograph shows the landscaped lawn and paths, not the skyline or a sunset viewing position.",
+    "photos": [
+      {
+        "id": "7fe65724cfd4afb2728e",
+        "src": "/spot-views/7fe65724cfd4afb2728e.jpg",
+        "alt": "Grass lawn, mature trees, curved concrete benches and paths inside Rossi Playground.",
+        "view": "Lawn, trees and paths inside Rossi Playground. The surrounding skyline is not shown.",
+        "context": "Historical photo · Park interior",
+        "dateLabel": "September 6, 2017",
+        "photographer": "Michael Fraley",
+        "sourceUrl": "https://www.flickr.com/photos/mrfraley/23723087388/",
+        "license": "CC BY 2.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+        "bytes": 352088,
+        "width": 1024,
+        "height": 679,
+        "sha256": "7fe65724cfd4afb2728ea7e2395b5f725a76b2391af22418a1bd33c95fe082b6"
       }
     ]
   },
@@ -4448,6 +4608,38 @@
       }
     ]
   },
+  "sf-walter-haas": {
+    "view": "San Francisco skyline in sunset light beyond the courts at Walter Haas Playground.",
+    "reviewedOn": "2026-10-12",
+    "verification": "desk-researched",
+    "locationSourceUrl": "https://www.flickr.com/photos/aballant/5252752565/",
+    "locationPrecision": "park",
+    "sources": [
+      {
+        "platform": "Photo archive",
+        "url": "https://www.flickr.com/photos/aballant/5252752565/"
+      }
+    ],
+    "locationEvidence": "The original Flickr title identifies Walter Haas and sunset. The courts and skyline were visually reviewed. The exact camera position is not documented.",
+    "photos": [
+      {
+        "id": "78dc6f421e83e8c15909",
+        "src": "/spot-views/78dc6f421e83e8c15909.jpg",
+        "alt": "San Francisco skyline lit by sunset beyond a basketball court at Walter Haas Playground.",
+        "view": "San Francisco skyline in sunset light beyond the courts at Walter Haas Playground.",
+        "context": "Historical photo · Sunset",
+        "dateLabel": "December 11, 2010",
+        "photographer": "Andrew Ballantyne",
+        "sourceUrl": "https://www.flickr.com/photos/aballant/5252752565/",
+        "license": "CC BY 2.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+        "bytes": 122614,
+        "width": 1024,
+        "height": 683,
+        "sha256": "78dc6f421e83e8c159098c5627ea7fc8eb74393479943fc7f18926865869891d"
+      }
+    ]
+  },
   "sf-warm-water-cove": {
     "view": "Panoramic waterfront view from Warm Water Cove toward the industrial shoreline and bay.",
     "reviewedOn": "2026-10-12",
@@ -4541,6 +4733,38 @@
         "width": 1280,
         "height": 937,
         "sha256": "3f2163a9b01d1c616616a89bbcd2da6828c563f04a13d7a0350c6ec642159595"
+      }
+    ]
+  },
+  "sf-wildcat-peak": {
+    "view": "San Pablo Reservoir and East Bay hills viewed from Wildcat Peak in Tilden Regional Park.",
+    "reviewedOn": "2026-10-12",
+    "verification": "desk-researched",
+    "locationSourceUrl": "https://www.flickr.com/photos/193316968@N06/51895012167/",
+    "locationPrecision": "park",
+    "sources": [
+      {
+        "platform": "Photo archive",
+        "url": "https://www.flickr.com/photos/193316968@N06/51895012167/"
+      }
+    ],
+    "locationEvidence": "The photographer titles this view as looking toward San Pablo Reservoir from Wildcat Peak and identifies Tilden Park in the original description.",
+    "photos": [
+      {
+        "id": "99e10c3283abe802257d",
+        "src": "/spot-views/99e10c3283abe802257d.jpg",
+        "alt": "San Pablo Reservoir beyond green East Bay hills, photographed from Wildcat Peak in Tilden Regional Park.",
+        "view": "San Pablo Reservoir and East Bay hills viewed from Wildcat Peak in Tilden Regional Park.",
+        "context": "Historical photo · Daylight",
+        "dateLabel": "January 27, 2022",
+        "photographer": "Chris Rycroft",
+        "sourceUrl": "https://www.flickr.com/photos/193316968@N06/51895012167/",
+        "license": "CC BY 2.0",
+        "licenseUrl": "https://creativecommons.org/licenses/by/2.0/",
+        "bytes": 230400,
+        "width": 1024,
+        "height": 640,
+        "sha256": "99e10c3283abe802257d76fd7af6ddd4ad3a9f556a96f0f7522b1a9033554f41"
       }
     ]
   },
