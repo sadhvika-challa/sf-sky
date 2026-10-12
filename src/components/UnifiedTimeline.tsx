@@ -238,7 +238,8 @@ export default function UnifiedTimeline({
             const target = selectedInstant + (event.key === 'PageUp' ? 1 : -1) * 24 * 3_600_000;
             nextIndex = nearestTimelineStopIndex(timelinePositionPct(target, stops), stops);
           }
-          else if (event.key === 'Home') nextIndex = 0;
+          else if (event.key === 'Home') nextIndex = range === '24h'
+            ? Math.max(0, stops.findIndex((stop) => stop.view === 'now' && stop.hourKey === '')) : 0;
           else if (event.key === 'End') nextIndex = max;
           else return;
           event.preventDefault();
@@ -253,7 +254,7 @@ export default function UnifiedTimeline({
         <div className={`absolute inset-x-0 top-[18px] -translate-y-1/2 rounded-full ${range === '7d' ? 'h-[5px]' : 'h-[10px]'}`} style={{ background: zoneGradient }} aria-hidden="true" />
         {range === '24h' && <span data-timeline-now className="absolute top-[18px] -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-[#1a1a18]" style={{ left: `${timelinePositionPct(now.getTime(), stops)}%` }} title="Current time" aria-hidden="true" />}
         {markers.map((marker) => (
-          <span key={`${marker.view}:${marker.instantMs}`} data-timeline-event={marker.view} data-event-instant={new Date(marker.instantMs).toISOString()} className={`absolute -translate-y-1/2 -translate-x-1/2 rounded-full ${range === '7d' ? 'top-[7px] w-1 h-1' : 'top-[18px] w-[5px] h-3 border border-white'}`} style={{ left: `${marker.percent}%`, backgroundColor: range === '7d'
+          <span key={`${marker.view}:${marker.instantMs}`} data-timeline-event={marker.view} data-event-instant={new Date(marker.instantMs).toISOString()} className={`absolute -translate-y-1/2 -translate-x-1/2 rounded-full ${range === '7d' ? 'top-[7px] w-1 h-1' : 'top-[18px] w-[5px] h-3 border border-white'}`} style={{ left: `clamp(12px, ${marker.percent}%, calc(100% - 12px))`, backgroundColor: range === '7d'
               ? marker.view === 'sunset' ? '#F6A36E' : '#A49AFE'
               : marker.view === 'sunrise' ? '#C44373' : marker.view === 'sunset' ? '#B55230' : '#354261' }} aria-hidden="true" />
         ))}

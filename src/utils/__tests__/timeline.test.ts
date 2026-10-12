@@ -183,7 +183,7 @@ describe('event snapping on the absolute-time rail', () => {
 
   it('keeps tonight’s stargazing time on the rail after dusk', () => {
     const afterDusk = new Date('2026-08-30T04:30:00Z');
-    const stops = buildTimelineStops(keys, afterDusk, events);
+    const stops = buildTimelineStops(keys, afterDusk, [events]);
     expect(stops.find((stop) => stop.view === 'stargazing')?.instantMs).toBe(events.stargazing.getTime());
     expect(timelinePositionPct(afterDusk.getTime(), stops)).toBeGreaterThan(0);
     const percent = timelinePositionPct(events.stargazing.getTime(), stops);

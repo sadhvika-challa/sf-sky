@@ -82,7 +82,7 @@ export default function ConfidenceMetric({ evidence, compact = false, eventTime,
           <rect key={index} x={index * 4.5 + 1} y={9 - index * 3} width="3" height={4 + index * 3} rx="0.8" fill="currentColor" opacity={index < filled ? 1 : 0.2} />
         ))}
       </svg>
-      {compact ? <span className="text-[10px]">{label}</span> : `${label} confidence`}
+      {compact ? null : `${label} confidence`}
       </button>
       {open && (
         <span id={detailsId} role="region" aria-label="Forecast confidence details"

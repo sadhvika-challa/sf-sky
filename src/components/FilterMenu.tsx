@@ -303,7 +303,7 @@ export default function FilterMenu({
       <div
         inert={!open}
         aria-hidden={!open}
-        className={`hidden sm:block absolute z-30 top-0 right-0 w-72 h-full overflow-y-auto bg-cream/95 backdrop-blur-md border-l border-cream-dark shadow-xl transition-transform duration-300 ease-out ${
+        className={`hidden sm:block absolute z-50 top-0 right-0 w-72 h-full overflow-y-auto bg-cream/95 backdrop-blur-md border-l border-cream-dark shadow-xl transition-transform duration-300 ease-out ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
         style={{ paddingTop: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))', paddingRight: 'env(safe-area-inset-right)', width: 'calc(18rem + env(safe-area-inset-right))' }}

@@ -785,7 +785,7 @@ test('aligns tonight’s stargazing card and marker after dusk', async ({ page }
   await expect(timeline).toContainText('Today');
   await expect(card).toHaveAttribute('aria-hidden', 'false');
   const thumb = await page.locator('[data-timeline-thumb]').boundingBox();
-  const marker = await page.locator('[data-timeline-event="stargazing"]').boundingBox();
+  const marker = await page.locator('[data-timeline-event="stargazing"]').first().boundingBox();
   expect(Math.abs(thumb!.x + thumb!.width / 2 - marker!.x - marker!.width / 2)).toBeLessThan(0.5);
   await slider.press('Home');
   await expect(card).toHaveAttribute('aria-hidden', 'true');

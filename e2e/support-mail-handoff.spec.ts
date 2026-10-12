@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test'
+import { installDeterministicBrowserState } from './weather-fixture'
 
 test('describes support mail as an unconfirmed draft handoff', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'One browser proves the mail handoff copy contract')
 
+  await installDeterministicBrowserState(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('button', { name: 'Report a bug' }).click()

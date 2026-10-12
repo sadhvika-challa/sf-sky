@@ -95,9 +95,7 @@ async function switchCity(page: Page, city: 'Chicago' | 'San Francisco'): Promis
   await cityButton.click({ trial: true });
   const actionAt = Date.now();
   await cityButton.click();
-  await expect(
-    page.getByRole('button', { name: 'Switch city' }).locator('..').getByText(city, { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('region', { name: `Spot recommendation for ${city}` })).toBeVisible();
   return actionAt;
 }
 

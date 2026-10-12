@@ -275,7 +275,9 @@ export function buildTimelineStops(hourKeys: readonly string[], now: Date, event
   for (const day of days) {
     for (const view of ['sunrise', 'sunset', 'stargazing'] as const) {
       const instantMs = day[view].getTime();
-      const withinRange = !Array.isArray(events) || (instantMs >= now.getTime() && instantMs <= endMs);
+      const tonightStillActive = includeNow && view === 'stargazing'
+        && instantMs < now.getTime() && now.getTime() - instantMs <= 3 * 3_600_000;
+      const withinRange = !Array.isArray(events) || tonightStillActive || (instantMs >= now.getTime() && instantMs <= endMs);
       if (Number.isFinite(instantMs) && withinRange) stops.push({ view, instantMs, hourKey: '' });
     }
   }

@@ -296,7 +296,9 @@ function App() {
   const [weatherMetric, setWeatherMetric] = useState<WeatherMetric>('temp');
   const [timelineRange, setTimelineRange] = useState<ForecastRange>(() => {
     if (initialDeepLink.range) return initialDeepLink.range;
-    if (initialDeepLink.hourKey && Date.parse(initialDeepLink.hourKey) > Date.now() + 24 * 3_600_000) return '7d';
+    const requestedInstant = Date.parse(initialDeepLink.hourKey ?? '');
+    if (requestedInstant > Date.now() + 24 * 3_600_000
+      && requestedInstant < forecastRangeWindow(new Date(), '7d', activeCityConfig.timeZone).end.getTime()) return '7d';
     try { return parseForecastRange(window.localStorage.getItem(FORECAST_RANGE_STORAGE_KEY)); }
     catch { return '24h'; }
   });

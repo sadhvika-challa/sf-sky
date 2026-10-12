@@ -220,8 +220,8 @@ test('identifies partial evidence when air quality is unavailable', async ({ pag
   await page.goto(SPOT_URL);
 
   await oceanCard(page);
-  await expectEvidence(page, 'Partial forecast · low confidence');
-  await expectEvidence(page, 'Partial forecast · Retrieved just now');
+  await expectEvidence(page, 'Weather-only estimate · low confidence');
+  await expectEvidence(page, 'Weather-only estimate · Retrieved just now');
   await capture(page, testInfo, 'partial-air-quality');
   reportRequests(harness, 'partial-air-quality');
 });

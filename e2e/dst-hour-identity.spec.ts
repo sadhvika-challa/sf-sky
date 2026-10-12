@@ -226,7 +226,7 @@ test('normalizes ambiguous, missing, and unique legacy hour links honestly', asy
     'Nighttime, Today · 2:00 AM',
   );
 
-  await page.goto(`${CHICAGO_SPOT_URL}&instant=2026-11-05T12%3A00%3A00Z`);
+  await page.goto(`${CHICAGO_SPOT_URL}&instant=2026-11-15T12%3A00%3A00Z`);
   dialog = page.getByRole('dialog', { name: 'North Avenue Beach sky scores' });
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
   await expect(dialog.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuetext', /Nighttime, Now · 12:15 AM/);
