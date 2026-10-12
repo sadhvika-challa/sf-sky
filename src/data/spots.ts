@@ -19,6 +19,7 @@ export interface AccessAlert {
 }
 
 export interface Spot {
+  address?: string;
   id: string;
   name: string;
   lat: number;
@@ -1203,6 +1204,17 @@ export const spots: Spot[] = [
     lightPollution: 'High', horizonQuality: 'Open',
     sunrise: 70, sunset: 45, stargazing: 10,
   },
+  {
+    // Location verified against the PIER 39 listing and official visitor address.
+    // Terrain and sky suitability values are initial estimates, not measurements.
+    id: "sf-pier-39", name: "Pier 39",
+    address: "Beach Street & The Embarcadero, San Francisco, CA 94133",
+    lat: 37.808673, lng: -122.409821,
+    city: 'sf',
+    category: 'waterfront', elevation: 3,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 65, sunset: 70, stargazing: 10,
+  },
   // — Rooftop / elevated venues —
   // High-elevation entries with paid-access alerts. Light pollution is High
   // (downtown), so stargazing scores stay low even though horizons are open.
@@ -1262,8 +1274,7 @@ export const spots: Spot[] = [
   // keeps stargazing scores low even where the horizon opens up. Ina Coolbrith
   // Park and Pioneer Park are intentionally NOT re-added here — they already
   // exist above (ids sf-ina-coolbrith and sf-coit-tower / "Coit Tower /
-  // Pioneer Park"). "Pretty View" is pending real coordinates and is omitted
-  // until confirmed.
+  // Pioneer Park"). Pretty View uses the verified location below.
   {
     id: "sf-jack-early-park", name: "Jack Early Park",
     lat: 37.8040, lng: -122.4055,
@@ -1300,6 +1311,42 @@ export const spots: Spot[] = [
     lightPollution: 'High', horizonQuality: 'Partial',
     sunrise: 48, sunset: 52, stargazing: 8,
   },
+  {
+    // Pretty View is on Telegraph Hill, distinct from the Russian Hill steps.
+    // Source: https://maps.app.goo.gl/ezH5VfA7yc3fJcAS6
+    // Use the place coordinates, not the Maps URL's viewport center.
+    // Terrain and sky suitability values are initial estimates, not measurements.
+    id: "sf-pretty-view", name: "Pretty View",
+    address: "410 Vallejo Street, San Francisco, CA 94133",
+    lat: 37.7992741, lng: -122.4042775,
+    city: 'sf',
+    category: 'hill', elevation: 55,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 50, sunset: 60, stargazing: 8,
+  },
+  {
+    // Source: https://maps.app.goo.gl/X5kGJ5zL3JR8t1Lj8
+    // Terrain and sky suitability values are initial estimates, not measurements.
+    id: "sf-montgomery-steps", name: "Montgomery Street Steps",
+    address: "Montgomery Street, San Francisco, CA 94133",
+    lat: 37.8003759, lng: -122.40443,
+    city: 'sf',
+    category: 'hill', elevation: 60,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 55, sunset: 55, stargazing: 8,
+  },
+  {
+    // A separate viewpoint east of the existing Greenwich Steps entry.
+    // Source: https://maps.app.goo.gl/yRsr8PVkTsuGUyV37
+    // Terrain and sky suitability values are initial estimates, not measurements.
+    id: "sf-telegraph-hill-viewpoint", name: "Telegraph Hill Viewpoint",
+    address: "302 Greenwich Street, San Francisco, CA 94133",
+    lat: 37.8029509, lng: -122.404836,
+    city: 'sf',
+    category: 'hill', elevation: 50,
+    lightPollution: 'High', horizonQuality: 'Partial',
+    sunrise: 60, sunset: 50, stargazing: 8,
+  },
   // — NE waterfront / Telegraph Hill / Russian Hill additions —
   // Curated water-and-city viewpoints in the Embarcadero / Telegraph Hill /
   // Russian Hill pocket. Pier 7, Jack Early Park, Coit Tower / Pioneer Park,
@@ -1316,10 +1363,12 @@ export const spots: Spot[] = [
     sunrise: 68, sunset: 42, stargazing: 8,
   },
   {
-    // TODO: refine coords to viewpoint (street centroid, not the overlook)
+    // Verified viewpoint: https://maps.app.goo.gl/QGZFyuozMyeM8CdMA
+    // Preserve the existing ID so saved spots and shared links remain valid.
     // TODO: Karl copy
-    id: "sf-calhoun-terrace", name: "Calhoun Terrace",
-    lat: 37.8010, lng: -122.4036,
+    id: "sf-calhoun-terrace", name: "Calhoun Terrace / Calhoun Stairs & View",
+    address: "280 Union Street, San Francisco, CA 94133",
+    lat: 37.8011291, lng: -122.4036471,
     city: 'sf',
     category: 'hill', elevation: 60,
     lightPollution: 'High', horizonQuality: 'Partial',
