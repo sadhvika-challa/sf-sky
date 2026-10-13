@@ -1,5 +1,4 @@
 export const APPROVED_OPEN_FREE_MAP_STYLES = [
-  'https://tiles.openfreemap.org/styles/liberty',
   'https://tiles.openfreemap.org/styles/positron',
 ];
 

@@ -92,7 +92,7 @@ function CityRowItem({
       </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="font-serif text-[17px] text-gray-800 font-medium">
+          <span className="font-sans text-[17px] text-gray-800 font-medium">
             {city.name}
           </span>
           {isActive && <span className="w-1.5 h-1.5 rounded-full bg-pin-great flex-shrink-0" />}
@@ -197,7 +197,7 @@ export default function CitySheet({
 
         {/* Title row */}
         <div className="flex items-center justify-between px-4 pt-1 pb-3">
-          <h2 className="font-serif text-base font-semibold text-gray-800">
+          <h2 className="font-sans text-base font-semibold text-gray-800">
             Choose a city
           </h2>
           {isVisiting && (

@@ -24,6 +24,7 @@ export type ScoreEvidenceReason =
   | 'none'
   | 'loading'
   | 'missing-required-fields'
+  | 'missing-air-quality'
   | 'missing-hour'
   | 'malformed'
   | 'empty'
@@ -61,6 +62,15 @@ export const FRESH_FORECAST_MS = 45 * 60 * 1000;
 export const STALE_FORECAST_MS = 2 * 60 * 60 * 1000;
 export const HIGH_CONFIDENCE_HOURS = 2;
 export const MEDIUM_CONFIDENCE_HOURS = 6;
+
+/** Review windows follow the same elapsed-hour rules as forecast confidence. */
+export function getConfidenceReviewTimes(eventTime: Date) {
+  if (!Number.isFinite(eventTime.getTime())) return null;
+  return {
+    medium: new Date(eventTime.getTime() - MEDIUM_CONFIDENCE_HOURS * 3_600_000),
+    high: new Date(eventTime.getTime() - HIGH_CONFIDENCE_HOURS * 3_600_000),
+  };
+}
 
 export function getForecastFreshness(
   fetchedAt: number | null,
@@ -101,7 +111,7 @@ export function getForecastConfidence(
   if (freshness === 'stale' || freshness === 'unknown') return 'low';
 
   const horizon = hoursUntil(eventTime, now);
-  if (horizon === null) return 'low';
+  if (horizon === null || (eventTime && eventTime < now)) return 'low';
   if (freshness === 'fresh' && horizon <= HIGH_CONFIDENCE_HOURS) return 'high';
   if (horizon <= MEDIUM_CONFIDENCE_HOURS) return 'medium';
   return 'low';
@@ -147,6 +157,9 @@ export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
     ? input.fetchedAt
     : null;
   const completenessRead = getHourlyForecastCompleteness(input.hourly, input.mode);
+  const missingAirQuality = input.mode !== 'stargazing' && input.hourly !== null &&
+    (!Number.isFinite(input.hourly.pm25) || input.hourly.pm25 < 0) &&
+    completenessRead.availableFields === completenessRead.requiredFields - 1;
   const hasUsableForecast = input.hourly !== null && completenessRead.completeness !== 'missing';
   // A failed refresh makes a retained forecast stale for decision-making,
   // even when its original retrieval timestamp is still relatively recent.
@@ -227,7 +240,9 @@ export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
   );
   const displayedStatus = input.error
     ? { state: 'stale-forecast' as const, label: 'Saved forecast' }
-    : status;
+    : missingAirQuality
+      ? { ...status, label: 'Weather-only estimate' }
+      : status;
   return {
     provenance,
     freshness,
@@ -236,23 +251,30 @@ export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
     state: displayedStatus.state,
     reason: input.error
       ? 'refresh-error'
-      : completenessRead.completeness === 'partial'
-        ? 'missing-required-fields'
-        : freshness === 'unknown'
-          ? 'missing-retrieval-time'
-          : 'none',
+      : missingAirQuality
+        ? 'missing-air-quality'
+        : completenessRead.completeness === 'partial'
+          ? 'missing-required-fields'
+          : freshness === 'unknown'
+            ? 'missing-retrieval-time'
+            : 'none',
     fetchedAt,
     statusLabel: `${displayedStatus.label} · ${confidence} confidence`,
     retrievalLabel,
     provenanceLabel: completenessRead.completeness === 'complete'
       ? 'Forecast-backed'
-      : 'Partial forecast',
+      : missingAirQuality ? 'Weather-only estimate' : 'Partial forecast',
   };
 }
 
 export function scoreEvidenceAccessibilityLabel(score: number, evidence: ScoreEvidence): string {
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
-  return `${clampedScore} out of 100, ${evidence.statusLabel.toLowerCase()}, ${evidence.retrievalLabel.toLowerCase()}`;
+  const approximate = evidence.provenance === 'forecast' && evidence.completeness === 'partial';
+  return `${approximate ? 'approximately ' : ''}${clampedScore} out of 100, ${evidence.statusLabel.toLowerCase()}, ${evidence.retrievalLabel.toLowerCase()}`;
+}
+
+export function formatScoreValue(score: number): string {
+  return `${Math.max(0, Math.min(100, Math.round(score)))}`;
 }
 
 export function describeScoreEvidenceSet(evidence: ReadonlyArray<ScoreEvidence>): string {

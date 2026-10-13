@@ -228,6 +228,8 @@ describe('Unix-time forecast ingestion', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     const urls = fetchMock.mock.calls.map(([input]) => new URL(String(input)));
     expect(urls.every((url) => url.searchParams.get('timeformat') === 'unixtime')).toBe(true);
+    expect(urls.filter((url) => !url.hostname.startsWith('air-quality')).every((url) => url.searchParams.get('forecast_days') === '8')).toBe(true);
+    expect(urls.filter((url) => url.hostname.startsWith('air-quality')).every((url) => url.searchParams.get('forecast_days') === '7')).toBe(true);
     expect(urls.filter((url) => url.searchParams.get('timezone') === 'America/Chicago')).toHaveLength(2);
     expect(urls.filter((url) => url.searchParams.get('timezone') === 'America/Los_Angeles')).toHaveLength(2);
   });

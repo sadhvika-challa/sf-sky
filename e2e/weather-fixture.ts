@@ -32,7 +32,7 @@ function hourlyEpochSeconds(): number[] {
   // Midnight PDT on August 29. Open-Meteo returns Unix seconds in UTC even
   // when the requested timezone controls its forecast-day boundaries.
   const start = Date.UTC(2026, 7, 29, 7);
-  for (let index = 0; index < 72; index += 1) {
+  for (let index = 0; index < 192; index += 1) {
     values.push((start + index * 3_600_000) / 1_000);
   }
   return values;
@@ -86,7 +86,7 @@ function cacheKey(
   includeAirQuality = true,
 ): string {
   const [latitude, longitude] = coordinateKey.split(',').map(Number);
-  return `weather:v5:${latitude.toFixed(4)}:${longitude.toFixed(4)}:${timeZone}:` +
+  return `weather:v6:${latitude.toFixed(4)}:${longitude.toFixed(4)}:${timeZone}:` +
     (includeAirQuality ? 'weather-aq' : 'weather');
 }
 
@@ -214,10 +214,12 @@ export async function installDeterministicBrowserState(
   page: Page,
   now: Date = FIXED_NOW,
 ): Promise<void> {
+  await page.route('**/__soleil/private-spots', (route) => route.fulfill({ status: 204 }));
   await page.clock.install({ time: now });
   await page.addInitScript((keys: string[]) => {
     for (const key of keys) window.localStorage.setItem(key, '1');
     window.localStorage.setItem('karl-pwa:dismissed-at', String(Date.now()));
+    window.sessionStorage.setItem('soleil:location-prompt-dismissed:v1', '1');
   }, ONBOARDING_KEYS);
 }
 

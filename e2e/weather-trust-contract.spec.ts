@@ -23,6 +23,16 @@ async function oceanCard(page: Page): Promise<Locator> {
   return dialog.locator('[data-card-type="now"]');
 }
 
+async function expectEvidence(page: Page, label: string): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
+  if (label.includes('Retrieved') || label.includes('Retrieval pending') || label.includes('Forecast not retrieved')) {
+    await expect(dialog.locator('[data-card-type="now"] [data-retrieval-badge]')).toHaveText(label.split(' · ').at(-1)!);
+  } else {
+    await expect(dialog.locator('[data-primary-score] > span[aria-label*=" score "]')).toHaveAttribute('aria-label', new RegExp(label.toLowerCase()));
+    if (label.includes('confidence')) await expect(dialog.getByRole('group', { name: `Forecast confidence: ${label.includes('high') ? 'High' : 'Low'}` })).toBeVisible();
+  }
+}
+
 async function selectOceanFromSearch(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Search spots' }).click();
   const searchDialog = page.getByRole('dialog', { name: 'Search spots' });
@@ -63,7 +73,8 @@ test.beforeEach(async ({ page }) => {
 test('exposes current forecast evidence in Search, the map marker, and the score card', async ({ page }, testInfo) => {
   const harness = await installWeatherHarness(page);
   await page.goto('/');
-  expectWeatherRequestBudget(harness.requests, { forecast: 0, airQuality: 0 });
+  await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-disabled', 'false');
+  expectWeatherRequestBudget(harness.requests, { forecast: 1, airQuality: 1 });
   await page.getByRole('button', { name: 'Search spots' }).click();
 
   const searchDialog = page.getByRole('dialog', { name: 'Search spots' });
@@ -71,10 +82,10 @@ test('exposes current forecast evidence in Search, the map marker, and the score
   const oceanResult = searchDialog.getByRole('button', { name: /Ocean Beach/ });
   await oceanResult.click();
 
-  const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
-  await expect(page.locator('[aria-label^="Now score "]')).toHaveAttribute(
+  await oceanCard(page);
+  await expectEvidence(page, 'Current forecast · high confidence');
+  await expectEvidence(page, 'Forecast-backed · Retrieved just now');
+  await expect(page.locator('[data-primary-score] > span[aria-label*=" score "]')).toHaveAttribute(
     'aria-label',
     /current forecast · high confidence, retrieved just now$/,
   );
@@ -97,7 +108,7 @@ test('exposes current forecast evidence in Search, the map marker, and the score
   ).toBeVisible();
   await capture(page, testInfo, 'current-search-evidence');
   await auditSurface(page, testInfo, '[role="dialog"][aria-label="Search spots"]', 'search');
-  expectWeatherRequestBudget(harness.requests, { forecast: 1, airQuality: 1, maxActive: 2 });
+  expectWeatherRequestBudget(harness.requests, { forecast: 2, airQuality: 2, maxActive: 4 });
   reportRequests(harness, `current-${testInfo.project.name}`);
 });
 
@@ -108,14 +119,14 @@ test('shows retrieval while the selected spot forecast is loading', async ({ pag
   await page.goto(SPOT_URL);
   await oceanForecast.requested;
 
-  const nowCard = await oceanCard(page);
+  await oceanCard(page);
   try {
-    await expect(nowCard.getByText('Retrieving forecast · curated estimate', { exact: true })).toBeVisible();
-    await expect(nowCard.getByText('Curated estimate · Retrieval pending', { exact: true })).toBeVisible();
+    await expectEvidence(page, 'Retrieving forecast · curated estimate');
+    await expectEvidence(page, 'Curated estimate · Retrieval pending');
   } finally {
     oceanForecast.release();
   }
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Current forecast · high confidence');
   reportRequests(harness, 'loading');
 });
 
@@ -125,8 +136,7 @@ test('uses a curated estimate when a newly selected spot lacks the active hour',
   harness.missingHourKeysByCoordinates.set(OCEAN_BEACH_COORDINATES, new Set([FIRST_FUTURE_HOUR_KEY]));
   await page.goto('/?spot=sf-twin-peaks&view=now');
   const firstSpot = page.getByRole('dialog', { name: 'Twin Peaks sky scores' });
-  const slider = firstSpot.locator('[data-card-type="now"]')
-    .getByRole('slider', { name: 'Forecast hour' });
+  const slider = firstSpot.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await slider.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
@@ -135,9 +145,9 @@ test('uses a curated estimate when a newly selected spot lacks the active hour',
   await expect(firstSpot).toBeHidden();
   await selectOceanFromSearch(page);
 
-  const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Selected hour unavailable · curated estimate', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Curated estimate · Retrieved just now', { exact: true })).toBeVisible();
+  await oceanCard(page);
+  await expectEvidence(page, 'Selected hour unavailable · curated estimate');
+  await expectEvidence(page, 'Curated estimate · Retrieved just now');
   reportRequests(harness, 'missing-hour');
 });
 
@@ -151,15 +161,15 @@ test('explains a failed forecast fetch and preserves recovery', async ({ page },
   await page.goto(SPOT_URL);
 
   const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Curated estimate · Forecast not retrieved', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Forecast unavailable · curated estimate');
+  await expectEvidence(page, 'Curated estimate · Forecast not retrieved');
   const retry = nowCard.getByRole('button', { name: 'Retry forecast for Ocean Beach' });
   await expect(retry).toBeVisible();
   await capture(page, testInfo, 'forecast-fetch-error');
 
   harness.failCoordinates.clear();
   await retry.click();
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Current forecast · high confidence');
   expect(harness.requests.forecast.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(2);
   expect(harness.requests.airQuality.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(2);
   reportRequests(harness, 'fetch-error');
@@ -175,9 +185,9 @@ test('retains a stale cached forecast when cold revalidation fails', async ({ pa
   harness.failCoordinates.add(OCEAN_BEACH_COORDINATES);
   await page.goto(SPOT_URL);
 
-  const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Saved forecast · low confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Forecast-backed · Retrieved 3h ago', { exact: true })).toBeVisible();
+  await oceanCard(page);
+  await expectEvidence(page, 'Saved forecast · low confidence');
+  await expectEvidence(page, 'Forecast-backed · Retrieved 3h ago');
   expect(harness.requests.forecast.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(1);
   expect(harness.requests.airQuality.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(1);
   await capture(page, testInfo, 'stale-cached-forecast');
@@ -188,15 +198,15 @@ test('keeps a saved forecast when its background refresh fails', async ({ page }
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Timer contract is exercised once in Chromium');
   const harness = await installWeatherHarness(page);
   await page.goto(SPOT_URL);
-  const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  await oceanCard(page);
+  await expectEvidence(page, 'Current forecast · high confidence');
 
   await expireCachedForecast(page, OCEAN_BEACH_COORDINATES);
   harness.failCoordinates.add(OCEAN_BEACH_COORDINATES);
   await page.clock.fastForward(FIFTEEN_MINUTES + 1);
 
-  await expect(nowCard.getByText('Saved forecast · low confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Forecast-backed · Retrieved 15m ago', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Saved forecast · low confidence');
+  await expectEvidence(page, 'Forecast-backed · Retrieved 15m ago');
   expect(harness.requests.forecast.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(2);
   expect(harness.requests.airQuality.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES)).toHaveLength(2);
   await capture(page, testInfo, 'saved-forecast-refresh-error');
@@ -209,9 +219,9 @@ test('identifies partial evidence when air quality is unavailable', async ({ pag
   harness.failAirQualityCoordinates.add(OCEAN_BEACH_COORDINATES);
   await page.goto(SPOT_URL);
 
-  const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Partial forecast · low confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Partial forecast · Retrieved just now', { exact: true })).toBeVisible();
+  await oceanCard(page);
+  await expectEvidence(page, 'Weather-only estimate · low confidence');
+  await expectEvidence(page, 'Weather-only estimate · Retrieved just now');
   await capture(page, testInfo, 'partial-air-quality');
   reportRequests(harness, 'partial-air-quality');
 });
@@ -222,8 +232,8 @@ test('retains one complete selected version when AQ-only revalidation fails and 
   await page.goto(SPOT_URL);
 
   const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Current forecast · high confidence');
+  await expectEvidence(page, 'Forecast-backed · Retrieved just now');
   harness.failAirQualityCoordinates.add(OCEAN_BEACH_COORDINATES);
   await page.clock.fastForward(FIFTEEN_MINUTES + 1);
   await expect.poll(
@@ -233,16 +243,16 @@ test('retains one complete selected version when AQ-only revalidation fails and 
     () => harness.requests.airQuality.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES).length,
   ).toBe(2);
 
-  await expect(nowCard.getByText('Saved forecast · low confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Forecast-backed · Retrieved 15m ago', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Saved forecast · low confidence');
+  await expectEvidence(page, 'Forecast-backed · Retrieved 15m ago');
   await expect(nowCard.getByText(/refresh.*incomplete.*air.?quality|air.?quality.*unavailable/i)).toBeVisible();
   const retry = nowCard.getByRole('button', { name: 'Retry forecast for Ocean Beach' });
   await expect(retry).toBeVisible();
 
   harness.failAirQualityCoordinates.clear();
   await retry.click();
-  await expect(nowCard.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Forecast-backed · Retrieved just now', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Current forecast · high confidence');
+  await expectEvidence(page, 'Forecast-backed · Retrieved just now');
   expect(harness.requests.forecast.filter(
     (coordinate) => coordinate === OCEAN_BEACH_COORDINATES,
   )).toHaveLength(3);
@@ -259,9 +269,11 @@ test('uses placeholders instead of invented values for absent metrics', async ({
   await page.goto(SPOT_URL);
 
   const nowCard = await oceanCard(page);
-  await expect(nowCard.getByText('Partial forecast · low confidence', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('--°', { exact: true })).toBeVisible();
-  await expect(nowCard.getByText('Unavailable', { exact: true })).toBeVisible();
+  await expectEvidence(page, 'Partial forecast · low confidence');
+  await expect(nowCard.locator('[data-temperature]')).toHaveText('Unavailable');
+  await nowCard.getByRole('button', { name: 'Details', exact: true }).click();
+  await expect(nowCard.getByRole('tabpanel', { name: 'Sky', exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Temperature', { exact: true }).locator('..')).toContainText('Unavailable');
   await expect(nowCard.getByText('Wind', { exact: true }).locator('..').getByText('--', { exact: true }).first()).toBeVisible();
   await expect(nowCard.getByText('Visibility', { exact: true }).locator('..').getByText('--', { exact: true }).first()).toBeVisible();
   reportRequests(harness, 'absent-metrics');

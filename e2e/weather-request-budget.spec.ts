@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { CITIES } from '../src/data/cities';
 import { neighborhoods } from '../src/data/neighborhoods';
 import { OVERLAY_CONCURRENCY } from '../src/hooks/useNeighborhoodForecasts';
 import {
@@ -25,6 +26,37 @@ const OVERLAY_TOTAL = neighborhoods.length;
 const FIRST_USABLE_COVERAGE = 9;
 const FIRST_WAVE_IDS = new Set([1, 3, 4, 6, 9, 16, 20, 22, 25]);
 
+// Separate the single city timeline pair from spot and overlay demand.
+function planningRequests(harness: WeatherHarness) {
+  const regional = new Set(CITIES.map((city) => weatherCoordinateKey(...city.center)));
+  const raw = harness.requests;
+  const lifecycle = raw.lifecycle.filter((request) => !regional.has(request.coordinateKey));
+  const active = lifecycle.filter((request) => request.terminal === null);
+  const events = lifecycle.flatMap((request) => [
+    { time: request.startedAt, id: request.id, delta: 1, coordinate: request.coordinateKey },
+    ...(request.terminalAt === null ? [] : [{ time: request.terminalAt, id: request.id, delta: -1, coordinate: request.coordinateKey }]),
+  ]).sort((a, b) => a.time - b.time || a.id - b.id || b.delta - a.delta);
+  let current = 0;
+  let maxActive = 0;
+  let maxActiveCoordinateJobs = 0;
+  const coordinates = new Map<string, number>();
+  for (const event of events) {
+    current += event.delta;
+    const count = (coordinates.get(event.coordinate) ?? 0) + event.delta;
+    if (count > 0) coordinates.set(event.coordinate, count);
+    else coordinates.delete(event.coordinate);
+    maxActive = Math.max(maxActive, current);
+    maxActiveCoordinateJobs = Math.max(maxActiveCoordinateJobs, coordinates.size);
+  }
+  const withoutRegional = (request: string) => !regional.has(request.split(':').at(-1)!);
+  return {
+    ...raw, lifecycle, active: active.length, maxActive, maxActiveCoordinateJobs,
+    activeCoordinateJobs: new Set(active.map((request) => request.coordinateKey)).size,
+    forecast: raw.forecast.filter(withoutRegional), airQuality: raw.airQuality.filter(withoutRegional),
+    completed: raw.completed.filter(withoutRegional), failed: raw.failed.filter(withoutRegional), aborted: raw.aborted.filter(withoutRegional),
+  };
+}
+
 function overlayState(page: Page): Locator {
   return page.locator('[data-weather-overlay-state]');
 }
@@ -46,8 +78,8 @@ async function dismissSpotSheet(page: Page, accessibleName: string): Promise<voi
 }
 
 async function waitForOverlayCompletion(harness: WeatherHarness): Promise<void> {
-  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(OVERLAY_TOTAL);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
 }
 
 async function switchCity(page: Page, city: 'Chicago' | 'San Francisco'): Promise<number> {
@@ -63,9 +95,7 @@ async function switchCity(page: Page, city: 'Chicago' | 'San Francisco'): Promis
   await cityButton.click({ trial: true });
   const actionAt = Date.now();
   await cityButton.click();
-  await expect(
-    page.getByRole('button', { name: 'Switch city' }).locator('..').getByText(city, { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('region', { name: `Spot recommendation for ${city}` })).toBeVisible();
   return actionAt;
 }
 
@@ -82,14 +112,14 @@ async function expectPromptTermination(
     `Active requests must terminate within 1.5 seconds: ${JSON.stringify(requests)}`,
   ).toBeLessThanOrEqual(1_500);
   expect(requests.every((request) => request.terminal === 'aborted')).toBe(true);
-  if (expectGlobalIdle) await expect.poll(() => harness.requests.active).toBe(0);
+  if (expectGlobalIdle) await expect.poll(() => planningRequests(harness).active).toBe(0);
 }
 
 function generationForecasts(
   harness: WeatherHarness,
   firstLifecycleId: number,
 ): WeatherRequestLifecycle[] {
-  return harness.requests.lifecycle.filter(
+  return planningRequests(harness).lifecycle.filter(
     (request) => request.id >= firstLifecycleId && request.endpoint === 'forecast',
   );
 }
@@ -98,7 +128,7 @@ test.beforeEach(async ({ page }) => {
   await installDeterministicBrowserState(page);
 });
 
-test('keeps the cold shell and disabled overlay at a zero-request budget', async ({ page }) => {
+test('loads one city timeline pair without starting the disabled overlay', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Toggle weather overlay' })).toHaveAttribute(
@@ -106,27 +136,26 @@ test('keeps the cold shell and disabled overlay at a zero-request budget', async
     'false',
   );
 
-  expectWeatherRequestBudget(harness.requests, { forecast: 0, airQuality: 0 });
+  await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-disabled', 'false');
+  expectWeatherRequestBudget(harness.requests, { forecast: 1, airQuality: 1, maxActive: 2, maxCoordinateJobs: 1 });
+  expectWeatherRequestBudget(planningRequests(harness), { forecast: 0, airQuality: 0 });
   assertNoLiveOpenMeteoTraffic(harness.requests);
 });
 
-test('prioritizes one selected-spot pair without launching regional traffic', async ({ page }) => {
+test('loads one selected-spot pair alongside the city timeline without launching overlay traffic', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   await page.goto(SPOT_URL);
 
-  const card = page
-    .getByRole('dialog', { name: 'Ocean Beach sky scores' })
-    .locator('[data-card-type="now"]');
-  await expect(card.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
-  expectWeatherRequestBudget(harness.requests, {
+  await expect(page.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  expectWeatherRequestBudget(planningRequests(harness), {
     forecast: 1,
     airQuality: 1,
     maxActive: 2,
     maxCoordinateJobs: 1,
   });
-  expect(harness.requests.forecast).toEqual([OCEAN_BEACH_COORDINATES]);
-  expect(harness.requests.airQuality).toEqual([OCEAN_BEACH_COORDINATES]);
-  assertNoDuplicateWeatherRequests(harness.requests);
+  expect(planningRequests(harness).forecast).toEqual([OCEAN_BEACH_COORDINATES]);
+  expect(planningRequests(harness).airQuality).toEqual([OCEAN_BEACH_COORDINATES]);
+  assertNoDuplicateWeatherRequests(planningRequests(harness));
 });
 
 test('loads SF overlay progressively within its regional request budget', async ({ page }) => {
@@ -139,24 +168,24 @@ test('loads SF overlay progressively within its regional request budget', async 
   await page.goto('/');
   await openWeatherOverlay(page);
 
-  await expect.poll(() => harness.requests.completed.length).toBeGreaterThanOrEqual(FIRST_USABLE_COVERAGE);
+  await expect.poll(() => planningRequests(harness).completed.length).toBeGreaterThanOrEqual(FIRST_USABLE_COVERAGE);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'progressive');
   await expect(overlayState(page)).toContainText(/partial map available/i);
   await expect(overlayState(page).getByRole('button', { name: /retry/i })).toHaveCount(0);
-  expect(harness.requests.completed.length).toBeLessThan(OVERLAY_TOTAL);
+  expect(planningRequests(harness).completed.length).toBeLessThan(OVERLAY_TOTAL);
 
   for (const deferred of deferredSecondWave) deferred.release();
   await waitForOverlayCompletion(harness);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
   await expect(overlayState(page)).toContainText(/weather coverage ready, 25 of 25 areas/i);
-  expectWeatherRequestBudget(harness.requests, {
+  expectWeatherRequestBudget(planningRequests(harness), {
     forecast: OVERLAY_TOTAL,
     airQuality: 0,
     maxActive: 3,
     maxCoordinateJobs: 3,
   });
-  assertNoDuplicateWeatherRequests(harness.requests);
-  assertNoLiveOpenMeteoTraffic(harness.requests);
+  assertNoDuplicateWeatherRequests(planningRequests(harness));
+  assertNoLiveOpenMeteoTraffic(planningRequests(harness));
 });
 
 test('serves a warm selected spot and warm overlay without network requests', async ({ page }) => {
@@ -174,61 +203,56 @@ test('serves a warm selected spot and warm overlay without network requests', as
   }
 
   await page.goto(SPOT_URL);
-  await expect(
-    page.getByRole('dialog', { name: 'Ocean Beach sky scores' })
-      .getByText('Current forecast · high confidence', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await openWeatherOverlay(page);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
-  expectWeatherRequestBudget(harness.requests, { forecast: 0, airQuality: 0 });
+  expectWeatherRequestBudget(planningRequests(harness), { forecast: 0, airQuality: 0 });
 });
 
 test('revalidates the selected spot once after its 15-minute age budget', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   const initialForecast = harness.deferForecast(OCEAN_BEACH_COORDINATES);
+  const initialRegionalForecast = harness.deferForecast(weatherCoordinateKey(...CITIES[0].center));
   await page.goto(SPOT_URL);
-  await initialForecast.requested;
+  await Promise.all([initialForecast.requested, initialRegionalForecast.requested]);
   await page.clock.pauseAt(new Date(FIXED_NOW.getTime() + 10_000));
   initialForecast.release();
-  const card = page
-    .getByRole('dialog', { name: 'Ocean Beach sky scores' })
-    .locator('[data-card-type="now"]');
-  await expect(card.getByText('Current forecast · high confidence', { exact: true })).toBeVisible();
+  initialRegionalForecast.release();
+  await expect(page.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  await page.clock.runFor(100);
 
-  await page.clock.fastForward(FIFTEEN_MINUTES - 1);
-  expect(harness.requests.forecast.filter((value) => value === OCEAN_BEACH_COORDINATES)).toHaveLength(1);
-  await page.clock.fastForward(2);
+  await page.clock.fastForward(FIFTEEN_MINUTES - 1_001);
+  expect(planningRequests(harness).forecast.filter((value) => value === OCEAN_BEACH_COORDINATES)).toHaveLength(1);
+  await page.clock.fastForward(2_000);
+  await page.clock.resume();
   await expect.poll(
-    () => harness.requests.forecast.filter((value) => value === OCEAN_BEACH_COORDINATES).length,
+    () => planningRequests(harness).forecast.filter((value) => value === OCEAN_BEACH_COORDINATES).length,
   ).toBe(2);
   await expect.poll(
-    () => harness.requests.airQuality.filter((value) => value === OCEAN_BEACH_COORDINATES).length,
+    () => planningRequests(harness).airQuality.filter((value) => value === OCEAN_BEACH_COORDINATES).length,
   ).toBe(2);
 });
 
 test('deduplicates the shared Twin Peaks forecast across selected and overlay demand', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   await page.goto(TWIN_PEAKS_URL);
-  await expect(
-    page.getByRole('dialog', { name: 'Twin Peaks sky scores' })
-      .getByText('Current forecast · high confidence', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
 
   await dismissSpotSheet(page, 'Twin Peaks sky scores');
   await openWeatherOverlay(page);
   await waitForOverlayCompletion(harness);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
 
-  expectWeatherRequestBudget(harness.requests, {
+  expectWeatherRequestBudget(planningRequests(harness), {
     forecast: OVERLAY_TOTAL,
     airQuality: 1,
     maxCoordinateJobs: 4,
   });
-  expect(harness.requests.forecast.filter((value) => value === TWIN_PEAKS_COORDINATES)).toHaveLength(1);
-  expect(harness.requests.airQuality).toEqual([TWIN_PEAKS_COORDINATES]);
-  assertNoDuplicateWeatherRequests(harness.requests);
+  expect(planningRequests(harness).forecast.filter((value) => value === TWIN_PEAKS_COORDINATES)).toHaveLength(1);
+  expect(planningRequests(harness).airQuality).toEqual([TWIN_PEAKS_COORDINATES]);
+  assertNoDuplicateWeatherRequests(planningRequests(harness));
 });
 
 test('moves a newly selected spot ahead of queued overlay work', async ({ page }) => {
@@ -244,34 +268,33 @@ test('moves a newly selected spot ahead of queued overlay work', async ({ page }
   );
   await page.goto('/');
   await openWeatherOverlay(page);
-  await expect.poll(() => harness.requests.forecast.length).toBe(3);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(3);
 
   await page.getByRole('button', { name: 'Search spots' }).click();
   const search = page.getByRole('dialog', { name: 'Search spots' });
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
   const oceanResult = search.getByRole('button', { name: /Ocean Beach/ });
   await expect(oceanResult).toBeVisible();
-  const overlayJobsBeforeSelection = harness.requests.forecast.length;
+  const overlayJobsBeforeSelection = planningRequests(harness).forecast.length;
   // Dispatch immediately so Playwright's actionability polling does not let
   // unrelated overlay requests advance between the queue snapshot and click.
   await oceanResult.dispatchEvent('click');
   await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' })).toBeVisible();
-  const releasedCapacity = deferredByCoordinate.get(harness.requests.forecast[0]);
+  const releasedCapacity = deferredByCoordinate.get(planningRequests(harness).forecast[0]);
   expect(releasedCapacity).toBeDefined();
   releasedCapacity!.release();
-  await expect.poll(() => harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeGreaterThanOrEqual(0);
-  expect(harness.requests.forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeLessThanOrEqual(
-    overlayJobsBeforeSelection,
+  await expect.poll(() => planningRequests(harness).forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeGreaterThanOrEqual(0);
+  // One already-dispatched overlay job may reach the network while the new
+  // selection checks its cache. The selected spot still precedes the queue.
+  expect(planningRequests(harness).forecast.indexOf(OCEAN_BEACH_COORDINATES)).toBeLessThanOrEqual(
+    overlayJobsBeforeSelection + 1,
   );
   for (const { request } of deferredFirstWave) request.release();
-  await expect(
-    page.getByRole('dialog', { name: 'Ocean Beach sky scores' })
-      .getByText('Current forecast · high confidence', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
-  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL + 1);
-  await expect.poll(() => harness.requests.active).toBe(0);
-  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(4);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(OVERLAY_TOTAL + 1);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
+  expect(planningRequests(harness).maxActiveCoordinateJobs).toBeLessThanOrEqual(4);
 });
 
 test('cancels queued overlay work when the user switches cities', async ({ page }) => {
@@ -279,10 +302,10 @@ test('cancels queued overlay work when the user switches cities', async ({ page 
   harness.responseDelayMs = 10_000;
   await page.goto('/');
   await openWeatherOverlay(page);
-  await expect.poll(() => harness.requests.forecast.length).toBeGreaterThanOrEqual(3);
-  const startedBeforeCityChange = harness.requests.forecast.length;
+  await expect.poll(() => planningRequests(harness).forecast.length).toBeGreaterThanOrEqual(3);
+  const startedBeforeCityChange = planningRequests(harness).forecast.length;
   expect(startedBeforeCityChange).toBeLessThanOrEqual(4);
-  const activeBeforeCityChange = harness.requests.lifecycle.filter(
+  const activeBeforeCityChange = planningRequests(harness).lifecycle.filter(
     (request) => request.terminal === null,
   );
   const actionAt = await switchCity(page, 'Chicago');
@@ -291,31 +314,31 @@ test('cancels queued overlay work when the user switches cities', async ({ page 
   // The explicit city choice starts the new Best of the spots checked
   // journey. Its first wave remains bounded to two coordinate jobs while the
   // prior overlay generation is already cancelled.
-  await expect.poll(() => harness.requests.forecast.length).toBe(startedBeforeCityChange + 2);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(startedBeforeCityChange + 2);
   const activeManualCoordinates = new Set(
-    harness.requests.lifecycle
+    planningRequests(harness).lifecycle
       .filter((request) => request.terminal === null)
       .map((request) => request.coordinateKey),
   );
   expect(activeManualCoordinates.size).toBeLessThanOrEqual(2);
 
   harness.responseDelayMs = 0;
-  const activeChicagoComparison = harness.requests.lifecycle.filter(
+  const activeChicagoComparison = planningRequests(harness).lifecycle.filter(
     (request) => request.terminal === null,
   );
   const returnActionAt = await switchCity(page, 'San Francisco');
   await expectPromptTermination(harness, activeChicagoComparison, returnActionAt, false);
   await expect(page.getByText('Best of the spots checked', { exact: true })).toBeVisible();
-  await expect.poll(() => harness.requests.active).toBe(0);
-  const secondGenerationId = harness.requests.lifecycle.length + 1;
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
+  const secondGenerationId = Math.max(0, ...harness.requests.lifecycle.map((request) => request.id)) + 1;
   await openWeatherOverlay(page);
   await expect.poll(() => generationForecasts(harness, secondGenerationId).length).toBe(OVERLAY_TOTAL);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
   const secondGeneration = generationForecasts(harness, secondGenerationId);
   expect(new Set(secondGeneration.map((request) => request.coordinateKey)).size).toBe(OVERLAY_TOTAL);
   expect(secondGeneration.every((request) => request.terminal === 'finished')).toBe(true);
-  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
+  expect(planningRequests(harness).maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
 });
 
 test('toggle-off aborts active overlay work and a new generation starts once per anchor', async ({ page }) => {
@@ -323,9 +346,9 @@ test('toggle-off aborts active overlay work and a new generation starts once per
   harness.responseDelayMs = 10_000;
   await page.goto('/');
   await openWeatherOverlay(page);
-  await expect.poll(() => harness.requests.forecast.length).toBe(3);
-  const firstGenerationCount = harness.requests.forecast.length;
-  const activeBeforeToggle = harness.requests.lifecycle.filter((request) => request.terminal === null);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(3);
+  const firstGenerationCount = planningRequests(harness).forecast.length;
+  const activeBeforeToggle = planningRequests(harness).lifecycle.filter((request) => request.terminal === null);
   const actionAt = Date.now();
 
   await page.getByRole('button', { name: 'Toggle weather overlay' }).dispatchEvent('click');
@@ -335,18 +358,18 @@ test('toggle-off aborts active overlay work and a new generation starts once per
   );
   await expect(overlayState(page)).toHaveCount(0);
   await expectPromptTermination(harness, activeBeforeToggle, actionAt);
-  await expect.poll(() => harness.requests.forecast.length).toBe(firstGenerationCount);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(firstGenerationCount);
 
   harness.responseDelayMs = 0;
-  const secondGenerationId = harness.requests.lifecycle.length + 1;
+  const secondGenerationId = Math.max(0, ...harness.requests.lifecycle.map((request) => request.id)) + 1;
   await openWeatherOverlay(page);
   await expect.poll(() => generationForecasts(harness, secondGenerationId).length).toBe(OVERLAY_TOTAL);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
   const secondGeneration = generationForecasts(harness, secondGenerationId);
   expect(new Set(secondGeneration.map((request) => request.coordinateKey)).size).toBe(OVERLAY_TOTAL);
   expect(secondGeneration.every((request) => request.terminal === 'finished')).toBe(true);
-  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
+  expect(planningRequests(harness).maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
 });
 
 for (const scenario of [
@@ -370,14 +393,14 @@ for (const scenario of [
     await openWeatherOverlay(page);
 
     if (scenario.name === 'timeout') {
-      while (harness.requests.forecast.length < OVERLAY_TOTAL) {
-        const before = harness.requests.forecast.length;
+      while (planningRequests(harness).forecast.length < OVERLAY_TOTAL) {
+        const before = planningRequests(harness).forecast.length;
         const activeBatch = Math.min(OVERLAY_CONCURRENCY, OVERLAY_TOTAL - before);
-        await expect.poll(() => harness.requests.active).toBe(activeBatch);
+        await expect.poll(() => planningRequests(harness).active).toBe(activeBatch);
         await page.clock.fastForward(15_000);
         harness.releaseTimeoutFailures();
         if (before + activeBatch < OVERLAY_TOTAL) {
-          await expect.poll(() => harness.requests.forecast.length).toBeGreaterThan(before);
+          await expect.poll(() => planningRequests(harness).forecast.length).toBeGreaterThan(before);
         }
       }
       await page.clock.fastForward(15_000);
@@ -399,15 +422,15 @@ for (const scenario of [
         window.dispatchEvent(new Event('online'));
       });
     }
-    const beforeRetry = harness.requests.forecast.length;
+    const beforeRetry = planningRequests(harness).forecast.length;
     await retry.click();
-    await expect.poll(() => harness.requests.forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
-    await expect.poll(() => harness.requests.active).toBe(0);
+    await expect.poll(() => planningRequests(harness).forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
+    await expect.poll(() => planningRequests(harness).active).toBe(0);
     await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
-    const retryGeneration = harness.requests.forecast.slice(beforeRetry);
+    const retryGeneration = planningRequests(harness).forecast.slice(beforeRetry);
     expect(retryGeneration).toHaveLength(OVERLAY_TOTAL);
     expect(new Set(retryGeneration).size).toBe(OVERLAY_TOTAL);
-    expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
+    expect(planningRequests(harness).maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
   });
 }
 
@@ -420,8 +443,8 @@ test('recovers a cold overlay from malformed HTTP 200 data with one fresh retry 
   }
   await page.goto('/');
   await openWeatherOverlay(page);
-  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(OVERLAY_TOTAL);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
 
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'invalid-data');
   await expect(overlayState(page)).toContainText(/incomplete data/i);
@@ -432,15 +455,15 @@ test('recovers a cold overlay from malformed HTTP 200 data with one fresh retry 
   await expect(retry).toBeVisible();
 
   harness.emptyForecastCoordinates.clear();
-  const beforeRetry = harness.requests.forecast.length;
+  const beforeRetry = planningRequests(harness).forecast.length;
   await retry.click();
-  await expect.poll(() => harness.requests.forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
-  const retryGeneration = harness.requests.forecast.slice(beforeRetry);
+  const retryGeneration = planningRequests(harness).forecast.slice(beforeRetry);
   expect(retryGeneration).toHaveLength(OVERLAY_TOTAL);
   expect(new Set(retryGeneration).size).toBe(OVERLAY_TOTAL);
-  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
+  expect(planningRequests(harness).maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
 });
 
 test('preserves saved overlay evidence across malformed revalidation and reload', async ({ page }) => {
@@ -459,8 +482,8 @@ test('preserves saved overlay evidence across malformed revalidation and reload'
 
   await page.goto('/');
   await openWeatherOverlay(page);
-  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(OVERLAY_TOTAL);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'saved');
   await expect(overlayState(page)).toContainText(/showing saved forecast for 25 areas/i);
   await expect(overlayState(page)).toContainText(/incomplete data/i);
@@ -470,21 +493,21 @@ test('preserves saved overlay evidence across malformed revalidation and reload'
 
   await page.reload();
   await openWeatherOverlay(page);
-  await expect.poll(() => harness.requests.forecast.length).toBe(OVERLAY_TOTAL * 2);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(OVERLAY_TOTAL * 2);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'saved');
   await expect(overlayState(page)).toContainText(/showing saved forecast for 25 areas/i);
   await expect(overlayState(page)).toContainText(/incomplete data/i);
   await expect(overlayState(page).getByRole('img')).toHaveAttribute('aria-label', savedSummary!);
 
   harness.emptyForecastCoordinates.clear();
-  const beforeRetry = harness.requests.forecast.length;
+  const beforeRetry = planningRequests(harness).forecast.length;
   await overlayState(page).getByRole('button', { name: /retry/i }).click();
-  await expect.poll(() => harness.requests.forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
-  await expect.poll(() => harness.requests.active).toBe(0);
+  await expect.poll(() => planningRequests(harness).forecast.length).toBe(beforeRetry + OVERLAY_TOTAL);
+  await expect.poll(() => planningRequests(harness).active).toBe(0);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'ready');
-  expect(new Set(harness.requests.forecast.slice(beforeRetry)).size).toBe(OVERLAY_TOTAL);
-  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
+  expect(new Set(planningRequests(harness).forecast.slice(beforeRetry)).size).toBe(OVERLAY_TOTAL);
+  expect(planningRequests(harness).maxActiveCoordinateJobs).toBeLessThanOrEqual(3);
 });
 
 test('qualifies a completed overlay with missing regional evidence as partial', async ({ page }) => {
@@ -526,7 +549,7 @@ test('never presents an authoritative wash from fewer than nine usable active-ho
     await temperatureMetric.click();
   }
   await expect(temperatureMetric).toHaveAttribute('aria-selected', 'true');
-  await expect.poll(() => harness.requests.completed.length).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => planningRequests(harness).completed.length).toBeGreaterThanOrEqual(3);
   await expect(overlayState(page)).toHaveAttribute('data-weather-overlay-state', 'loading');
   await expect.poll(async () => page.locator('.weather-overlay').evaluateAll((elements) =>
     elements.every((element) => Number(getComputedStyle(element).opacity) === 0),

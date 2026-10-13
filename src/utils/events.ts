@@ -26,6 +26,39 @@ export interface EventTimes {
 }
 
 const WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+const calendarFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** Resolve a city's calendar date at local noon, independently of the device zone. */
+function cityNoon(reference: Date, timeZone: string, offsetDays = 0): Date {
+  let formatter = calendarFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', hourCycle: 'h23',
+    });
+    calendarFormatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(reference);
+  const read = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  const calendarNoon = Date.UTC(read('year'), read('month') - 1, read('day') + offsetDays, 12);
+  let instant = calendarNoon;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const local = formatter.formatToParts(new Date(instant));
+    const value = (type: Intl.DateTimeFormatPartTypes) => Number(local.find((part) => part.type === type)?.value);
+    const wall = Date.UTC(value('year'), value('month') - 1, value('day'), value('hour'));
+    instant += calendarNoon - wall;
+  }
+  return new Date(instant);
+}
+
+export function getEventsForDate(spot: Pick<Spot, 'lat' | 'lng'>, reference: Date, timeZone: string): UpcomingEvents {
+  const times = SunCalc.getTimes(cityNoon(reference, timeZone), spot.lat, spot.lng);
+  return { sunrise: times.sunrise, sunset: times.sunset, stargazing: times.nauticalDusk };
+}
+
+/** Include the partial final calendar day of a rolling seven-day forecast. */
+export function getTimelineEventDays(spot: Pick<Spot, 'lat' | 'lng'>, now: Date, timeZone: string): UpcomingEvents[] {
+  return Array.from({ length: 8 }, (_, offset) => getEventsForDate(spot, cityNoon(now, timeZone, offset), timeZone));
+}
 
 /**
  * Compute event times and their percentage positions within a 24-hour window
@@ -136,13 +169,13 @@ export function resolveViewMode(scrubbedTime: Date, lat: number, lng: number): V
  * Used both by `ScorePanel` (for card ordering) and by `useLiveScores` (to
  * decide which forecast hour to score against).
  */
-export function getUpcomingEventTimes(spot: Spot, now: Date): UpcomingEvents {
+export function getUpcomingEventTimes(spot: Spot, now: Date, timeZone?: string): UpcomingEvents {
   const today = new Date(now);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const todayTimes = SunCalc.getTimes(today, spot.lat, spot.lng);
-  const tomorrowTimes = SunCalc.getTimes(tomorrow, spot.lat, spot.lng);
+  const todayTimes = SunCalc.getTimes(timeZone ? cityNoon(now, timeZone) : today, spot.lat, spot.lng);
+  const tomorrowTimes = SunCalc.getTimes(timeZone ? cityNoon(now, timeZone, 1) : tomorrow, spot.lat, spot.lng);
 
   const sunrise = todayTimes.sunrise > now ? todayTimes.sunrise : tomorrowTimes.sunrise;
   const sunset = todayTimes.sunset > now ? todayTimes.sunset : tomorrowTimes.sunset;

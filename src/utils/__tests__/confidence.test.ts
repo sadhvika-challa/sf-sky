@@ -1,10 +1,15 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ConfidenceMetric from '../../components/ConfidenceMetric';
 import { describe, expect, it } from 'vitest';
 import {
   buildScoreEvidence,
+  formatScoreValue,
   describeScoreEvidenceSet,
   formatForecastRetrieved,
   getForecastConfidence,
   getForecastFreshness,
+  getConfidenceReviewTimes,
   scoreEvidenceAccessibilityLabel,
 } from '../confidence';
 import { WeatherRequestError, type HourlyForecast } from '../weather';
@@ -272,5 +277,51 @@ describe('getForecastConfidence', () => {
     expect(getForecastConfidence('forecast', 'stale', 'complete', NOW, NOW)).toBe('low');
     expect(getForecastConfidence('forecast', 'fresh', 'partial', NOW, NOW)).toBe('low');
     expect(getForecastConfidence('curated-estimate', 'unknown', 'missing', NOW, NOW)).toBe('low');
+  });
+});
+
+
+describe('confidence metric', () => {
+  it('derives actionable review windows from the exact event instant, including across midnight', () => {
+    const sunset = new Date('2026-10-13T01:38:00Z');
+    expect(getConfidenceReviewTimes(sunset)).toEqual({
+      medium: new Date('2026-10-12T19:38:00Z'),
+      high: new Date('2026-10-12T23:38:00Z'),
+    });
+    expect(getConfidenceReviewTimes(new Date('invalid'))).toBeNull();
+  });
+  it('exposes forecast confidence as a separate named metric', () => {
+    const html = renderToStaticMarkup(createElement(ConfidenceMetric, { evidence: evidence() }));
+    expect(html).toContain('Forecast confidence: High');
+    expect(html).toContain('High confidence');
+    expect(html).not.toContain('Current forecast');
+  });
+  it('keeps missing and partial forecasts at low confidence', () => {
+    const html = renderToStaticMarkup(createElement(ConfidenceMetric, { evidence: evidence({ hourly: null }) }));
+    expect(html).toContain('Forecast confidence: Low');
+    expect(html).not.toContain('High confidence');
+  });
+});
+
+
+describe('weekly estimates', () => {
+  it.each(['now', 'sunrise', 'sunset'] as const)('identifies missing air quality for %s without inventing confidence', (mode) => {
+    const evidence = buildScoreEvidence({ hourly: hour({ pm25: NaN }), mode, moment: 'selected-hour',
+      eventTime: new Date(NOW.getTime() + HOUR), fetchedAt: NOW.getTime(), now: NOW });
+    expect(evidence).toMatchObject({ provenance: 'forecast', completeness: 'partial', confidence: 'low',
+      reason: 'missing-air-quality', provenanceLabel: 'Weather-only estimate' });
+    expect(formatScoreValue(72)).toBe('72');
+    expect(scoreEvidenceAccessibilityLabel(72, evidence)).toContain('approximately 72');
+  });
+
+  it('does not mark stargazing partial for a field its formula does not use', () => {
+    const evidence = buildScoreEvidence({ hourly: hour({ pm25: NaN }), mode: 'stargazing', moment: 'event',
+      eventTime: new Date(NOW.getTime() + HOUR), fetchedAt: NOW.getTime(), now: NOW });
+    expect(evidence.completeness).toBe('complete');
+    expect(formatScoreValue(72)).toBe('72');
+  });
+
+  it('does not promote a past event to High confidence', () => {
+    expect(getForecastConfidence('forecast', 'fresh', 'complete', new Date(NOW.getTime() - HOUR), NOW)).toBe('low');
   });
 });
