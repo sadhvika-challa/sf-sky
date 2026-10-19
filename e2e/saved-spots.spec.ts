@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import {
   assertNoLiveOpenMeteoTraffic,
+  expectPointForecastConcurrency,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -253,15 +254,16 @@ test('shows one all-city collection and opens a cross-city saved spot without du
   await expect(saved).toContainText('Santa Cruz');
   await expect(saved).toContainText('Chicago');
 
-  const beforeForecast = harness.requests.forecast.length;
-  const beforeAirQuality = harness.requests.airQuality.length;
+  const selectedRequests = () => ({
+    forecast: harness.requests.forecast.filter(coordinate => coordinate === '30.3210,-97.7734').length,
+    airQuality: harness.requests.airQuality.filter(coordinate => coordinate === '30.3210,-97.7734').length,
+  });
+  const before = selectedRequests();
   await saved.getByRole('button', { name: `Open ${MOUNT_BONNELL.name}` }).click();
   await expect(page.getByRole('dialog', { name: `${MOUNT_BONNELL.name} sky scores` })).toBeVisible();
   await expect.poll(() => page.evaluate(() => localStorage.getItem('sky:activeCity'))).toBe('austin');
-  await expect.poll(() => harness.requests.forecast.length - beforeForecast).toBe(2);
-  await expect.poll(() => harness.requests.airQuality.length - beforeAirQuality).toBe(2);
-  expect(new Set(harness.requests.forecast.slice(beforeForecast)).size).toBe(2);
-  expect(new Set(harness.requests.airQuality.slice(beforeAirQuality)).size).toBe(2);
+  await expect.poll(selectedRequests).toEqual({ forecast: before.forecast + 1, airQuality: before.airQuality + 1 });
+  expectPointForecastConcurrency(harness.requests);
   assertNoLiveOpenMeteoTraffic(harness.requests);
 });
 

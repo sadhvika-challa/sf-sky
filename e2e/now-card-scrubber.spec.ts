@@ -596,6 +596,7 @@ test('pages horizontally when the gesture starts over scrollable card content', 
   const nowPage = dialog.locator('[data-card-type="now"]');
   const cardScroll = nowPage.locator('[data-card-scroll]');
   await expect(nowPage).toBeVisible();
+  await expect(dialog).toHaveAttribute('data-entered', 'true');
   await waitForStableGeometry(dialog);
 
   const cardOverflow = await nowPage.evaluate((element) => {
@@ -1045,7 +1046,9 @@ test('clicking forecast dates and dragging keeps map and spot synchronized witho
   await expect(page.locator('[data-forecast-range]')).toHaveAttribute('data-forecast-range', '7d');
   await setForecastRange(page, '24h');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Daytime, Now · 6:15 PM');
-  assertNoDuplicateWeatherRequests(harness.requests);
+  // Initial map centering may cancel and restart an unfinished response body.
+  // The counts above isolate hourly navigation after the viewport has loaded.
+  expectPointForecastConcurrency(harness.requests);
 });
 
 test('preserves the exact selected event while the viewport rotates', async ({ page }) => {

@@ -409,6 +409,10 @@ for (const scenario of [
     const retry = overlayState(page).getByRole('button', { name: /retry/i });
     await expect(retry).toBeVisible();
 
+    if (scenario.name !== 'timeout') {
+      await expect(page.locator('[data-spot-forecast-progress]')).toHaveCount(0, { timeout: 30_000 });
+      await expect.poll(() => harness.requests.active).toBe(0);
+    }
     harness.failureMode = null;
     if (scenario.name === 'offline') {
       await page.evaluate(() => {

@@ -234,14 +234,18 @@ test('retains one complete selected version when AQ-only revalidation fails and 
   const nowCard = await oceanCard(page);
   await expectEvidence(page, 'Sky estimate · (low|medium) confidence');
   await expectEvidence(page, 'Forecast-backed · Retrieved just now');
+  await expect(page.locator('[data-spot-forecast-progress]')).toHaveCount(0, { timeout: 30_000 });
+  await expect.poll(() => harness.requests.active).toBe(0);
+  const initialForecasts = harness.requests.forecast.filter(coordinate => coordinate === OCEAN_BEACH_COORDINATES).length;
+  const initialAirQuality = harness.requests.airQuality.filter(coordinate => coordinate === OCEAN_BEACH_COORDINATES).length;
   harness.failAirQualityCoordinates.add(OCEAN_BEACH_COORDINATES);
   await page.clock.fastForward(FIFTEEN_MINUTES + 1);
   await expect.poll(
     () => harness.requests.forecast.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES).length,
-  ).toBe(2);
+  ).toBe(initialForecasts + 1);
   await expect.poll(
     () => harness.requests.airQuality.filter((coordinate) => coordinate === OCEAN_BEACH_COORDINATES).length,
-  ).toBe(2);
+  ).toBe(initialAirQuality + 1);
 
   await expectEvidence(page, 'Saved sky forecast · low confidence');
   await expectEvidence(page, 'Forecast-backed · Retrieved 15m ago');
@@ -255,10 +259,10 @@ test('retains one complete selected version when AQ-only revalidation fails and 
   await expectEvidence(page, 'Forecast-backed · Retrieved just now');
   expect(harness.requests.forecast.filter(
     (coordinate) => coordinate === OCEAN_BEACH_COORDINATES,
-  )).toHaveLength(3);
+  )).toHaveLength(initialForecasts + 2);
   expect(harness.requests.airQuality.filter(
     (coordinate) => coordinate === OCEAN_BEACH_COORDINATES,
-  )).toHaveLength(3);
+  )).toHaveLength(initialAirQuality + 2);
   reportRequests(harness, 'aq-only-refresh-recovery');
 });
 
