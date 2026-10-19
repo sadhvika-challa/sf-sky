@@ -7,6 +7,8 @@ import { getScoreTextColor } from '../utils/mapPinColor';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { useTempUnit } from '../hooks/useTempUnit';
 import ScoreCard from './ScoreCard';
+import SpotView from './SpotView';
+import { DirectionsIcon, StreetViewIcon } from './icons/SpotActionIcons';
 import { parseCanonicalHourKey, SCORE_CARD_ORDER } from '../utils/timeline';
 import type { SpotForecast } from '../utils/weather';
 import { getUpcomingEventTimes, getEventsForDate } from '../utils/events';
@@ -756,54 +758,26 @@ function SpotScorePanel({ spot, mapReady, animateEntrance, closing = false, onCl
                   </span>
                 </div>
 
-                <div className="ml-auto flex items-center gap-1">
+                <div className="ml-auto flex shrink-0 items-center">
                   <button
                     type="button"
                     onClick={handleDirections}
-                    className="w-11 h-11 rounded-full flex items-center justify-center text-gray-400 active:bg-cream-dark/40 active:text-gray-600"
+                    className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-gray-600 hover:bg-cream-dark/50 active:bg-cream-dark/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
                     aria-label="Get directions"
                     title="Get directions"
                   >
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M3 11l19-9-9 19-2-8-8-2z" />
-                    </svg>
+                    <DirectionsIcon />
                   </button>
-
                   <button
                     type="button"
                     onClick={handleStreetView}
-                    className="w-11 h-11 rounded-full flex items-center justify-center text-gray-400 active:bg-cream-dark/40 active:text-gray-600"
+                    className="w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-gray-600 hover:bg-cream-dark/50 active:bg-cream-dark/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700"
                     aria-label="Open Street View"
                     title="Open Street View"
                   >
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="12" cy="5" r="3" />
-                      <path d="M12 8v4" />
-                      <path d="M6.5 20l3-6" />
-                      <path d="M17.5 20l-3-6" />
-                      <path d="M8 14h8" />
-                    </svg>
+                    <StreetViewIcon />
                   </button>
+                  <SpotView spot={spot} />
                 </div>
               </div>
             </div>

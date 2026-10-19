@@ -6,6 +6,7 @@ import type { LiveScoresMap } from '../hooks/useLiveScores';
 import CityRow from './CityRow';
 import SelectMenu from './SelectMenu';
 import { type ForecastRange } from '../utils/timeline';
+import HiddenGemsFilter from './HiddenGemsFilter';
 
 interface FilterMenuProps {
   open: boolean;
@@ -25,6 +26,9 @@ interface FilterMenuProps {
   onOpenLocation?: () => void;
   forecastRange: ForecastRange;
   onForecastRangeChange: (range: ForecastRange) => void;
+  hasHiddenGems?: boolean;
+  hiddenGemsOnly?: boolean;
+  onHiddenGemsChange?: (active: boolean) => void;
 }
 
 const CATEGORY_OPTIONS: ReadonlyArray<{ value: SpotCategory; label: string }> = [
@@ -106,6 +110,9 @@ function FilterContent({
   onOpenLocation,
   forecastRange,
   onForecastRangeChange,
+  hasHiddenGems,
+  hiddenGemsOnly,
+  onHiddenGemsChange,
 }: Omit<FilterMenuProps, 'open'>) {
 
   return (
@@ -147,6 +154,12 @@ function FilterContent({
           onChange={(next) => onChange({ ...filters, category: next })}
           onReset={onResetCategory}
         />
+      )}
+
+      {hasHiddenGems && onHiddenGemsChange && (
+        <div className="mt-3">
+          <HiddenGemsFilter active={Boolean(hiddenGemsOnly)} onChange={onHiddenGemsChange} />
+        </div>
       )}
 
       <div className="mt-4 pt-3 border-t border-cream-dark flex flex-col">
@@ -241,6 +254,9 @@ export default function FilterMenu({
   onOpenLocation,
   forecastRange,
   onForecastRangeChange,
+  hasHiddenGems,
+  hiddenGemsOnly,
+  onHiddenGemsChange,
 }: FilterMenuProps) {
   useEffect(() => {
     if (!open) return;
@@ -268,6 +284,9 @@ export default function FilterMenu({
     onOpenLocation,
     forecastRange,
     onForecastRangeChange,
+    hasHiddenGems,
+    hiddenGemsOnly,
+    onHiddenGemsChange,
   };
 
   return (

@@ -3,6 +3,7 @@ import { buildPlanningDays, findSunsetOpportunity, usesSkyExperience } from './u
 import { type Spot, type SpotCategory, type City } from './data/spots';
 import { type CuratedEvent } from './data/events';
 import { allSpots } from './data/all-spots';
+import { isHiddenGem } from './data/spotDiscovery';
 import { getCityById, getValidCityId } from './data/cities';
 import { useLocation } from './hooks/useLocation';
 import { useTimelineScores } from './hooks/useTimelineScores';
@@ -373,6 +374,13 @@ function App() {
   );
   const [mapBounds, setMapBounds] = useState<MapBounds | null>(null);
   const [sunsetBrowseOpen, setSunsetBrowseOpen] = useState(false);
+  const [hiddenGemsOnly, setHiddenGemsOnly] = useState(false);
+  const hasHiddenGems = activeSpots.some(isHiddenGem);
+  const hiddenGemsActive = hasHiddenGems && hiddenGemsOnly;
+  const discoverySpots = useMemo(
+    () => hiddenGemsActive ? activeSpots.filter(isHiddenGem) : activeSpots,
+    [activeSpots, hiddenGemsActive],
+  );
   const [locationPromptOpen, setLocationPromptOpen] = useState(() => !isNativeRuntime() && !wasLocationPromptDismissed());
   const closeLocationPrompt = useCallback(() => {
     rememberLocationPromptDismissal();
@@ -1074,10 +1082,10 @@ function App() {
   }, [planningDefaultPending, timelineRange, selectedSkyView, selectedSpot, planningDays, timelineScores.forecasts, timelineScores.forecastErrors]);
   const comparisonInstant = useMemo(() => selectedEventTime ?? (timelineHourKey ? parseCanonicalHourKey(timelineHourKey) : now) ?? now,
     [selectedEventTime, timelineHourKey, now]);
-  const comparisonSpots = useMemo(() => activeSpots.filter(spot =>
+  const comparisonSpots = useMemo(() => discoverySpots.filter(spot =>
     mapBounds && spot.lat >= mapBounds.south && spot.lat <= mapBounds.north &&
     spot.lng >= mapBounds.west && spot.lng <= mapBounds.east && passesSpotFilter(spot, filters, liveScores)),
-  [activeSpots, mapBounds, filters, liveScores]);
+  [discoverySpots, mapBounds, filters, liveScores]);
   const rankedSkySpots = useMemo(() => sunsetBrowseOpen ? rankSkySpots(comparisonSpots, liveScores, timelineScores.forecastErrors) : [],
     [sunsetBrowseOpen, comparisonSpots, liveScores, timelineScores.forecastErrors]);
   const pendingComparison = comparisonSpots.filter(spot => !timelineScores.forecasts.has(spot.id) &&
@@ -1130,7 +1138,7 @@ function App() {
       <div className="fixed inset-0 z-0">
         <MapErrorBoundary>
         <MapView
-          spots={activeSpots}
+          spots={discoverySpots}
           selectedSpot={selectedSpot}
           spotClosing={closingSpotId === selectedSpot?.id}
           onSpotCentered={handleSpotCentered}
@@ -1304,13 +1312,19 @@ function App() {
         savedSpotsCount={savedSpots.savedSpotIds.length}
         onOpenSavedSpots={handleOpenSavedSpots}
         onOpenLocation={() => { setMenuOpen(false); setLocationPromptOpen(true); }}
+        hasHiddenGems={hasHiddenGems}
+        hiddenGemsOnly={hiddenGemsActive}
+        onHiddenGemsChange={setHiddenGemsOnly}
       />
 
 
       <SearchOverlay
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        spots={activeSpots}
+        spots={discoverySpots}
+        hasHiddenGems={hasHiddenGems}
+        hiddenGemsOnly={hiddenGemsActive}
+        onHiddenGemsChange={setHiddenGemsOnly}
         liveScores={liveScores}
         userLocation={userLocation}
         onSelectSpot={handleSelectSpot}
