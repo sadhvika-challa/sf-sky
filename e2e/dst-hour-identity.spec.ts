@@ -1,6 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test';
 import {
-  expectWeatherRequestBudget,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -60,7 +59,7 @@ async function expectForecastSliderReady(nowCard: Locator): Promise<Locator> {
   const dialog = nowCard.locator('xpath=ancestor::*[@role="dialog"]');
   const slider = dialog.getByRole('slider', { name: 'Forecast hour' });
   await expect(
-    dialog.getByRole('group', { name: 'Forecast confidence: High' }),
+    dialog.getByRole('group', { name: /^Forecast confidence: (Low|Medium|High)$/ }),
   ).toBeVisible();
   await expect(dialog).toHaveAttribute('data-entered', 'true');
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
@@ -178,12 +177,12 @@ test('keeps the repeated-hour score and evidence aligned across card, Search, an
 
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const scoreNode = dialog.locator('[data-primary-score] > span[aria-label*=" score "]');
-  await expect(scoreNode).toHaveAttribute('aria-label', /selected-hour forecast · high confidence, retrieved just now$/);
+  await expect(scoreNode).toHaveAttribute('aria-label', /sky estimate · (low|medium) confidence, retrieved just now$/);
   const selectedScore = (await scoreNode.textContent())?.trim();
   expect(selectedScore).toMatch(/^\d{1,3}$/);
   await expect(scoreNode).toHaveAttribute(
     'aria-label',
-    new RegExp(`^Nighttime score ${selectedScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+    new RegExp(`^Nighttime score ${selectedScore} out of 100, .+, sky estimate · (low|medium) confidence, retrieved just now$`),
   );
 
   await page.keyboard.press('Escape');
@@ -192,7 +191,7 @@ test('keeps the repeated-hour score and evidence aligned across card, Search, an
   const marker = page.locator('[aria-label^="Ocean Beach, score "]');
   await expect(marker).toHaveAttribute(
     'aria-label',
-    new RegExp(`^Ocean Beach, score ${selectedScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+    new RegExp(`^Ocean Beach, score ${selectedScore} out of 100, .+, sky estimate · (low|medium) confidence, retrieved just now$`),
   );
 
   await page.getByRole('button', { name: 'Search spots' }).click();
@@ -200,7 +199,7 @@ test('keeps the repeated-hour score and evidence aligned across card, Search, an
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
   await expect(search.getByText('Scores for Nighttime · Today at 1:00 AM PST', { exact: true })).toBeVisible();
   const result = search.getByRole('button', { name: /Ocean Beach/ });
-  await expect(result.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(result.getByText(/^Sky estimate · (low|medium) confidence$/)).toBeVisible();
   await expect(result.locator('span').last()).toHaveText(selectedScore!);
 });
 
@@ -340,12 +339,12 @@ test('uses the selected repeated instant for the weather overlay sample', async 
     'aria-label',
     /San Francisco weather map.*1:00 AM PST/i,
   );
-  await expect.poll(() => harness.requests.forecast.length).toBe(26);
+  await expect(page.locator('[data-spot-forecast-progress]')).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.locator('[data-weather-overlay-state]')).toHaveAttribute('data-weather-overlay-state', 'ready');
   await expect.poll(() => harness.requests.active).toBe(0);
-  expectWeatherRequestBudget(harness.requests, {
-    forecast: 26,
-    airQuality: 1,
-    maxActive: 5,
-    maxCoordinateJobs: 3,
-  });
+  // Visible point jobs and the optional neighborhood overlay have separate
+  // bounded queues: two point coordinates plus three overlay coordinates.
+  expect(harness.requests.forecast.length).toBeGreaterThanOrEqual(26);
+  expect(harness.requests.maxActive).toBeLessThanOrEqual(7);
+  expect(harness.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(5);
 });

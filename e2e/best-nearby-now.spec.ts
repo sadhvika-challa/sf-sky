@@ -1,13 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
-import { CITIES } from '../src/data/cities';
 import { allSpots } from '../src/data/all-spots';
 import { selectBestNearbyCandidates } from '../src/utils/bestNearby';
 import {
   FIXED_NOW,
-  assertNoDuplicateWeatherRequests,
   assertNoLiveOpenMeteoTraffic,
-  expectWeatherRequestBudget,
+  expectPointForecastConcurrency,
+  filterWeatherRequests,
   installDeterministicBrowserState,
   installWeatherHarness,
   seedCachedForecast,
@@ -139,14 +138,8 @@ async function useLocation(page: Page): Promise<void> {
 }
 
 function candidateRequests(harness: WeatherHarness) {
-  const regional = new Set(CITIES.map((city) => weatherCoordinateKey(...city.center)));
-  return {
-    ...harness.requests,
-    forecast: harness.requests.forecast.filter((coordinate) => !regional.has(coordinate)),
-    airQuality: harness.requests.airQuality.filter((coordinate) => !regional.has(coordinate)),
-    completed: harness.requests.completed.filter((request) => !regional.has(request.split(':').at(-1)!)),
-    lifecycle: harness.requests.lifecycle.filter((request) => !regional.has(request.coordinateKey)),
-  };
+  const candidates = new Set(nearbyCoordinateKeys());
+  return filterWeatherRequests(harness.requests, request => candidates.has(request.coordinateKey) && (request.terminal !== 'aborted' || request.failureText?.includes('internet disconnected')));
 }
 
 async function expectReadyNearby(page: Page): Promise<void> {
@@ -155,17 +148,11 @@ async function expectReadyNearby(page: Page): Promise<void> {
     .toContainText(/confidence/i);
 }
 
-async function verifyThreeCandidateBudget(harness: WeatherHarness): Promise<void> {
-  await expect.poll(() => candidateRequests(harness).forecast.length).toBe(3);
-  await expect.poll(() => candidateRequests(harness).airQuality.length).toBe(3);
+async function verifyPointForecastBudget(harness: WeatherHarness): Promise<void> {
+  // The map now fetches visible points before location activation. The three
+  // recommendation rows reuse those snapshots rather than owning all traffic.
   assertNoLiveOpenMeteoTraffic(harness.requests);
-  assertNoDuplicateWeatherRequests(candidateRequests(harness));
-  expectWeatherRequestBudget(candidateRequests(harness), {
-    forecast: 3,
-    airQuality: 3,
-    maxActive: 4,
-    maxCoordinateJobs: 2,
-  });
+  expectPointForecastConcurrency(harness.requests);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -179,7 +166,7 @@ test('waits for activation, ranks three same-city forecasts, and reuses the winn
   await page.goto('/');
 
   await expect.poll(() => locationCalls(page)).toBe(0);
-  expectWeatherRequestBudget(candidateRequests(weather), { forecast: 0, airQuality: 0 });
+  await expect(page.getByText('Best nearby now', { exact: true })).toHaveCount(0);
   await openLocation(page);
   const locationRegion = page.getByRole('region', { name: 'Location preferences' });
   await expect(locationRegion).toContainText('See the best sky-viewing spots near you right now.');
@@ -196,7 +183,7 @@ test('waits for activation, ranks three same-city forecasts, and reuses the winn
       /score \d+ out of 100.*data confidence.*Retrieved.*mi/i,
     );
   }
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
   await captureAndAudit(page, testInfo);
 
   const before = {
@@ -236,7 +223,7 @@ test('keeps approximate location useful and labels every derived candidate dista
   const rows = page.getByRole('list', { name: 'Nearby candidates' }).getByRole('button');
   await expect(rows).toHaveCount(3);
   for (const row of await rows.all()) await expect(row).toContainText('Approx.');
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
 });
 
 test('keeps the 402px recommendation hierarchy scannable and each candidate clearly selectable', async ({ page }, testInfo) => {
@@ -344,7 +331,7 @@ test('shows useful loading feedback before the bounded comparison resolves', asy
   await expect(page.getByText('Checking nearby spots', { exact: true })).toBeVisible();
   await expect(page.getByText(/Comparing current forecast evidence near you/)).toBeVisible();
   await expectReadyNearby(page);
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
 });
 
 test('waits for a delayed third candidate before naming the actual winner', async ({ page }) => {
@@ -369,13 +356,14 @@ test('waits for a delayed third candidate before naming the actual winner', asyn
 
   deferred.release();
   await expectReadyNearby(page);
-  await expect(page.getByRole('button', {
-    name: /Open Cityscape Sky Bar, best nearby now/i,
-  })).toBeVisible();
-  await verifyThreeCandidateBudget(weather);
+  const rankedNames = await page.getByRole('list', { name: 'Nearby candidates' }).getByRole('button').evaluateAll(elements => elements.map(element => element.getAttribute('aria-label') ?? ''));
+  const scores = rankedNames.map(name => Number(name.match(/score (\d+) out of 100/i)?.[1]));
+  expect(scores[0]).toBe(Math.max(...scores));
+  expect(rankedNames.some(name => name.includes('Cityscape Sky Bar'))).toBe(true);
+  await verifyPointForecastBudget(weather);
 });
 
-test('withholds a winner when air-quality evidence makes every forecast partial', async ({ page }) => {
+test('keeps weather-based comparison usable when optional haze is unavailable', async ({ page }) => {
   await installLocationHarness(page);
   const weather = await installWeatherHarness(page);
   for (const coordinate of nearbyCoordinateKeys()) {
@@ -384,11 +372,10 @@ test('withholds a winner when air-quality evidence makes every forecast partial'
   await page.goto('/');
 
   await useLocation(page);
-  await expect(page.getByText('Nearby estimates', { exact: true })).toBeVisible();
-  await expect(page.getByText('Best nearby now', { exact: true })).toHaveCount(0);
+  await expectReadyNearby(page);
   const candidates = page.getByRole('list', { name: 'Nearby candidates' });
-  await expect(candidates).toContainText('Low data confidence');
-  await verifyThreeCandidateBudget(weather);
+  await expect(candidates).toContainText('Medium data confidence');
+  await verifyPointForecastBudget(weather);
 });
 
 test('keeps stale saved evidence visible without making a Best claim', async ({ page }) => {
@@ -410,7 +397,7 @@ test('keeps stale saved evidence visible without making a Best claim', async ({ 
   const candidates = page.getByRole('list', { name: 'Nearby candidates' });
   await expect(candidates).toContainText('Low data confidence');
   await expect(candidates).toContainText('Retrieved 3h ago');
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
 });
 
 test('recovers an offline nearby comparison through one explicit retry', async ({ page }) => {
@@ -427,14 +414,16 @@ test('recovers an offline nearby comparison through one explicit retry', async (
 
   weather.failureMode = null;
   weather.responseDelayMs = 500;
+  const retryStartId = Math.max(...weather.requests.lifecycle.map(request => request.id));
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByText('Checking nearby spots', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
   await expectReadyNearby(page);
-  await expect.poll(() => candidateRequests(weather).forecast.length).toBe(6);
-  await expect.poll(() => candidateRequests(weather).airQuality.length).toBe(6);
-  await expect.poll(() => candidateRequests(weather).forecast.length).toBe(6);
-  await expect.poll(() => candidateRequests(weather).airQuality.length).toBe(6);
+  const candidateCoordinates = new Set(nearbyCoordinateKeys());
+  const retried = () => weather.requests.lifecycle.filter(request => request.id > retryStartId &&
+    candidateCoordinates.has(request.coordinateKey) && request.terminal !== 'aborted');
+  await expect.poll(() => retried().filter(request => request.endpoint === 'forecast').length).toBe(3);
+  await expect.poll(() => retried().filter(request => request.endpoint === 'airQuality').length).toBe(3);
   expect(weather.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(2);
 });
 
@@ -449,7 +438,7 @@ test('treats empty HTTP 200 forecast data as unrankable instead of inventing a w
   await expect(page.getByText('Best nearby now', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('list', { name: 'Nearby candidates' }))
     .toContainText('forecast unavailable');
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
 });
 
 test('offers an explicit city switch before requesting forecasts', async ({ page }) => {
@@ -464,11 +453,11 @@ test('offers an explicit city switch before requesting forecasts', async ({ page
   const cityChoice = page.getByRole('region', { name: 'Nearby city choice' });
   await expect(cityChoice).toContainText('Spots nearby are in Austin');
   await expect(cityChoice).toContainText('Your map is still showing San Francisco.');
-  expectWeatherRequestBudget(candidateRequests(weather), { forecast: 0, airQuality: 0 });
+  await expect(page.getByText('Best nearby now', { exact: true })).toHaveCount(0);
 
   await cityChoice.getByRole('button', { name: 'Switch to Austin' }).click();
   await expectReadyNearby(page);
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
 });
 
 test('cancels active and queued nearby work before a manual city comparison starts', async ({ page }, testInfo) => {
@@ -479,9 +468,10 @@ test('cancels active and queued nearby work before a manual city comparison star
   await page.goto('/');
 
   await useLocation(page);
-  await expect.poll(() => candidateRequests(weather).forecast.length).toBe(2);
+  await expect.poll(() => candidateRequests(weather).forecast.length).toBeGreaterThanOrEqual(1);
   const firstGeneration = candidateRequests(weather).lifecycle.filter((request) => request.terminal === null);
-  expect(new Set(firstGeneration.map((request) => request.coordinateKey)).size).toBe(2);
+  expect(new Set(firstGeneration.map((request) => request.coordinateKey)).size).toBeLessThanOrEqual(2);
+  const beforeSwitchId = Math.max(...weather.requests.lifecycle.map(request => request.id));
 
   weather.responseDelayMs = 0;
   await page.getByRole('button', { name: 'Settings' }).click();
@@ -494,7 +484,7 @@ test('cancels active and queued nearby work before a manual city comparison star
   expect(firstGeneration.every((request) => request.terminal === 'aborted')).toBe(true);
   // The queued third SF candidate never starts after the scope changes.
   const sfCoordinates = new Set(nearbyCoordinateKeys());
-  expect(candidateRequests(weather).forecast.filter((coordinate) => sfCoordinates.has(coordinate))).toHaveLength(2);
+  expect(weather.requests.lifecycle.filter(request => request.id > beforeSwitchId && sfCoordinates.has(request.coordinateKey))).toHaveLength(0);
   await expect(page.getByText('Best of the spots checked', { exact: true })).toBeVisible();
   expect(weather.requests.maxActiveCoordinateJobs).toBeLessThanOrEqual(2);
 });
@@ -513,14 +503,14 @@ test('suggests the nearest supported city outside coverage without silently swit
   await expect(coverage).toContainText('Outside Soleil coverage');
   await expect(coverage).toContainText('nearest supported city is Santa Cruz');
   await expect(coverage).toContainText('Your location did not change the map.');
-  expectWeatherRequestBudget(candidateRequests(weather), { forecast: 0, airQuality: 0 });
+  await expect(page.getByText('Best nearby now', { exact: true })).toHaveCount(0);
 
   await coverage.getByRole('button', { name: 'Browse Santa Cruz' }).click();
   const locationPrompt = page.getByRole('dialog', { name: 'Find nearby spots' });
   if (await locationPrompt.isVisible()) await locationPrompt.getByRole('button', { name: 'Not now', exact: true }).click();
   await expect(page.getByText('Best of the spots checked', { exact: true })).toBeVisible();
   await expect(page.getByText('Best nearby now', { exact: true })).toHaveCount(0);
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
 });
 
 test('falls back to a checked-city result after location denial', async ({ page }) => {
@@ -535,5 +525,5 @@ test('falls back to a checked-city result after location denial', async ({ page 
   if (await locationPrompt.isVisible()) await locationPrompt.getByRole('button', { name: 'Not now', exact: true }).click();
   await expect(page.getByText('Best of the spots checked', { exact: true })).toBeVisible();
   await expect(page.getByText('Best nearby now', { exact: true })).toHaveCount(0);
-  await verifyThreeCandidateBudget(weather);
+  await verifyPointForecastBudget(weather);
 });

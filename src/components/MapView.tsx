@@ -1,13 +1,14 @@
+import { passesSpotFilter } from '../utils/spotFilters';
 import { MapContainer, Marker, Tooltip, useMap } from 'react-leaflet';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L, { type LatLngBoundsExpression } from 'leaflet';
-import { type City, type Spot, type SpotCategory } from '../data/spots';
+import { type City, type Spot } from '../data/spots';
 import { type CuratedEvent, getEventsAtHour } from '../data/events';
 import { type CityConfig } from '../data/cities';
 import { type UserLocation } from '../hooks/useGeolocation';
 import { type LiveScoresMap } from '../hooks/useLiveScores';
 import { getKarlComment } from '../utils/karl-copy';
-import { getScoreTier, computeNowBaseScore, type ScoreTier, type ScoreType, type ViewMode } from '../utils/scoring';
+import { type ScoreType } from '../utils/scoring';
 import type { Filters } from '../App';
 import SpotMarker from './SpotMarker';
 import EventMarker from './EventMarker';
@@ -101,7 +102,6 @@ interface MapViewProps {
   userLocation: UserLocation | null;
   filters: Filters;
   liveScores: LiveScoresMap;
-  viewMode: ViewMode;
   weatherOverlay: boolean;
   cityConfig: CityConfig;
   weatherMetric: WeatherMetric;
@@ -322,6 +322,7 @@ function MapController({ selectedSpot, closing, onCentered }: {
 
 function getMarkerQuip(spot: Spot, liveScores: LiveScoresMap): string | undefined {
   const entry = liveScores.get(spot.id);
+  if (entry?.activeEvidence.sky) return entry.activeEvidence.sky.label;
   if (!entry || !entry.isLive) return undefined;
   const best = Math.max(entry.sunrise, entry.sunset, entry.stargazing);
   if (best >= 30) return undefined;
@@ -331,45 +332,16 @@ function getMarkerQuip(spot: Spot, liveScores: LiveScoresMap): string | undefine
   return getKarlComment(best, bestType, spot.id, undefined, spot.city);
 }
 
-// Tier-bucket filter. An empty (or full) selection for an event means "no
-// constraint" — the user is opting out of filtering that event rather than
-// asking for an empty result set. Otherwise the spot's live tier for that
-// event must be in the selected bucket.
-function tierAllows(score: number, allowed: ScoreTier[]): boolean {
-  if (allowed.length === 0 || allowed.length === 5) return true;
-  return allowed.includes(getScoreTier(score));
-}
 
-// Category filter. Same "empty = unfiltered" convention as tierAllows:
-// deselecting all chips shows every spot, not zero spots. A full
-// selection (all 6 known values) short-circuits the includes check.
-function categoryAllows(category: SpotCategory, allowed: SpotCategory[]): boolean {
-  if (allowed.length === 0 || allowed.length === 6) return true;
-  return allowed.includes(category);
-}
-
-function passesFilter(spot: Spot, filters: Filters, liveScores: LiveScoresMap): boolean {
-  const scores = liveScores.get(spot.id);
-  const sunrise = scores?.sunrise ?? spot.sunrise;
-  const sunset = scores?.sunset ?? spot.sunset;
-  const stargazing = scores?.stargazing ?? spot.stargazing;
-  return (
-    tierAllows(sunrise, filters.sunrise) &&
-    tierAllows(sunset, filters.sunset) &&
-    tierAllows(stargazing, filters.stargazing) &&
-    categoryAllows(spot.category, filters.category)
-  );
-}
 
 /**
  * Pin label score for the exact active timeline hour and resolved mode.
- * Falls back to the corresponding static score until forecast data arrives.
+ * Missing spot forecasts stay unavailable until that spot's data arrives.
  */
-function getViewModeScore(spot: Spot, liveScores: LiveScoresMap, viewMode: ViewMode): number {
+function getViewModeScore(spot: Spot, liveScores: LiveScoresMap): number {
   const live = liveScores.get(spot.id);
   if (live) return live.active;
-  if (viewMode === 'now') return computeNowBaseScore(spot);
-  return spot[viewMode];
+  return NaN;
 }
 
 /**
@@ -383,7 +355,6 @@ interface SpotClusterLayerProps {
   onSelectSpot: (spot: Spot) => void;
   filters: Filters;
   liveScores: LiveScoresMap;
-  viewMode: ViewMode;
 }
 
 interface ClusterPayload {
@@ -400,25 +371,24 @@ function SpotClusterLayer({
   onSelectSpot,
   filters,
   liveScores,
-  viewMode,
 }: SpotClusterLayerProps) {
   const map = useMap();
 
   const points = useMemo(() => {
     return spotList
-      .filter((s) => s.id !== selectedSpot?.id && passesFilter(s, filters, liveScores))
+      .filter((s) => s.id !== selectedSpot?.id && passesSpotFilter(s, filters, liveScores))
       .map((spot) => ({
         id: spot.id,
         lat: spot.lat,
         lng: spot.lng,
         payload: {
           spot,
-          score: getViewModeScore(spot, liveScores, viewMode),
+          score: getViewModeScore(spot, liveScores),
           evidence: liveScores.get(spot.id)?.activeEvidence ?? null,
           quip: getMarkerQuip(spot, liveScores),
         } satisfies ClusterPayload,
       }));
-  }, [spotList, filters, liveScores, viewMode, selectedSpot]);
+  }, [spotList, filters, liveScores, selectedSpot]);
 
   const { clusters, supercluster } = useSupercluster<ClusterPayload>({
     points,
@@ -432,7 +402,7 @@ function SpotClusterLayer({
     <>
       {selectedSpot && <SpotMarker
         spot={selectedSpot}
-        score={getViewModeScore(selectedSpot, liveScores, viewMode)}
+        score={getViewModeScore(selectedSpot, liveScores)}
         evidence={liveScores.get(selectedSpot.id)?.activeEvidence ?? null}
         isActive
         onClick={onSelectSpot}
@@ -451,13 +421,14 @@ function SpotClusterLayer({
           // hidden gem inside a dense neighborhood should still read as
           // "worth tapping". We pull every leaf (no cap) so the max is
           // truly the max even on big citywide clusters.
-          let bestScore = 0;
+          let bestScore = NaN;
           if (supercluster) {
             const leaves = supercluster.getLeaves(clusterId, Infinity) as Array<{
               properties: { payload: ClusterPayload };
             }>;
             for (const leaf of leaves) {
-              if (leaf.properties.payload.score > bestScore) {
+              if (Number.isFinite(leaf.properties.payload.score) &&
+                (!Number.isFinite(bestScore) || leaf.properties.payload.score > bestScore)) {
                 bestScore = leaf.properties.payload.score;
               }
             }
@@ -550,7 +521,6 @@ export default function MapView({
   userLocation,
   filters,
   liveScores,
-  viewMode,
   weatherOverlay,
   cityConfig,
   weatherMetric,
@@ -705,7 +675,6 @@ export default function MapView({
           onSelectSpot={onSelectSpot}
           filters={filters}
           liveScores={liveScores}
-          viewMode={viewMode}
         />
         {/* Curated events surface only in Explore mode. They never appear over
             the weather heatmap, where the violet diamonds would compete with

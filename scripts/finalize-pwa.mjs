@@ -28,7 +28,9 @@ const files = (await listFiles(dist))
   .sort();
 const precacheUrls = [
   '/',
-  ...files.map((file) => `/${file.split('/').map(encodeURIComponent).join('/')}`),
+  ...files
+    .filter((file) => !/^spot-views\/.*\.(jpe?g|png|webp|avif)$/i.test(file))
+    .map((file) => `/${file.split('/').map(encodeURIComponent).join('/')}`),
 ];
 const hash = createHash('sha256');
 let source = await readFile(serviceWorkerPath, 'utf8');

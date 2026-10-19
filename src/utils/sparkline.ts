@@ -11,6 +11,7 @@ import {
   type ScoreType,
 } from './scoring';
 import { formatCanonicalHourKey } from './timeline';
+import { buildSkyWindow, usesSkyExperience } from './skyExperience';
 
 /** Card types that get a sparkline (i.e. "now" is intentionally excluded). */
 export type SparkType = ScoreType;
@@ -100,7 +101,8 @@ export function computeSparkPoints(
     const hourKey = formatCanonicalHourKey(hours[i]);
     const hourly: HourlyForecast | undefined = forecast.hours[hourKey];
     if (!hourly) continue;
-    const score = computeLiveScore(spot, type, hourly, moonIllum);
+    const score = usesSkyExperience(spot) ? buildSkyWindow(spot, forecast, hours[i], type).score ?? NaN : computeLiveScore(spot, type, hourly, moonIllum);
+    if (!Number.isFinite(score)) continue;
     points.push({
       date: hours[i],
       score,

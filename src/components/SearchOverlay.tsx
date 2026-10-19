@@ -6,7 +6,8 @@ import { useTempUnit } from '../hooks/useTempUnit';
 import { getKarlComment } from '../utils/karl-copy';
 import { computeNowBaseScore, type ScoreType, type ViewMode } from '../utils/scoring';
 import { formatActiveTimelineLabel, formatCityCalendarDate, formatInstantTimeLabel } from '../utils/timeline';
-import { describeScoreEvidenceSet, type ScoreEvidence } from '../utils/confidence';
+import { describeScoreEvidenceSet, formatScoreValue, type ScoreEvidence } from '../utils/confidence';
+import HiddenGemsFilter from './HiddenGemsFilter';
 
 interface SearchOverlayProps {
   open: boolean;
@@ -22,6 +23,9 @@ interface SearchOverlayProps {
   timeZone: string;
   timelineNow: Date;
   timelineEventTime?: Date;
+  hasHiddenGems?: boolean;
+  hiddenGemsOnly?: boolean;
+  onHiddenGemsChange?: (active: boolean) => void;
 }
 
 interface RankedSpot {
@@ -98,6 +102,9 @@ export default function SearchOverlay({
   timeZone,
   timelineNow,
   timelineEventTime,
+  hasHiddenGems = false,
+  hiddenGemsOnly = false,
+  onHiddenGemsChange,
 }: SearchOverlayProps) {
   const [tempUnit] = useTempUnit();
   const [query, setQuery] = useState('');
@@ -165,14 +172,16 @@ export default function SearchOverlay({
   const hasQuery = trimmed.length > 0;
 
   const results = useMemo(() => {
+    const byScore = (a: RankedSpot, b: RankedSpot) =>
+      (Number.isFinite(b.score) ? b.score : -1) - (Number.isFinite(a.score) ? a.score : -1);
     if (hasQuery) {
       // Filter by name; preserve score-desc order so the most promising
       // matches still bubble up first.
       return ranked
         .filter((r) => r.spot.name.toLowerCase().includes(trimmed) || r.spot.address?.toLowerCase().includes(trimmed))
-        .sort((a, b) => b.score - a.score);
+        .sort(byScore);
     }
-    return [...ranked].sort((a, b) => b.score - a.score);
+    return [...ranked].sort(byScore);
   }, [ranked, trimmed, hasQuery]);
   const activeForecastTrust = describeScoreEvidenceSet(
     results.flatMap((result) => result.evidence ? [result.evidence] : []),
@@ -231,6 +240,12 @@ export default function SearchOverlay({
         </button>
       </div>
 
+      {hasHiddenGems && onHiddenGemsChange && (
+        <div className="px-4 py-2 border-b border-cream-dark/60">
+          <HiddenGemsFilter active={hiddenGemsOnly} onChange={onHiddenGemsChange} />
+        </div>
+      )}
+
       {/* Results list */}
       <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="px-4 pt-4 pb-2">
@@ -249,6 +264,9 @@ export default function SearchOverlay({
                 ? "No spots match. Karl can't help with that one."
                 : 'No spots match that search.'}
             </p>
+            {hiddenGemsOnly && onHiddenGemsChange && (
+              <button type="button" onClick={() => onHiddenGemsChange(false)} className="block mx-auto min-h-11 mt-3 font-mono text-[12px] underline underline-offset-2 text-gray-700">Show all spots</button>
+            )}
             <button
               type="button"
               onClick={() => onSuggestSpot(query.trim())}
@@ -267,7 +285,7 @@ export default function SearchOverlay({
                   ? ` · ${tempUnit === 'C' ? (r.distanceMi * 1.60934).toFixed(1) : r.distanceMi.toFixed(1)} ${tempUnit === 'C' ? 'km' : 'mi'}${userLocation?.precision === 'approximate' ? ' approx.' : ''}`
                   : '';
               const karlType: ScoreType = r.nextType === 'now' ? 'sunset' : r.nextType;
-              const karl = getKarlComment(r.score, karlType, r.spot.id, undefined, city);
+              const karl = r.evidence?.sky?.label ?? getKarlComment(r.score, karlType, r.spot.id, undefined, city);
               return (
                 <li
                   key={r.spot.id}
@@ -302,7 +320,7 @@ export default function SearchOverlay({
                     <span
                       className="font-sans text-2xl font-light leading-none tabular-nums flex-shrink-0 mt-0.5 text-gray-800"
                     >
-                      {r.score}
+                      {formatScoreValue(r.score)}
                     </span>
                   </button>
                 </li>

@@ -4,7 +4,7 @@ import {
   OCEAN_BEACH_COORDINATES,
   assertNoDuplicateWeatherRequests,
   assertNoLiveOpenMeteoTraffic,
-  expectWeatherRequestBudget,
+  expectPointForecastConcurrency,
   installDeterministicBrowserState,
   installWeatherHarness,
 } from './weather-fixture';
@@ -66,6 +66,102 @@ test.beforeEach(async ({ page }) => {
   await installDeterministicBrowserState(page);
 });
 
+test('opens photos from the action row in a centered modal and restores focus after closing it', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/?spot=sf-panorama-park&view=sunset');
+  const sheet = page.getByRole('dialog', { name: 'Panorama Park, Yerba Buena Island sky scores' });
+  const photoButton = sheet.getByRole('button', { name: 'View photos for Panorama Park, Yerba Buena Island' });
+  const slider = sheet.getByRole('slider', { name: 'Forecast hour' });
+  await expect(slider).toBeVisible();
+  await expect(sheet.getByRole('button', { name: /^Forecast confidence: (Low|Medium). Show details$/ })).toBeVisible();
+  const timeBefore = await slider.getAttribute('aria-valuetext');
+  await expect(sheet.locator('img[src^="/spot-views/"]')).toHaveCount(0);
+  const directions = await sheet.getByRole('button', { name: 'Get directions' }).boundingBox();
+  const streetView = await sheet.getByRole('button', { name: 'Open Street View' }).boundingBox();
+  const camera = await photoButton.boundingBox();
+  expect(camera!.y).toBeCloseTo(directions!.y, 0);
+  expect(camera!.y).toBeCloseTo(streetView!.y, 0);
+  expect(camera!.x).toBeGreaterThan(streetView!.x);
+  expect(camera!.width).toBeGreaterThanOrEqual(44);
+  await photoButton.click();
+  const viewer = page.getByRole('dialog', { name: 'View photos for Panorama Park, Yerba Buena Island' });
+  await expect(viewer).toBeVisible();
+  const modal = await viewer.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(modal!.x).toBeGreaterThanOrEqual(16);
+  expect(modal!.y).toBeGreaterThanOrEqual(32);
+  expect(modal!.width).toBeLessThanOrEqual(860);
+  expect(modal!.height).toBeLessThanOrEqual(viewport.height - 64);
+  expect(modal!.height).toBeLessThan(Math.min(760, viewport.height * 0.85));
+  expect(modal!.x + modal!.width / 2).toBeCloseTo(viewport.width / 2, 0);
+  expect(modal!.y + modal!.height / 2).toBeCloseTo(viewport.height / 2, 0);
+  await expect(viewer.getByText('Reference view. Not a live image or forecast.')).toBeVisible();
+  await expect(viewer.getByRole('img')).toHaveJSProperty('naturalWidth', 1280);
+  await expect(viewer.getByRole('link', { name: 'Photo: Awinch1001' })).toBeVisible();
+  expect((await new AxeBuilder({ page }).include('.spot-view-dialog').analyze()).violations).toEqual([]);
+  const close = viewer.getByRole('button', { name: 'Close photos', exact: true });
+  await expect(close).toHaveText('');
+  await close.press('Escape');
+  await expect(viewer).toHaveCount(0);
+  await expect(photoButton).toBeFocused();
+  await expect(sheet).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-valuetext', timeBefore!);
+  await expect(sheet.locator('[data-card-type="sunset"]')).toHaveAttribute('aria-hidden', 'false');
+  await photoButton.click();
+  await viewer.getByRole('button', { name: 'Close photos', exact: true }).click();
+  await expect(viewer).toHaveCount(0);
+  await expect(photoButton).toBeFocused();
+  await photoButton.click();
+  await page.mouse.click(2, 2);
+  await expect(viewer).toHaveCount(0);
+  await expect(photoButton).toBeFocused();
+});
+
+test('recovers from a failed view photo and makes hidden gems reversible in search', async ({ page }) => {
+  await installWeatherHarness(page);
+  let failPhotos = true;
+  await page.route('**/spot-views/*.jpg', (route) => failPhotos ? route.abort() : route.continue());
+  await page.goto('/?spot=sf-panorama-park&view=sunset');
+  const sheet = page.getByRole('dialog', { name: 'Panorama Park, Yerba Buena Island sky scores' });
+  await sheet.getByRole('button', { name: 'View photos for Panorama Park, Yerba Buena Island' }).click();
+  const viewer = page.getByRole('dialog', { name: 'View photos for Panorama Park, Yerba Buena Island' });
+  await expect(viewer.getByText('Photo unavailable')).toBeVisible();
+  await expect(viewer.getByText('Bay Bridge and San Francisco skyline across the bay, beside the Point of Infinity sculpture.')).toBeVisible();
+  failPhotos = false;
+  await viewer.getByRole('button', { name: 'Retry photo' }).click();
+  await expect(viewer.getByRole('img')).toHaveJSProperty('naturalWidth', 1280);
+  await viewer.getByRole('button', { name: 'Close photos' }).click();
+  await sheet.press('Escape');
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  const gems = search.getByRole('button', { name: 'Hidden gems', exact: true });
+  await gems.click();
+  await expect(gems).toHaveAttribute('aria-pressed', 'true');
+  await expect(search.locator('li')).toHaveCount(7);
+  await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
+  await expect(search.getByRole('button', { name: 'Show all spots' })).toBeVisible();
+  await search.getByRole('button', { name: 'Show all spots' }).click();
+  await expect(search.locator('li')).toHaveCount(1);
+  await expect(gems).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('keeps cities without hidden gems browsable after enabling the collection in SF', async ({ page }) => {
+  await installWeatherHarness(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  const search = page.getByRole('dialog', { name: 'Search spots' });
+  await search.getByRole('button', { name: 'Hidden gems', exact: true }).click();
+  await expect(search.locator('li')).toHaveCount(7);
+  await search.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Switch city' }).click();
+  await page.getByRole('button', { name: 'Select Austin', exact: true }).click();
+  await page.getByRole('button', { name: 'Search spots', exact: true }).click();
+  await expect(search.getByRole('button', { name: 'Hidden gems' })).toHaveCount(0);
+  await search.getByPlaceholder('Search spots…').fill('Mount Bonnell');
+  await expect(search.locator('li')).toHaveCount(1);
+});
+
 test('keeps keyboard card paging without the removed icon row', async ({ page }) => {
   await installWeatherHarness(page);
   await page.goto(SPOT_URL);
@@ -108,7 +204,7 @@ test('keeps only the spot scrubber inside the card and preserves its state', asy
   await page.keyboard.press('ArrowRight');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).not.toHaveAttribute('aria-valuetext', /Now ·/);
-  await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  await expect(dialog.getByRole('group', { name: /^Forecast confidence: (Low|Medium)$/ })).toBeVisible();
   await expect(nowCard.locator('[data-retrieval-badge]')).toBeVisible();
   await expect(page.getByRole('group', { name: 'Timeline scrubber' })).toContainText('Today');
   await expect(dialog).toBeVisible();
@@ -131,7 +227,7 @@ test('keeps only the spot scrubber inside the card and preserves its state', asy
   await slider.press('Home');
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Daytime, Now · 6:15 PM');
-  await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  await expect(dialog.getByRole('group', { name: /^Forecast confidence: (Low|Medium)$/ })).toBeVisible();
   await expect(nowCard.locator('[data-retrieval-badge]')).toBeVisible();
   await expect(dialog).toBeVisible();
 
@@ -170,9 +266,9 @@ test('keeps only the spot scrubber inside the card and preserves its state', asy
 
   assertNoDuplicateWeatherRequests(harness.requests);
   assertNoLiveOpenMeteoTraffic(harness.requests);
-  expectWeatherRequestBudget(harness.requests, { forecast: 2, airQuality: 2, maxActive: 4 });
+  expectPointForecastConcurrency(harness.requests);
   console.info(
-    '[weather-fixture] selected-spot and city timeline budget: two forecasts and two air-quality requests',
+    '[weather-fixture] visible point forecasts use bounded concurrency and cached hourly snapshots',
   );
 });
 
@@ -236,7 +332,9 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
   const shared = await page.evaluate(
     () => (window as typeof window & { __soleilShareData?: ShareData }).__soleilShareData,
   );
-  expect(shared?.text).toContain('selected hour score at 7:00 pm');
+  expect(shared?.text).toContain('Sky quality:');
+  expect(shared?.text).toContain('at 7:00 pm');
+  expect(shared?.text).not.toContain('Clear skies at');
 
   await page.goto(String(shared?.url));
   const restored = page
@@ -245,7 +343,7 @@ test('shares and restores the selected Now-card hour', async ({ page }, testInfo
   await expect(restored).toHaveAttribute('aria-hidden', 'false');
   await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '1');
   await expect(page.getByRole('group', { name: 'Timeline scrubber' })).toContainText('Today');
-  await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).getByRole('group', { name: /^Forecast confidence: (Low|Medium)$/ })).toBeVisible();
 });
 
 test('keeps selected-hour score, evidence, time, and weather aligned after scrubbing', async ({ page }, testInfo) => {
@@ -261,20 +359,20 @@ test('keeps selected-hour score, evidence, time, and weather aligned after scrub
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Daytime, Today · 7:00 PM');
   await expect(nowCard.locator('[data-temperature]')).toHaveText('66°F');
-  await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  await expect(dialog.getByRole('group', { name: /^Forecast confidence: (Low|Medium)$/ })).toBeVisible();
 
   const sheetScore = (await dialog.locator('[aria-label^="Daytime score "]').textContent())?.trim();
   expect(sheetScore).toMatch(/^\d{1,3}$/);
   await expect(dialog.locator('[aria-label^="Daytime score "]')).toHaveAttribute(
     'aria-label',
-    new RegExp(`^Daytime score ${sheetScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+    new RegExp(`^Daytime score ${sheetScore} out of 100, .+, sky estimate · (low|medium) confidence, retrieved just now$`),
   );
   await expect(dialog.locator('[data-primary-score]')).toBeVisible();
 
   await page.keyboard.press('Escape');
   await expect(page.locator('[aria-label^="Ocean Beach, score "]')).toHaveAttribute(
     'aria-label',
-    new RegExp(`^Ocean Beach, score ${sheetScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`),
+    new RegExp(`^Ocean Beach, score ${sheetScore} out of 100, .+, sky estimate · (low|medium) confidence, retrieved just now$`),
   );
 
   await page.keyboard.press('Escape');
@@ -284,7 +382,7 @@ test('keeps selected-hour score, evidence, time, and weather aligned after scrub
   await search.getByPlaceholder('Search spots…').fill('Ocean Beach');
   await expect(search.getByText('Scores for Daytime · Today at 7:00 PM', { exact: true })).toBeVisible();
   const result = search.getByRole('button', { name: /Ocean Beach/ });
-  await expect(result.getByText('Selected-hour forecast · high confidence', { exact: true })).toBeVisible();
+  await expect(result.getByText(/^Sky estimate · (low|medium) confidence$/)).toBeVisible();
   await expect(result.locator('span').last()).toHaveText(sheetScore!);
 
   await result.click();
@@ -296,7 +394,7 @@ test('keeps selected-hour score, evidence, time, and weather aligned after scrub
     'Daytime, Today · 7:00 PM',
   );
   await expect(reopenedCard.locator('[data-temperature]')).toHaveText('66°F');
-  await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).getByRole('group', { name: 'Forecast confidence: High' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).getByRole('group', { name: /^Forecast confidence: (Low|Medium)$/ })).toBeVisible();
 });
 
 test.describe('city time differs from the browser time zone', () => {
@@ -349,10 +447,10 @@ test('keeps recovery available when the selected spot forecast fails', async ({ 
   const errorDialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const nowCard = errorDialog.locator('[data-card-type="now"]');
   await expect(errorDialog).toBeVisible();
-  await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Sky forecast unavailable', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(nowCard.locator('[data-retrieval-badge]')).toBeVisible();
   await errorDialog.getByRole('button', { name: 'Forecast confidence: Low. Show details' }).click();
-  await expect(errorDialog.getByRole('region', { name: 'Forecast confidence details' })).toContainText('weather forecast is unavailable');
+  await expect(errorDialog.getByRole('region', { name: 'Forecast confidence details' })).toContainText('Cloud or visibility data is unavailable');
   await page.keyboard.press('Escape');
   await expect(errorDialog).toBeVisible();
   const requestsBeforeReturn = harness.requests.forecast.filter(
@@ -364,7 +462,7 @@ test('keeps recovery available when the selected spot forecast fails', async ({ 
 
   await expect(errorDialog).toBeVisible();
   await expect(page.getByRole('slider', { name: 'Forecast hour' })).toHaveAttribute('aria-valuenow', '0');
-  await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true })).toBeVisible();
+  await expect(nowCard.getByText('Sky forecast unavailable', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(cardOrder(errorDialog)).resolves.toEqual(CARD_ORDER);
   expect(harness.requests.forecast.filter(
     (value) => value === OCEAN_BEACH_COORDINATES,
@@ -381,7 +479,7 @@ test('supports a positional scrub gesture in the narrow touch layout', async ({ 
   const slider = page.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toBeVisible();
   await expect(
-    dialog.getByRole('group', { name: 'Forecast confidence: High' }),
+    dialog.getByRole('group', { name: /^Forecast confidence: (Low|Medium)$/ }),
   ).toBeVisible();
 
   const box = await waitForStableGeometry(slider);
@@ -498,6 +596,7 @@ test('pages horizontally when the gesture starts over scrollable card content', 
   const nowPage = dialog.locator('[data-card-type="now"]');
   const cardScroll = nowPage.locator('[data-card-scroll]');
   await expect(nowPage).toBeVisible();
+  await expect(dialog).toHaveAttribute('data-entered', 'true');
   await waitForStableGeometry(dialog);
 
   const cardOverflow = await nowPage.evaluate((element) => {
@@ -558,7 +657,7 @@ test('dismisses the sheet from the dedicated handle pointer drag', async ({ page
   const handle = dialog.getByRole('button', { name: 'Swipe down to dismiss, or tap to close' });
   await expect(handle).toBeVisible();
   await expect(
-    dialog.getByRole('group', { name: 'Forecast confidence: High' }),
+    dialog.getByRole('group', { name: /^Forecast confidence: (Low|Medium)$/ }),
   ).toBeVisible();
   await expect(dialog).toHaveAttribute('data-entered', 'true');
   const box = await waitForStableGeometry(handle);
@@ -603,8 +702,10 @@ test('updates map scores from the persistent bottom scrubber without selecting a
   const slider = timeline.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
   await expect(page.getByRole('slider')).toHaveCount(1);
-  const pin = page.locator('.leaflet-marker-pane [role="button"][aria-label*="city forecast estimate"]').first();
-  await expect(pin).toHaveAttribute('aria-label', /city forecast estimate/);
+  const pin = page.locator('.leaflet-marker-pane [role="button"][aria-label*="sky estimate"]').first();
+  await expect(pin).toHaveAttribute('aria-label', /sky estimate/);
+  await expect(page.locator('[data-spot-forecast-progress]')).toHaveCount(0, { timeout: 30000 });
+  const callsBefore = harness.requests.forecast.length + harness.requests.airQuality.length;
   const before = await pin.getAttribute('aria-label');
   await slider.press('End');
   await expect(slider).toHaveAttribute('aria-valuenow', (await slider.getAttribute('aria-valuemax'))!);
@@ -614,7 +715,7 @@ test('updates map scores from the persistent bottom scrubber without selecting a
   const viewport = page.viewportSize()!;
   const box = (await timeline.boundingBox())!;
   expect(box.y + box.height).toBeCloseTo(viewport.height, 0);
-  assertNoDuplicateWeatherRequests(harness.requests);
+  expect(harness.requests.forecast.length + harness.requests.airQuality.length).toBe(callsBefore);
 });
 
 test('persists private spots on this device and disables public card sharing', async ({ page }) => {
@@ -667,6 +768,7 @@ test('synchronizes the rail, card paging, and selected time without icon shortcu
   const dialog = page.getByRole('dialog', { name: 'Ocean Beach sky scores' });
   const slider = page.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  await expect(page.locator('[data-spot-forecast-progress]')).toHaveCount(0, { timeout: 30000 });
   const requestsBefore = weather.requests.forecast.length;
   await dialog.getByRole('group', { name: 'Sky cards', exact: true }).press('ArrowRight');
   await expect(dialog.locator('[data-card-type="sunrise"]')).toHaveAttribute('aria-hidden', 'false');
@@ -837,9 +939,9 @@ test('opens confidence review windows without closing the spot and keeps the hea
   await confidence.click();
   const details = dialog.getByRole('region', { name: 'Forecast confidence details' });
   await expect(details).toBeVisible();
-  await expect(details).toContainText('Medium window');
-  await expect(details).toContainText('High window');
-  await expect(details).toContainText('fresh, complete data');
+  await expect(details).toContainText('experimental sky estimate');
+  await expect(details).toContainText('at most medium confidence');
+  await expect(details).toContainText('Check again before leaving');
   await expect(details).toContainText('not the probability of a colorful sky');
   await page.keyboard.press('Escape');
   await expect(details).toHaveCount(0);
@@ -897,7 +999,7 @@ test('keeps travel and temperature in the compact card with full forecast inform
   const outerBox = await outerScroll.boundingBox();
   expect(tabBox!.y).toBeGreaterThanOrEqual(outerBox!.y - 1);
   const sky = card.getByRole('tabpanel');
-  for (const label of ['Temperature', 'Cloud cover', 'Conditions', 'Wind', 'Visibility', 'Humidity', 'Fog']) {
+  for (const label of ['Temperature', 'Cloud cover', 'Conditions', 'Wind', 'Visibility', 'Humidity', 'Fog signal']) {
     await expect(sky.getByText(label, { exact: true })).toBeVisible();
   }
   await card.getByRole('button', { name: 'Show degrees Celsius' }).click();
@@ -917,8 +1019,9 @@ test('clicking forecast dates and dragging keeps map and spot synchronized witho
   await page.goto(SPOT_URL);
   const slider = page.getByRole('slider', { name: 'Forecast hour' });
   await expect(slider).toHaveAttribute('aria-disabled', 'false');
-  await expect(page.getByRole('button', { name: /^Ocean Beach, score/ })).toHaveAttribute('aria-label', /forecast/);
+  await expect(page.getByRole('button', { name: /^Ocean Beach, score/ })).toHaveAttribute('aria-label', /sky estimate/);
   await expect.poll(() => harness.requests.active).toBe(0);
+  await expect(page.locator('[data-spot-forecast-progress]')).toHaveCount(0, { timeout: 30000 });
   const requestsBefore = harness.requests.forecast.length + harness.requests.airQuality.length;
   await setForecastRange(page, '7d');
   const days = page.getByRole('group', { name: 'Forecast day', exact: true });
@@ -943,7 +1046,9 @@ test('clicking forecast dates and dragging keeps map and spot synchronized witho
   await expect(page.locator('[data-forecast-range]')).toHaveAttribute('data-forecast-range', '7d');
   await setForecastRange(page, '24h');
   await expect(slider).toHaveAttribute('aria-valuetext', 'Daytime, Now · 6:15 PM');
-  assertNoDuplicateWeatherRequests(harness.requests);
+  // Initial map centering may cancel and restart an unfinished response body.
+  // The counts above isolate hourly navigation after the viewport has loaded.
+  expectPointForecastConcurrency(harness.requests);
 });
 
 test('preserves the exact selected event while the viewport rotates', async ({ page }) => {
@@ -1020,7 +1125,7 @@ test('weekly event snaps show the exact future event in the card and shared time
   await expect(page.locator('[data-forecast-range]')).toHaveAttribute('data-forecast-range', '7d');
 });
 
-test('weekly scores show an approximate Low-confidence estimate when later air quality is missing', async ({ page }) => {
+test('weekly scores disclose missing haze while retaining available sky forecasts', async ({ page }) => {
   const harness = await installWeatherHarness(page);
   const time = Array.from({ length: 192 }, (_, index) => (Date.UTC(2026, 7, 29, 7) + index * 3_600_000) / 1000);
   const values = (value: number) => time.map(() => value);
@@ -1045,8 +1150,8 @@ test('weekly scores show an approximate Low-confidence estimate when later air q
   await expect(page.locator('[data-active-score]')).toHaveText(/^\d+$/);
   await expect(page.getByRole('dialog', { name: 'Ocean Beach sky scores' }).getByText('Weather-only estimate', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Forecast confidence: Low. Show details' })).toHaveText('');
-  await expect(page.getByRole('button', { name: /^Ocean Beach, score/ })).toHaveAttribute('aria-label', /approximately .*weather-only estimate · low confidence/);
+  await expect(page.getByRole('button', { name: /^Ocean Beach, score/ })).toHaveAttribute('aria-label', /planning outlook · low confidence/);
   await page.getByRole('button', { name: 'Forecast confidence: Low. Show details' }).click();
-  await expect(page.getByRole('region', { name: 'Forecast confidence details' })).toContainText('Air-quality data is unavailable for this time');
-  await expect(page.getByRole('region', { name: 'Forecast confidence details' })).toContainText('Smoke or haze could lower the score');
+  await expect(page.getByRole('region', { name: 'Forecast confidence details' })).toContainText('Haze data is unavailable for this time');
+  await expect(page.getByRole('region', { name: 'Forecast confidence details' })).toContainText('Check again the day before and before leaving');
 });

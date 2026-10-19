@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { buildSkyWindow, usesSkyExperience, type SkyWindow } from '../utils/skyExperience';
+import { fetchCloudEnsemble } from '../utils/skyEnsemble';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SunCalc from 'suncalc';
 import type { Spot } from '../data/spots';
 import { forecastCoordinates } from '../utils/privateSpots';
@@ -12,7 +14,6 @@ import {
 import {
   computeLiveScore,
   computeNowScore,
-  computeNowBaseScore,
   computeScoreAtTime,
   type ViewMode,
 } from '../utils/scoring';
@@ -37,14 +38,15 @@ export interface LiveSpotScores {
   isLive: boolean;
   /** Evidence for each canonical score. */
   evidence: Record<ViewMode, ScoreEvidence>;
+  sky?: SkyWindow;
   active: number;
   /** Legacy exact-hour flag. Partial or estimated hours are never marked live. */
   activeIsLive: boolean;
   activeEvidence: ScoreEvidence;
 }
 
-type CanonicalSpotScores = Omit<LiveSpotScores, 'active' | 'activeIsLive' | 'activeEvidence'>;
-type ActiveSpotScore = Pick<LiveSpotScores, 'active' | 'activeIsLive' | 'activeEvidence'>;
+type CanonicalSpotScores = Omit<LiveSpotScores, 'active' | 'activeIsLive' | 'activeEvidence' | 'sky'>;
+type ActiveSpotScore = Pick<LiveSpotScores, 'active' | 'activeIsLive' | 'activeEvidence' | 'sky'>;
 
 export type LiveScoresMap = Map<string, LiveSpotScores>;
 export type SpotForecastMap = Map<string, SpotForecast>;
@@ -64,12 +66,8 @@ export interface TimelineScoresResult {
   scores: LiveScoresMap;
   forecasts: SpotForecastMap;
   forecastErrors: SpotForecastErrorMap;
-  retryForecast: () => void;
+  retryForecast: (spotId?: string) => void;
   forecastRetrying: boolean;
-}
-
-function staticScoreForMode(spot: Spot, viewMode: ViewMode): number {
-  return viewMode === 'now' ? computeNowBaseScore(spot) : spot[viewMode];
 }
 
 function exactHour(
@@ -109,8 +107,16 @@ export function canonicalScoresForSpot(
   const nowHour = forecast?.hours[currentHourKey] ?? null;
   const moonIllum = SunCalc.getMoonIllumination(events.stargazing).fraction;
 
+  const sky = usesSkyExperience(spot) ? {
+    sunrise: buildSkyWindow(spot, forecast, events.sunrise, 'sunrise', now.getTime()),
+    sunset: buildSkyWindow(spot, forecast, events.sunset, 'sunset', now.getTime()),
+    stargazing: buildSkyWindow(spot, forecast, events.stargazing, 'stargazing', now.getTime()),
+    now: buildSkyWindow(spot, forecast, now, 'now', now.getTime()),
+  } : null;
+
   const evidence: Record<ViewMode, ScoreEvidence> = {
     sunrise: buildScoreEvidence({
+      sky: sky?.sunrise,
       hourly: sunriseHour,
       mode: 'sunrise',
       moment: 'event',
@@ -122,6 +128,7 @@ export function canonicalScoresForSpot(
       unavailableReason: unavailableReason(forecast, sunriseHour, 'sunrise'),
     }),
     sunset: buildScoreEvidence({
+      sky: sky?.sunset,
       hourly: sunsetHour,
       mode: 'sunset',
       moment: 'event',
@@ -133,6 +140,7 @@ export function canonicalScoresForSpot(
       unavailableReason: unavailableReason(forecast, sunsetHour, 'sunset'),
     }),
     stargazing: buildScoreEvidence({
+      sky: sky?.stargazing,
       hourly: starHour,
       mode: 'stargazing',
       moment: 'event',
@@ -144,6 +152,7 @@ export function canonicalScoresForSpot(
       unavailableReason: unavailableReason(forecast, starHour, 'stargazing'),
     }),
     now: buildScoreEvidence({
+      sky: sky?.now,
       hourly: nowHour,
       mode: 'now',
       moment: 'current',
@@ -157,18 +166,18 @@ export function canonicalScoresForSpot(
   };
 
   return {
-    sunrise: sunriseHour && evidence.sunrise.provenance === 'forecast'
+    sunrise: sky ? sky.sunrise.score ?? NaN : sunriseHour && evidence.sunrise.provenance === 'forecast'
       ? computeLiveScore(spot, 'sunrise', sunriseHour)
-      : spot.sunrise,
-    sunset: sunsetHour && evidence.sunset.provenance === 'forecast'
+      : NaN,
+    sunset: sky ? sky.sunset.score ?? NaN : sunsetHour && evidence.sunset.provenance === 'forecast'
       ? computeLiveScore(spot, 'sunset', sunsetHour)
-      : spot.sunset,
-    stargazing: starHour && evidence.stargazing.provenance === 'forecast'
+      : NaN,
+    stargazing: sky ? sky.stargazing.score ?? NaN : starHour && evidence.stargazing.provenance === 'forecast'
       ? computeLiveScore(spot, 'stargazing', starHour, moonIllum)
-      : spot.stargazing,
-    now: nowHour && evidence.now.provenance === 'forecast'
+      : NaN,
+    now: sky ? sky.now.score ?? NaN : nowHour && evidence.now.provenance === 'forecast'
       ? computeNowScore(spot, nowHour)
-      : computeNowBaseScore(spot),
+      : NaN,
     isLive: Object.values(evidence).some((read) => read.provenance === 'forecast'),
     evidence,
   };
@@ -184,9 +193,13 @@ export function activeScoreForSpot(
   isCurrent: boolean,
   loading = false,
   error: Error | null = null,
+  eventWindow = false,
 ): ActiveSpotScore {
   const hourly = forecast?.hours[selectedHourKey] ?? null;
+  const sky = usesSkyExperience(spot) && selectedInstant
+    ? buildSkyWindow(spot, forecast, selectedInstant, eventWindow ? viewMode : 'now', now.getTime()) : undefined;
   const activeEvidence = buildScoreEvidence({
+    sky,
     hourly,
     mode: viewMode,
     moment: isCurrent ? 'current' : 'selected-hour',
@@ -201,14 +214,16 @@ export function activeScoreForSpot(
   });
   if (!hourly || !selectedInstant || activeEvidence.provenance !== 'forecast') {
     return {
-      active: staticScoreForMode(spot, viewMode),
+      active: NaN,
+      sky,
       activeIsLive: false,
       activeEvidence,
     };
   }
   const moonIllum = SunCalc.getMoonIllumination(selectedInstant).fraction;
   return {
-    active: computeScoreAtTime(spot, viewMode, hourly, moonIllum),
+    active: sky ? sky.score ?? NaN : computeScoreAtTime(spot, viewMode, hourly, moonIllum),
+    sky,
     activeIsLive:
       activeEvidence.provenance === 'forecast' && activeEvidence.completeness === 'complete',
     activeEvidence,
@@ -232,10 +247,15 @@ export function useTimelineScores(
   requestedSpotIds: ReadonlyArray<string> = spots.map((spot) => spot.id),
   regionalSpotId?: string,
   selectedEventTime?: Date,
+  planningSpotId?: string,
+  eventSelection = !!selectedEventTime,
 ): TimelineScoresResult {
   const [forecasts, setForecasts] = useState<SpotForecastMap>(() => new Map());
   const [forecastErrors, setForecastErrors] = useState<SpotForecastErrorMap>(() => new Map());
-  const [refreshRequest, setRefreshRequest] = useState({ generation: 0, force: false });
+  const residentForecasts = useRef<SpotForecastMap>(new Map());
+  const refreshedGeneration = useRef(new Map<string, number>());
+  const failedGeneration = useRef(new Map<string, number>());
+  const [refreshRequest, setRefreshRequest] = useState<{ generation: number; force: boolean; spotId?: string }>({ generation: 0, force: false });
   const [retryingScope, setRetryingScope] = useState<string | null>(null);
   const [refreshSchedule, setRefreshSchedule] = useState<{
     scope: string;
@@ -243,18 +263,21 @@ export function useTimelineScores(
     dueAt: number;
   } | null>(null);
   const requestedIdsKey = requestedSpotIds.join(',');
-  const requestedTargetsKey = JSON.stringify(spots.filter((spot) => requestedSpotIds.includes(spot.id))
-    .map(({ id, lat, lng, visibility }) => ({ id, lat, lng, visibility })));
+  const spotsById = new Map(spots.map(spot => [spot.id, spot]));
+  const requestedTargetsKey = JSON.stringify([...new Set(requestedSpotIds)].flatMap(id => {
+    const spot = spotsById.get(id);
+    return spot ? [{ id, lat: spot.lat, lng: spot.lng, visibility: spot.visibility, city: spot.city }] : [];
+  }));
   const requestedSpotCount = requestedIdsKey === '' ? 0 : requestedIdsKey.split(',').length;
   const requestedScope = `${timeZone}:${requestedIdsKey}`;
   const requestHourKey = formatCanonicalHourKey(now);
-  const bumpRefresh = useCallback((force: boolean) => {
-    setRefreshRequest((previous) => ({ generation: previous.generation + 1, force }));
+  const bumpRefresh = useCallback((force: boolean, spotId?: string) => {
+    setRefreshRequest((previous) => ({ generation: previous.generation + 1, force, spotId }));
   }, []);
-  const retryForecast = useCallback(() => {
+  const retryForecast = useCallback((spotId?: string) => {
     setRetryingScope(requestedScope);
     setRefreshSchedule(null);
-    bumpRefresh(true);
+    bumpRefresh(true, spotId);
   }, [bumpRefresh, requestedScope]);
 
   const activeRefreshSchedule = keepRefreshScheduleForScope(refreshSchedule, requestedScope);
@@ -298,13 +321,30 @@ export function useTimelineScores(
     let nextSpotIndex = 0;
     const requestSpot = async (spot: Spot) => {
       try {
+        const failed = failedGeneration.current.get(spot.id);
+        if (failed !== undefined && (failed === requestGeneration ||
+          (refreshRequest.force && refreshRequest.spotId && refreshRequest.spotId !== spot.id))) {
+          scheduleNext(nextWeatherRefreshAt(null));
+          return false;
+        }
+        const force = refreshRequest.force && (!refreshRequest.spotId || refreshRequest.spotId === spot.id) &&
+          refreshedGeneration.current.get(spot.id) !== requestGeneration;
+        const resident = residentForecasts.current.get(spot.id);
+        const age = resident ? Date.now() - (resident.requestCompletedAt ?? resident.fetchedAt) : Infinity;
+        if (!force && spot.id !== planningSpotId && resident && age >= 0 && age < WEATHER_REFRESH_INTERVAL_MS && resident.hours[requestHourKey]) {
+          scheduleNext(nextWeatherRefreshAt(resident.requestCompletedAt ?? resident.fetchedAt));
+          return false;
+        }
         const coordinates = forecastCoordinates(spot);
         const forecast = await fetchSpotForecast(coordinates.lat, coordinates.lng, timeZone, {
-          maxAgeMs: refreshRequest.force ? 0 : WEATHER_REFRESH_INTERVAL_MS,
+          maxAgeMs: force ? 0 : WEATHER_REFRESH_INTERVAL_MS,
           requiredHourKey: requestHourKey,
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
+        residentForecasts.current.set(spot.id, forecast);
+        failedGeneration.current.delete(spot.id);
+        refreshedGeneration.current.set(spot.id, requestGeneration);
         if (refreshRequest.force) {
           setRetryingScope((scope) => scope === requestedScope ? null : scope);
         }
@@ -325,8 +365,19 @@ export function useTimelineScores(
         scheduleNext(nextWeatherRefreshAt(
           forecast.requestCompletedAt ?? forecast.fetchedAt,
         ));
+        if (spot.id === planningSpotId && usesSkyExperience(spot)) {
+          const ensemble = await fetchCloudEnsemble(coordinates.lat, coordinates.lng, timeZone, controller.signal);
+          if (ensemble && !controller.signal.aborted) setForecasts(previous => {
+            if (previous.get(spot.id) !== forecast) return previous;
+            const next = new Map(previous);
+            next.set(spot.id, { ...forecast, cloudEnsemble: ensemble });
+            return next;
+          });
+        }
       } catch (reason: unknown) {
         if (controller.signal.aborted) return;
+        refreshedGeneration.current.set(spot.id, requestGeneration);
+        failedGeneration.current.set(spot.id, requestGeneration);
         if (refreshRequest.force) {
           setRetryingScope((scope) => scope === requestedScope ? null : scope);
         }
@@ -353,12 +404,12 @@ export function useTimelineScores(
         const spot = pendingSpots[nextSpotIndex];
         nextSpotIndex += 1;
         if (!spot) return;
-        await requestSpot(spot);
+        const requested = await requestSpot(spot);
         // Fast HTTP failures and cached revalidation can settle the JavaScript
         // promise just before the browser publishes the request's terminal
         // network event. Keep the queued third coordinate from briefly
         // overlapping those completed jobs at the provider boundary.
-        if (!controller.signal.aborted && nextSpotIndex < pendingSpots.length) {
+        if (requested !== false && !controller.signal.aborted && nextSpotIndex < pendingSpots.length) {
           await new Promise((resolve) => {
             window.setTimeout(resolve, MULTI_SPOT_HANDOFF_GRACE_MS);
           });
@@ -375,15 +426,12 @@ export function useTimelineScores(
     // same React commit. Give the browser one short turn to publish those
     // terminal aborts before starting a new multi-spot comparison. A single
     // selected spot keeps its immediate request path.
-    const startTimer = pendingSpots.length > 1
-      ? window.setTimeout(startWorkers, MULTI_SPOT_START_GRACE_MS)
-      : null;
-    if (startTimer === null) startWorkers();
+    const startTimer = window.setTimeout(startWorkers, MULTI_SPOT_START_GRACE_MS);
     return () => {
-      if (startTimer !== null) window.clearTimeout(startTimer);
+      window.clearTimeout(startTimer);
       controller.abort();
     };
-  }, [requestHourKey, requestedTargetsKey, requestedScope, refreshRequest, timeZone]);
+  }, [requestHourKey, requestedTargetsKey, requestedScope, refreshRequest, timeZone, planningSpotId]);
 
   const requestedSet = useMemo(
     () => new Set(requestedIdsKey === '' ? [] : requestedIdsKey.split(',')),
@@ -401,14 +449,12 @@ export function useTimelineScores(
     const result: LiveScoresMap = new Map();
     for (const spot of spots) {
       if (spot.id === regionalSpotId) continue;
-      const ownForecast = forecasts.get(spot.id) ?? null;
-      const regionalForecast = regionalSpotId && !requestedSet.has(spot.id) ? forecasts.get(regionalSpotId) ?? null : null;
-      const forecast = ownForecast ?? regionalForecast;
-      const error = forecastErrors.get(spot.id) ?? (regionalSpotId ? forecastErrors.get(regionalSpotId) : null) ?? null;
+      const forecast = forecasts.get(spot.id) ?? null;
+      const error = forecastErrors.get(spot.id) ?? null;
       const loading = requestedSet.has(spot.id) && forecast === null && error === null;
       const canonical = canonicalScoresForSpot(
         spot,
-        ownForecast,
+        forecast,
         currentHourKey,
         now,
         loading,
@@ -426,16 +472,8 @@ export function useTimelineScores(
         hourKey === '',
         loading,
         error,
+        eventSelection,
       );
-      if (!ownForecast && regionalForecast && spot.id !== regionalSpotId) {
-        active.activeEvidence = {
-          ...active.activeEvidence,
-          confidence: 'low',
-          provenanceLabel: 'City forecast estimate',
-          statusLabel: 'City forecast estimate',
-        };
-        active.activeIsLive = false;
-      }
       if (spot.visibility === 'private') {
         active.activeIsLive = false;
         active.activeEvidence = { ...active.activeEvidence, confidence: 'low', statusLabel: 'Uncalibrated roof estimate' };
@@ -443,7 +481,7 @@ export function useTimelineScores(
           canonical.evidence[mode] = { ...canonical.evidence[mode], confidence: 'low', statusLabel: 'Uncalibrated roof estimate' };
         }
       }
-      if (selectedEventTime && viewMode !== 'now') {
+      if (eventSelection && viewMode !== 'now') {
         canonical[viewMode] = active.active;
         canonical.evidence[viewMode] = active.activeEvidence;
       }
@@ -462,7 +500,7 @@ export function useTimelineScores(
     requestedSet,
     viewMode,
     regionalSpotId,
-    selectedEventTime,
+    eventSelection,
     timeZone,
   ]);
 

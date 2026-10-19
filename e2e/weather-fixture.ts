@@ -86,7 +86,7 @@ function cacheKey(
   includeAirQuality = true,
 ): string {
   const [latitude, longitude] = coordinateKey.split(',').map(Number);
-  return `weather:v6:${latitude.toFixed(4)}:${longitude.toFixed(4)}:${timeZone}:` +
+  return `weather:v7:${latitude.toFixed(4)}:${longitude.toFixed(4)}:${timeZone}:` +
     (includeAirQuality ? 'weather-aq' : 'weather');
 }
 
@@ -373,6 +373,8 @@ export async function installWeatherHarness(page: Page): Promise<WeatherHarness>
     return true;
   };
 
+  // Tests exercise optional ensemble failure by default and never call it live.
+  await page.route(/^https:\/\/ensemble-api\.open-meteo\.com\//, route => route.fulfill({ status: 503, json: {} }));
   await page.route(/^https:\/\/(api|air-quality-api)\.open-meteo\.com\//, async (route: Route) => {
     const url = new URL(route.request().url());
     const coordinateKey = coordinates(url);
@@ -495,14 +497,60 @@ export function assertNoLiveOpenMeteoTraffic(requests: WeatherRequestLog): void 
   }
 }
 
-export function assertNoDuplicateWeatherRequests(requests: WeatherRequestLog): void {
-  const forecastUnique = new Set(requests.forecast);
-  const airUnique = new Set(requests.airQuality);
-  if (forecastUnique.size !== requests.forecast.length) {
-    throw new Error(`Duplicate forecast requests: ${requests.forecast.length} calls for ${forecastUnique.size} coordinates`);
+/** Scope request budgets to a consumer while keeping its actual concurrency. */
+export function filterWeatherRequests(
+  requests: WeatherRequestLog,
+  include: (request: WeatherRequestLifecycle) => boolean,
+): WeatherRequestLog {
+  const lifecycle = requests.lifecycle.filter(include);
+  const events = lifecycle.flatMap(request => [
+    { time: request.startedAt, id: request.id, delta: 1, coordinate: request.coordinateKey },
+    ...(request.terminalAt === null ? [] : [{ time: request.terminalAt, id: request.id, delta: -1, coordinate: request.coordinateKey }]),
+  ]).sort((a, b) => a.time - b.time || a.id - b.id || b.delta - a.delta);
+  let active = 0, maxActive = 0, maxActiveCoordinateJobs = 0;
+  const coordinates = new Map<string, number>();
+  for (const event of events) {
+    active += event.delta;
+    const count = (coordinates.get(event.coordinate) ?? 0) + event.delta;
+    if (count > 0) coordinates.set(event.coordinate, count);
+    else coordinates.delete(event.coordinate);
+    maxActive = Math.max(maxActive, active);
+    maxActiveCoordinateJobs = Math.max(maxActiveCoordinateJobs, coordinates.size);
   }
-  if (airUnique.size !== requests.airQuality.length) {
-    throw new Error(`Duplicate air-quality requests: ${requests.airQuality.length} calls for ${airUnique.size} coordinates`);
+  const selected = new Set(lifecycle.map(request => `${request.endpoint}:${request.coordinateKey}`));
+  return {
+    ...requests, lifecycle, active, maxActive, maxActiveCoordinateJobs,
+    activeCoordinateJobs: coordinates.size,
+    forecast: lifecycle.filter(request => request.endpoint === 'forecast').map(request => request.coordinateKey),
+    airQuality: lifecycle.filter(request => request.endpoint === 'airQuality').map(request => request.coordinateKey),
+    completed: requests.completed.filter(key => selected.has(key)),
+    failed: requests.failed.filter(key => selected.has(key)),
+    aborted: requests.aborted.filter(key => selected.has(key)),
+  };
+}
+
+export function assertNoDuplicateWeatherRequests(requests: WeatherRequestLog): void {
+  // Weather and AQ publish one snapshot together. A viewport change can cancel
+  // one endpoint after its sibling finishes, so neither half is reusable yet.
+  for (const endpoint of ['forecast', 'airQuality'] as const) {
+    const occurrences = new Map<string, number>();
+    const usable = requests.lifecycle.filter(request => {
+      if (request.endpoint !== endpoint) return false;
+      const occurrence = occurrences.get(request.coordinateKey) ?? 0;
+      occurrences.set(request.coordinateKey, occurrence + 1);
+      const sibling = requests.lifecycle.filter(other => other.coordinateKey === request.coordinateKey && other.endpoint !== endpoint)[occurrence];
+      return request.terminal !== 'aborted' && sibling?.terminal !== 'aborted';
+    });
+    const coordinates = usable.map(request => request.coordinateKey);
+    if (new Set(coordinates).size !== coordinates.length) {
+      throw new Error(`Repeated ${endpoint} request for a non-cancelled coordinate: ${JSON.stringify(requests.lifecycle.filter(request => coordinates.filter(coordinate => coordinate === request.coordinateKey).length > 1))}`);
+    }
+  }
+}
+
+export function expectPointForecastConcurrency(requests: WeatherRequestLog): void {
+  if (requests.maxActive > 4 || requests.maxActiveCoordinateJobs > 2) {
+    throw new Error(`Point forecast concurrency exceeded: ${requests.maxActive} HTTP requests across ${requests.maxActiveCoordinateJobs} coordinates`);
   }
 }
 
