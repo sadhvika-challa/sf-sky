@@ -32,10 +32,12 @@ function interpolateScoreColor(score: number, stops: typeof PIN_STOPS): string {
 
 /** Highest scores carry the deepest green; lower scores recede on the map. */
 export function getMapPinColor(score: number): string {
+  if (!Number.isFinite(score)) return 'rgb(232, 238, 240)';
   return interpolateScoreColor(score, PIN_STOPS);
 }
 
 export function getScoreTextColor(score: number): string {
+  if (!Number.isFinite(score)) return 'rgb(107, 114, 128)';
   return interpolateScoreColor(score, TEXT_STOPS);
 }
 

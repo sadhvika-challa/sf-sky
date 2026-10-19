@@ -303,7 +303,7 @@ function HourCard({
       onClick={onClick}
       aria-pressed={isSelected}
       aria-label={`${isNow ? `Now, ${context}` : context}${
-        bestScore !== undefined ? `, best score ${Math.round(bestScore)}` : ''
+        Number.isFinite(bestScore) ? `, best score ${Math.round(bestScore!)}` : ''
       }`}
       className="flex flex-col items-center gap-1 min-w-[48px] px-2 py-2.5 rounded-2xl border-[1.5px] transition-all duration-200 ease-out cursor-pointer"
       style={{
@@ -328,12 +328,12 @@ function HourCard({
       />
 
       {/* Score (only when provided) */}
-      {bestScore !== undefined && (
+      {Number.isFinite(bestScore) && (
         <span
           className="font-mono text-[13px] font-semibold leading-none"
-          style={{ color: scoreColor(bestScore), fontVariantNumeric: 'tabular-nums' }}
+          style={{ color: scoreColor(bestScore!), fontVariantNumeric: 'tabular-nums' }}
         >
-          {Math.round(bestScore)}
+          {Math.round(bestScore!)}
         </span>
       )}
     </button>

@@ -1,10 +1,11 @@
 import { expect, test, type Locator } from '@playwright/test';
+import { allSpots } from '../src/data/all-spots';
 import {
-  assertNoDuplicateWeatherRequests,
   assertNoLiveOpenMeteoTraffic,
-  expectWeatherRequestBudget,
+  expectPointForecastConcurrency,
   installDeterministicBrowserState,
   installWeatherHarness,
+  weatherCoordinateKey,
 } from './weather-fixture';
 
 const CARD_ORDER = ['now', 'sunrise', 'sunset', 'stargazing'];
@@ -76,8 +77,15 @@ for (const representative of REPRESENTATIVE_SPOTS) {
         .getByRole('group', { name: 'Timeline scrubber' })).toHaveCount(0);
     }
 
-    await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' }))
+    await expect(dialog.getByRole('group', { name: representative.cityId === 'sf' ? /^Forecast confidence: (Low|Medium)$/ : 'Forecast confidence: High' }))
       .toBeVisible();
+    const spot = allSpots.find(spot => spot.id === representative.spotId)!;
+    const coordinate = weatherCoordinateKey(spot.lat, spot.lng);
+    const loadedRequests = () => ({
+      forecast: weather.requests.forecast.filter(key => key === coordinate).length,
+      airQuality: weather.requests.airQuality.filter(key => key === coordinate).length,
+    });
+    const afterLoad = loadedRequests();
     await expect(slider).toHaveAttribute('aria-disabled', 'false');
     await expect(slider).toHaveAttribute('aria-valuenow', '0');
     await slider.press('ArrowRight');
@@ -88,7 +96,7 @@ for (const representative of REPRESENTATIVE_SPOTS) {
     await expect(nowCard).toHaveAttribute('aria-hidden', 'false');
     expect(Number(await slider.getAttribute('aria-valuenow'))).toBeGreaterThan(0);
     await expect(slider).not.toHaveAttribute('aria-valuetext', /Now ·/);
-    await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' }))
+    await expect(dialog.getByRole('group', { name: representative.cityId === 'sf' ? /^Forecast confidence: (Low|Medium)$/ : 'Forecast confidence: High' }))
       .toBeVisible();
 
     const scoreSurface = dialog.locator('[data-primary-score] > span[aria-label*=" score "]');
@@ -97,7 +105,7 @@ for (const representative of REPRESENTATIVE_SPOTS) {
     await expect(scoreSurface).toHaveAttribute(
       'aria-label',
       new RegExp(
-        `^(Daytime|Nighttime|Sunrise|Sunset) score ${selectedScore} out of 100, selected-hour forecast · high confidence, retrieved just now$`,
+        `^(Daytime|Nighttime|Sunrise|Sunset) score ${selectedScore} out of 100, (.+, sky estimate · (low|medium) confidence|selected-hour forecast · high confidence), retrieved just now$`,
       ),
     );
     await expect(scoreSurface).toBeVisible();
@@ -106,7 +114,7 @@ for (const representative of REPRESENTATIVE_SPOTS) {
 
     await slider.press('Home');
     await expect(slider).toHaveAttribute('aria-valuenow', '0');
-    await expect(dialog.getByRole('group', { name: 'Forecast confidence: High' }))
+    await expect(dialog.getByRole('group', { name: representative.cityId === 'sf' ? /^Forecast confidence: (Low|Medium)$/ : 'Forecast confidence: High' }))
       .toBeVisible();
 
     for (const eventType of CARD_ORDER.slice(1)) {
@@ -127,12 +135,7 @@ for (const representative of REPRESENTATIVE_SPOTS) {
     await expect(visibleCityRow.getByText(representative.cityName, { exact: true })).toBeVisible();
 
     assertNoLiveOpenMeteoTraffic(weather.requests);
-    assertNoDuplicateWeatherRequests(weather.requests);
-    expectWeatherRequestBudget(weather.requests, {
-      forecast: 2,
-      airQuality: 2,
-      maxActive: 4,
-      maxCoordinateJobs: 2,
-    });
+    expect(loadedRequests()).toEqual(afterLoad);
+    expectPointForecastConcurrency(weather.requests);
   });
 }

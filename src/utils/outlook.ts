@@ -46,7 +46,7 @@ function topDecile(sortedDesc: number[]): number {
 function entryFor(scores: LiveScoresMap, type: ScoreType | 'now'): OutlookEntry {
   const values: number[] = [];
   for (const entry of scores.values()) {
-    if (!entry.isLive) continue;
+    if (!entry.isLive || !Number.isFinite(entry[type])) continue;
     values.push(entry[type]);
   }
   values.sort((a, b) => b - a);

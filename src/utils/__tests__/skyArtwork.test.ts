@@ -40,4 +40,17 @@ describe('forecast sky impressions', () => {
     vi.spyOn(SunCalc, 'getPosition').mockReturnValue({ altitude: -0.4, azimuth: 0 });
     expect(getSkyArtwork(37.76, -122.51, instant, null).label).toBe('Illustrative night sky, forecast conditions unavailable');
   });
+  it('keeps the illustration compatible with a colorful-cloud forecast', () => {
+    vi.spyOn(SunCalc, 'getPosition').mockReturnValue({ altitude: 0, azimuth: 0 });
+    expect(getSkyArtwork(37.76, -122.51, instant, { ...CLEAR, cloud: 96, cloudHigh: 96 }, 'colorful-clouds').src).toBe('/sky/golden.webp');
+  });
+  it('keeps twilight visibly distinct from a star-filled night', () => {
+    vi.spyOn(SunCalc, 'getPosition').mockReturnValue({ altitude: -0.12, azimuth: 0 });
+    for (const scene of ['blue-twilight', 'afterglow'] as const) {
+      const art = getSkyArtwork(37.76, -122.51, instant, CLEAR, scene);
+      expect(art.src).toBe('/sky/twilight.png');
+      expect(art.label).toBe('Illustrative twilight sky');
+    }
+  });
+
 });

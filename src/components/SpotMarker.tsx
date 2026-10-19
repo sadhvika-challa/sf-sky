@@ -130,7 +130,7 @@ function SpotMarker({ spot, score, evidence, isActive, isHighlighted = false, on
     ? 1000
     : isHighlighted
       ? 900
-      : Math.round(Math.max(0, Math.min(100, score)));
+      : Number.isFinite(score) ? Math.round(Math.max(0, Math.min(100, score))) : 0;
 
   useEffect(() => {
     markerRef.current?.getElement()?.setAttribute(

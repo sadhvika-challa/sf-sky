@@ -384,7 +384,9 @@ function SpotScorePanel({ spot, mapReady, animateEntrance, closing = false, onCl
   const primaryScore = live?.active ?? (
     activeMode === 'now' ? computeNowBaseScore(spot) : spot[activeMode]
   );
-  const karlPill = getKarlPill(primaryScore, city);
+  const karlPill = live?.activeEvidence.sky
+    ? { label: live.activeEvidence.sky.label, tier: getScoreTier(primaryScore) }
+    : getKarlPill(primaryScore, city);
   const scoreColor = getScoreColor(primaryScore);
 
   const getScoreFor = (type: CardType): number => {

@@ -1,5 +1,6 @@
 import { formatCanonicalHourKey, isCanonicalHourKey, parseCanonicalHourKey } from './timeline';
 import type { WeatherMetric } from './interpolate';
+import type { CloudEnsemble } from './skyEnsemble';
 
 // Open-Meteo client for SF Sky.
 // Fetches an hourly weather + air-quality forecast for a given lat/lng and
@@ -12,13 +13,25 @@ const AIR_QUALITY_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 const CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3h max, tightened by forecastTtlMs
 // Bump the version whenever the shape of HourlyForecast changes so we don't
 // hand stale entries (missing fields) to consumers after a deploy.
-const CACHE_PREFIX = 'weather:v6:';
+const CACHE_PREFIX = 'weather:v7:';
 
 const NEAR_EVENT_HOURS = 4;
 const NEAR_EVENT_TTL_MS = 45 * 60 * 1000;
 const CACHE_NAN_SENTINEL = '__soleil_nan__';
 
 export interface HourlyForecast {
+  /** Optional supporting signals; absent values remain unknown. */
+  dewPointF?: number;
+  pressureMsl?: number;
+  shortwaveRadiation?: number;
+  directNormalIrradiance?: number;
+  sunshineDuration?: number;
+  aerosolOpticalDepth?: number;
+  /** Only an identified marine cloud layer may populate these MSL fields. */
+  marineLayerVerified?: boolean;
+  marineCloudBaseMsl?: number;
+  marineCloudTopMsl?: number;
+  marineHeightUncertaintyM?: number;
   /** Total cloud cover, 0-100. */
   cloud: number;
   /** Low-altitude cloud cover, 0-100. */
@@ -65,8 +78,8 @@ const REQUIRED_FIELDS: Record<ForecastScoreMode, ReadonlyArray<keyof HourlyForec
   stargazing: ['cloud', 'humidity'],
 };
 
-function isValidForecastField(field: keyof HourlyForecast, value: number): boolean {
-  if (!Number.isFinite(value)) return false;
+function isValidForecastField(field: keyof HourlyForecast, value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
   switch (field) {
     case 'cloud':
     case 'cloudLow':
@@ -87,8 +100,7 @@ function isValidForecastField(field: keyof HourlyForecast, value: number): boole
     case 'tempF':
       return value >= -150 && value <= 150;
     default: {
-      const _exhaustive: never = field;
-      return _exhaustive;
+      return false;
     }
   }
 }
@@ -121,6 +133,9 @@ export function getHourlyForecastCompleteness(
 }
 
 export interface SpotForecast {
+  cloudEnsemble?: CloudEnsemble;
+  /** Representative grid metadata, not an observation at the viewpoint. */
+  grid?: { latitude: number; longitude: number; elevation: number };
   /** Canonical UTC ISO hour key (YYYY-MM-DDTHH:00:00Z) -> forecast slice. */
   hours: Record<string, HourlyForecast>;
   /** Configured IANA zone used for city-calendar presentation. */
@@ -282,9 +297,17 @@ function writeCache(key: string, forecast: SpotForecast): void {
 }
 
 interface OpenMeteoForecastResponse {
+  latitude?: number;
+  longitude?: number;
+  elevation?: number;
   hourly?: {
     time?: number[];
     cloud_cover?: number[];
+    dew_point_2m?: number[];
+    pressure_msl?: number[];
+    shortwave_radiation?: number[];
+    direct_normal_irradiance?: number[];
+    sunshine_duration?: number[];
     cloud_cover_low?: number[];
     cloud_cover_mid?: number[];
     cloud_cover_high?: number[];
@@ -301,6 +324,7 @@ interface OpenMeteoForecastResponse {
 interface OpenMeteoAirQualityResponse {
   hourly?: {
     time?: number[];
+    aerosol_optical_depth?: number[];
     pm2_5?: number[];
     us_aqi?: number[];
   };
@@ -401,6 +425,11 @@ function buildForecastUrl(lat: number, lng: number, timeZone: string): string {
     latitude: lat.toFixed(4),
     longitude: lng.toFixed(4),
     hourly: [
+      'dew_point_2m',
+      'pressure_msl',
+      'shortwave_radiation',
+      'direct_normal_irradiance',
+      'sunshine_duration',
       'cloud_cover',
       'cloud_cover_low',
       'cloud_cover_mid',
@@ -426,7 +455,7 @@ function buildAirQualityUrl(lat: number, lng: number, timeZone: string): string 
   const params = new URLSearchParams({
     latitude: lat.toFixed(4),
     longitude: lng.toFixed(4),
-    hourly: ['pm2_5', 'us_aqi'].join(','),
+    hourly: ['pm2_5', 'us_aqi', 'aerosol_optical_depth'].join(','),
     timezone: timeZone,
     timeformat: 'unixtime',
     forecast_days: '7',
@@ -485,6 +514,12 @@ export function mergeOpenMeteoResponses(
       const aqiI = aqiIndex.get(key);
 
       hours[key] = {
+        dewPointF: pick(forecast.hourly?.dew_point_2m, i),
+        pressureMsl: pick(forecast.hourly?.pressure_msl, i),
+        shortwaveRadiation: pick(forecast.hourly?.shortwave_radiation, i),
+        directNormalIrradiance: pick(forecast.hourly?.direct_normal_irradiance, i),
+        sunshineDuration: pick(forecast.hourly?.sunshine_duration, i),
+        aerosolOpticalDepth: aqiI !== undefined ? pick(air?.hourly?.aerosol_optical_depth, aqiI) : NaN,
         cloud: pick(forecast.hourly?.cloud_cover, i),
         cloudLow: pick(forecast.hourly?.cloud_cover_low, i),
         cloudMid: pick(forecast.hourly?.cloud_cover_mid, i),
@@ -501,7 +536,9 @@ export function mergeOpenMeteoResponses(
       };
     }
 
-    return { hours, timeZone, fetchedAt, requestCompletedAt };
+    return { hours, timeZone, fetchedAt, requestCompletedAt,
+      ...(Number.isFinite(forecast.latitude) && Number.isFinite(forecast.longitude) && Number.isFinite(forecast.elevation)
+        ? { grid: { latitude: forecast.latitude!, longitude: forecast.longitude!, elevation: forecast.elevation! } } : {}) };
   } catch {
     // Malformed API response — return empty forecast so consumers
     // fall back to static base scores instead of crashing.

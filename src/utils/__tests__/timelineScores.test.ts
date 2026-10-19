@@ -19,7 +19,8 @@ const spot: Spot = {
   name: 'Test Viewpoint',
   lat: 37.78,
   lng: -122.51,
-  city: 'sf',
+  // Preserve the legacy contract outside the SF pilot. SF is covered separately.
+  city: 'austin',
   category: 'hill',
   elevation: 100,
   lightPollution: 'Low',
@@ -172,7 +173,7 @@ describe('timeline score contract', () => {
     );
     const combined = combineTimelineScores(canonical, active);
 
-    expect(combined.active).toBe(spot.sunset);
+    expect(combined.active).toBeNaN();
     expect(combined.activeIsLive).toBe(false);
     expect(combined.activeEvidence).toMatchObject({
       provenance: 'curated-estimate',
@@ -248,7 +249,7 @@ describe('selected-date event scores', () => {
   it("does not use tomorrow's weather when the selected date is missing", () => {
     const selected = new Date('2026-09-10T19:00:00Z');
     const result = canonicalScoresForSpot(spot, forecast(), formatCanonicalHourKey(NOW), NOW, false, null, selected, TIME_ZONE);
-    expect(result.sunset).toBe(spot.sunset);
+    expect(result.sunset).toBeNaN();
     expect(result.evidence.sunset).toMatchObject({ provenance: 'curated-estimate', reason: 'missing-hour' });
   });
 });

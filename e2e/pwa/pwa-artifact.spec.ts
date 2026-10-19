@@ -511,7 +511,7 @@ test('cold-starts every city and saved representative offline with honest live-d
       });
       const nowCard = scoreDialog.locator('[data-card-type="now"]');
       await expect(scoreDialog).toBeVisible();
-      await expect(nowCard.getByText('Forecast unavailable · curated estimate', { exact: true }))
+      await expect(nowCard.getByText(spot.cityId === 'sf' ? 'Sky forecast unavailable' : 'Forecast unavailable · curated estimate', { exact: true }).filter({ visible: true }))
         .toBeVisible();
       await expect(nowCard.locator('[data-retrieval-badge]')).toHaveText('Forecast not retrieved');
       await expect(nowCard.getByRole('button', { name: `Retry forecast for ${spot.name}` }))

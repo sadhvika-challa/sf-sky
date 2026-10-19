@@ -6,6 +6,7 @@ import { PUBLIC_APP_PATH } from '../platform/publicUrlContract';
 import { type Spot, type City, type AccessAlert } from '../data/spots';
 import SunCalc from 'suncalc';
 import { getSkyArtwork } from '../utils/skyArtwork';
+import { formatSkyWindow, formatSkyDuration, skyWeatherAtTime, skyQualityLabel, usesSkyExperience } from '../utils/skyExperience';
 import { convertTempF, useTempUnit, type TempUnit } from '../hooks/useTempUnit';
 import { clampPercentage, fogDensity, weatherRefreshExplanation, type HourlyForecast, type SpotForecast } from '../utils/weather';
 import { formatScoreValue, type ScoreEvidence } from '../utils/confidence';
@@ -384,12 +385,13 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
     ? (scrubHourKey || formatCanonicalHourKey(eventInstant))
     : '';
   const hourly: HourlyForecast | null = forecast && !Number.isNaN(eventInstant.getTime())
-    ? (forecast.hours[type === 'now'
+    ? usesSkyExperience(spot) ? skyWeatherAtTime(forecast, eventInstant) : (forecast.hours[type === 'now'
         ? exactHourKey
         : formatCanonicalHourKey(eventInstant)] ?? null)
     : null;
 
-  const breakdown: ScoreBreakdown | null = hourly && displayType !== 'now'
+  const sky = scoreEvidence.sky;
+  const breakdown: ScoreBreakdown | null = hourly && displayType !== 'now' && !usesSkyExperience(spot)
     ? computeScoreBreakdown(spot, displayType, hourly, moonIllum.fraction)
     : null;
   const score = (() => {
@@ -404,6 +406,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
 
   const spotScore = type === 'now' ? computeNowBaseScore(spot) : spot[type];
   const skyScore = (() => {
+    if (sky) return sky.score;
     if (!hourly) return null;
     if (type === 'now') return null;
     if (type === 'stargazing') return scoreStargazingWeather(hourly, moonIllum.fraction);
@@ -411,10 +414,10 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
   })();
 
   const isSunEvent = displayType === 'sunrise' || displayType === 'sunset';
-  const karlLine = breakdown && isSunEvent
+  const karlLine = sky ? sky.label : breakdown && isSunEvent
     ? getKarlBreakdownLine(breakdown.base, breakdown.weather)
     : getKarlComment(score, displayType, spot.id, eventInstant, city);
-  const artwork = getSkyArtwork(spot.lat, spot.lng, eventInstant, hourly);
+  const artwork = getSkyArtwork(spot.lat, spot.lng, eventInstant, hourly, sky?.scene);
 
 
   const tempF = hourly && Number.isFinite(hourly.tempF) ? hourly.tempF : null;
@@ -431,14 +434,14 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
       ? 'selected hour'
       : (type === 'now' && displayType === 'stargazing' ? 'NIGHTTIME' : typeTitle[displayType]).toLowerCase();
     const hourParam = scrubHourKey || selectedDate
-      ? `&instant=${encodeURIComponent(formatCanonicalHourKey(eventInstant))}${type === 'now' ? '' : `&event=${encodeURIComponent(eventInstant.toISOString())}`}`
+      ? `&instant=${encodeURIComponent(formatCanonicalHourKey(eventInstant))}${type !== 'now' || eventInstant.getTime() % 3_600_000 !== 0 ? `&event=${encodeURIComponent(eventInstant.toISOString())}` : ''}`
       : '';
     const url = buildPublicShareUrl(`${PUBLIC_APP_PATH}?spot=${spot.id}&view=${type}${hourParam}`);
     const title = `Soleil \u00b7 ${spot.name}`;
     const timeContext = type === 'now'
       ? ` at ${eventTimeData.time} ${eventTimeData.period}`
       : '';
-    const text = score >= 60
+    const text = sky ? `${spot.name}: ${sky.label}. Sky quality: ${skyQualityLabel(sky.score)}${timeContext}. ${formatSkyWindow(sky, timeZone)}.` : score >= 60
       ? `Clear skies at ${spot.name}. ${eventLabel} score${timeContext}: ${score}/100.`
       : `Clouded out at ${spot.name}. ${eventLabel} score${timeContext}: ${score}/100.`;
 
@@ -638,6 +641,11 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
 
               </div>
 
+              {sky && sky.score !== null && <div data-sky-experience className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 font-mono text-xs text-[#173D43]">
+                <span className="font-semibold">{sky.label}</span>
+                <span>{skyQualityLabel(sky.score)}</span>
+                <span data-sky-duration className="w-full text-[10px] text-gray-600">{formatSkyDuration(sky)}</span>
+              </div>}
               <div className="flex items-center justify-between gap-3" data-card-summary>
                 <span className="font-mono text-[28px] font-normal leading-none tabular-nums text-gray-800" data-temperature
                   style={{ fontSize: tempF === null ? 14 : undefined }}
@@ -720,10 +728,10 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
                 className="pt-3 pb-2"
                 style={{ gridArea: '1 / 1', display: detailView === 'spot' ? undefined : 'none' }}
               >
-                <div className="flex items-baseline justify-between mb-3">
+                {!sky && <div className="flex items-baseline justify-between mb-3">
                   <span className="font-mono text-[9px] tracking-[1.5px] text-gray-400 uppercase">Spot</span>
                   <span className="font-mono text-[18px] text-gray-800 tabular-nums">{spotScore}</span>
-                </div>
+                </div>}
                 <DetailRow
                   label="Horizon"
                   value={spot.horizonQuality}
@@ -764,6 +772,14 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
                   )}
                 </div>
                 <p className="mb-2 font-mono text-xs text-gray-600" data-retrieval-detail>{scoreEvidence.retrievalLabel}</p>
+                {sky && <div data-sky-window className="mb-3 space-y-2 border-b border-gray-100 pb-3 font-mono text-xs text-gray-700">
+                  <div className="flex justify-between gap-3"><span>Expected sky</span><span className="text-right font-semibold">{sky.label}</span></div>
+                  <div className="flex justify-between gap-3"><span>Viewing window</span><span className="text-right">{formatSkyWindow(sky, timeZone)}</span></div>
+                  <div className="flex justify-between gap-3"><span>Stability</span><span>{sky.stability === 'steady' ? 'Steady' : sky.stability === 'changing' ? 'Changing' : 'Incomplete'}</span></div>
+                  {sky.reasons.map(reason => <p key={reason}>{reason}</p>)}
+                  {sky.limitations.map(limit => <p key={limit} className="text-gray-500">{limit}</p>)}
+                  <p className="text-gray-500">Sky quality is an estimate, not a probability. Weather is hourly; viewing times are approximate.</p>
+                </div>}
                 <div className="flex items-center justify-between gap-2 py-2">
                   <span className="font-mono text-sm text-gray-700">Temperature</span>
                   <span className="font-mono text-base text-gray-800">{tempF === null ? 'Unavailable' : `${displayTemp}°${tempUnit}`}</span>
@@ -773,7 +789,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
                 {type !== 'now' && <>
                   <DetailRow label="Cloud cover" value={cloudLabel}
                     barValue={hourly && Number.isFinite(hourly.cloud) ? clampPercentage(hourly.cloud) : undefined} barColor={METRIC_COLORS.clouds} />
-                  <DetailRow label="Conditions" value={conditionsLabel} barColor={METRIC_COLORS.clouds} />
+                  <DetailRow label="Conditions" value={sky?.label ?? conditionsLabel} barColor={METRIC_COLORS.clouds} />
                   <DetailRow label="Wind" value={windLabelText} barValue={windBarValue} barColor={METRIC_COLORS.wind} />
                   <DetailRow label="Visibility" value={visLabel} barValue={visBarValue} barColor={METRIC_COLORS.visibility} />
                 </>}
@@ -798,7 +814,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
                       barColor={DETAIL_BAR_COLORS.fog}
                     />
                     <DetailRow
-                      label="Fog"
+                      label={sky ? 'Fog signal' : 'Fog'}
                       value={fogLevel.label}
                       barValue={fogLevel.barValue}
                       barColor={DETAIL_BAR_COLORS.fog}
@@ -807,9 +823,9 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
                 ) : isSunEvent ? (
                   <>
                     <DetailRow
-                      label="Cloud quality"
-                      value={hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityLabel(cloudQualityScore(hourly, type as 'sunrise' | 'sunset'), type as 'sunrise' | 'sunset') : '--'}
-                      barValue={hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityScore(hourly, type as 'sunrise' | 'sunset') : undefined}
+                      label={sky ? 'Color potential' : 'Cloud quality'}
+                      value={sky ? skyQualityLabel(sky.colorPotential) : hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityLabel(cloudQualityScore(hourly, type as 'sunrise' | 'sunset'), type as 'sunrise' | 'sunset') : '--'}
+                      barValue={sky ? sky.colorPotential : hourly && [hourly.cloud, hourly.cloudLow, hourly.cloudMid, hourly.cloudHigh].every(Number.isFinite) ? cloudQualityScore(hourly, type as 'sunrise' | 'sunset') : undefined}
                       barColor={DETAIL_BAR_COLORS.cloud}
                     />
                     <DetailRow
@@ -819,7 +835,7 @@ export default function ScoreCard({ embedded = false, active = true, spot, type,
                       barColor={DETAIL_BAR_COLORS.humidity}
                     />
                     <DetailRow
-                      label="Fog"
+                      label={sky ? 'Fog signal' : 'Fog'}
                       value={fogLevel.label}
                       barValue={fogLevel.barValue}
                       barColor={DETAIL_BAR_COLORS.fog}

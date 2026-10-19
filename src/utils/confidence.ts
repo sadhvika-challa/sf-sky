@@ -1,3 +1,4 @@
+import type { SkyWindow } from './skyExperience';
 import type { ViewMode } from './scoring';
 import {
   getHourlyForecastCompleteness,
@@ -34,6 +35,7 @@ export type ScoreEvidenceReason =
   | 'no-forecast';
 
 export interface ScoreEvidence {
+  sky?: SkyWindow;
   provenance: ScoreProvenance;
   freshness: ForecastFreshness;
   completeness: ForecastCompleteness;
@@ -47,6 +49,7 @@ export interface ScoreEvidence {
 }
 
 export interface ScoreEvidenceInput {
+  sky?: SkyWindow;
   hourly: HourlyForecast | null;
   mode: ViewMode;
   moment: ForecastMoment;
@@ -151,7 +154,7 @@ function missingHourStatusLabel(moment: ForecastMoment, mode: ViewMode): string 
 }
 
 /** Build the presentation contract consumed by every score surface. */
-export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
+function buildBaseScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
   const nowMs = input.now.getTime();
   const fetchedAt = input.fetchedAt !== null && Number.isFinite(input.fetchedAt)
     ? input.fetchedAt
@@ -267,18 +270,49 @@ export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
   };
 }
 
+// The SF pilot describes forecast support, not a calibrated chance of beauty.
+// Fresh data alone cannot earn High confidence for the uncalibrated scene model.
+export function buildScoreEvidence(input: ScoreEvidenceInput): ScoreEvidence {
+  const base = buildBaseScoreEvidence(input);
+  const sky = input.sky;
+  if (!sky) return base;
+  if (sky.score === null) return { ...base, sky, provenance: 'curated-estimate', completeness: 'missing',
+    reason: base.reason === 'none' ? 'missing-required-fields' : base.reason,
+    confidence: 'low', state: input.loading ? 'loading' : 'unavailable',
+    statusLabel: input.loading ? 'Retrieving sky forecast' : 'Sky forecast unavailable',
+    provenanceLabel: 'No sky forecast' };
+  const horizon = input.eventTime ? (input.eventTime.getTime() - input.now.getTime()) / 3_600_000 : null;
+  const stale = base.freshness === 'stale' || base.freshness === 'unknown';
+  const complete = sky.coverage === 1;
+  const confidence: ScoreConfidence = !stale && complete && sky.stability === 'steady' &&
+    horizon !== null && horizon >= 0 && sky.cloudAgreement?.agreement !== 'mixed' &&
+    (horizon <= 48 || sky.cloudAgreement?.agreement === 'agree') ? 'medium' : 'low';
+  const missingHaze = sky.limitations.includes('Haze data is unavailable for this time.');
+  return { ...base, sky, provenance: 'forecast', completeness: complete ? 'complete' : 'partial',
+    confidence, reason: stale ? base.reason : !complete ? 'missing-required-fields' : missingHaze ? 'missing-air-quality' : 'none',
+    state: stale ? base.state : complete ? 'selected-hour-forecast' : 'partial-forecast',
+    provenanceLabel: 'Sky estimate',
+    statusLabel: `${stale ? 'Saved sky forecast' : horizon !== null && horizon > 48 ? 'Planning outlook' : 'Sky estimate'} · ${confidence} confidence` };
+}
+
 export function scoreEvidenceAccessibilityLabel(score: number, evidence: ScoreEvidence): string {
+  if (!Number.isFinite(score)) return `unavailable, ${evidence.statusLabel.toLowerCase()}, ${evidence.retrievalLabel.toLowerCase()}`;
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
   const approximate = evidence.provenance === 'forecast' && evidence.completeness === 'partial';
-  return `${approximate ? 'approximately ' : ''}${clampedScore} out of 100, ${evidence.statusLabel.toLowerCase()}, ${evidence.retrievalLabel.toLowerCase()}`;
+  return `${approximate ? 'approximately ' : ''}${clampedScore} out of 100, ${evidence.sky ? evidence.sky.label.toLowerCase() + ', ' : ''}${evidence.statusLabel.toLowerCase()}, ${evidence.retrievalLabel.toLowerCase()}`;
 }
 
 export function formatScoreValue(score: number): string {
-  return `${Math.max(0, Math.min(100, Math.round(score)))}`;
+  return Number.isFinite(score) ? `${Math.max(0, Math.min(100, Math.round(score)))}` : '--';
 }
 
 export function describeScoreEvidenceSet(evidence: ReadonlyArray<ScoreEvidence>): string {
   if (evidence.length === 0) return 'No visible scores';
+  if (evidence.every(read => read.sky)) {
+    const available = evidence.filter(read => read.sky!.score !== null).length;
+    if (available === 0) return 'Sky forecasts unavailable';
+    if (available < evidence.length) return 'Some sky forecasts unavailable';
+  }
   const forecastCount = evidence.filter((read) => read.provenance === 'forecast').length;
   if (forecastCount === evidence.length) return 'Forecast-backed scores';
   if (forecastCount === 0) return 'Curated estimates';

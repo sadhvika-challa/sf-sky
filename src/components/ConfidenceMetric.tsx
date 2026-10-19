@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { getConfidenceReviewTimes, type ScoreEvidence } from '../utils/confidence';
+import { formatSkyWindow } from '../utils/skyExperience';
 
 interface ConfidenceMetricProps {
   evidence: ScoreEvidence;
@@ -18,7 +19,7 @@ export default function ConfidenceMetric({ evidence, compact = false, eventTime,
   const detailsId = useId();
   const label = evidence.confidence[0].toUpperCase() + evidence.confidence.slice(1);
   const filled = evidence.confidence === 'high' ? 3 : evidence.confidence === 'medium' ? 2 : 1;
-  const windows = eventTime ? getConfidenceReviewTimes(eventTime) : null;
+  const windows = eventTime && !evidence.sky ? getConfidenceReviewTimes(eventTime) : null;
   const isFuture = eventTime && eventTime.getTime() > now.getTime();
   const formatReviewTime = (instant: Date) => {
     const day = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }).format(instant);
@@ -50,6 +51,14 @@ export default function ConfidenceMetric({ evidence, compact = false, eventTime,
 
   const explanation = privateSpot
     ? 'This roof is not calibrated yet, so its score stays at low confidence. These times are useful for checking the weather forecast again.'
+    : evidence.sky
+      ? evidence.state === 'loading'
+        ? 'The sky forecast is loading. Confidence will update when weather data arrives.'
+        : evidence.sky.score === null
+        ? 'Cloud or visibility data is unavailable. A place rating cannot replace this sky forecast.'
+        : evidence.freshness === 'stale' || evidence.freshness === 'unknown'
+          ? 'This sky estimate uses saved weather. Refresh before deciding to travel.'
+          : 'This is an experimental sky estimate. Weather describes a model grid, not a measurement at this viewpoint. Confidence reflects hourly coverage, changing conditions, and forecast lead time. Supported forecasts remain at most medium confidence while the model is uncalibrated.'
     : evidence.state === 'loading'
       ? 'The forecast is loading. Confidence will update when weather data arrives.'
     : evidence.provenance !== 'forecast'
@@ -90,6 +99,19 @@ export default function ConfidenceMetric({ evidence, compact = false, eventTime,
           className="absolute right-0 top-full z-50 block w-[min(18rem,calc(100vw-6rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 font-sans text-sm leading-relaxed text-gray-700 shadow-lg">
           <span className="block font-semibold text-gray-900">{label} confidence</span>
           <span className="mt-2 block">{explanation}</span>
+          {evidence.sky && <span className="mt-3 block space-y-2">
+            <span className="block font-semibold">{evidence.sky.label}</span>
+            <span className="block">{formatSkyWindow(evidence.sky, timeZone)}</span>
+            <span className="block">{evidence.sky.cloudAgreement?.agreement === 'agree'
+              ? `${evidence.sky.cloudAgreement.members} ensemble members support overall cloud cover and visibility. This does not confirm fog placement or sky beauty.`
+              : evidence.sky.cloudAgreement?.agreement === 'mixed'
+                ? 'Cloud forecasts differ. Keep plans flexible and recheck closer to the day.'
+                : 'Ensemble cloud agreement is unavailable for this window.'}</span>
+            {evidence.sky.limitations.map(limit => <span key={limit} className="block">{limit}</span>)}
+            <span className="block">{eventTime && eventTime.getTime() - now.getTime() > 48 * 3_600_000
+              ? 'Use this as planning guidance. Check again the day before and before leaving.'
+              : 'Check again before leaving. Small changes in fog can affect the view.'}</span>
+          </span>}
           {windows && isFuture && (
             <span className="mt-3 block" data-confidence-windows>
               <span className="flex justify-between gap-2"><span>Medium window</span><span className="font-mono text-xs">{formatReviewTime(windows.medium)}</span></span>
